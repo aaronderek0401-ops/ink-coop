@@ -1,0 +1,155 @@
+/*
+  Serial2Socket.cpp -  serial 2 socket functions class
+
+  Copyright (c) 2014 Luc Lebosse. All rights reserved.
+
+  This library is free software; you can redistribute it and/or
+  modify it under the terms of the GNU Lesser General Public
+  License as published by the Free Software Foundation; either
+  version 2.1 of the License, or (at your option) any later version.
+
+  This library is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public
+  License along with this library; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+*/
+
+#include "../Grbl.h"
+
+#if defined(ENABLE_WIFI) && defined(ENABLE_HTTP)
+
+#    include "Serial2Socket.h"
+#    include "WebServer.h"
+#    include <WebSocketsServer.h>
+#    include <WiFi.h>
+
+static const char *TAG = "Serial2Socket.cpp";
+
+namespace WebUI {
+    Serial_2_Socket Serial2Socket;
+
+    Serial_2_Socket::Serial_2_Socket() {
+        _web_socket   = NULL;
+        _RXbufferSize = 0;
+        _RXbufferpos  = 0;
+    }
+
+    void Serial_2_Socket::begin(long speed) {
+        _RXbufferSize = 0;
+        _RXbufferpos  = 0;
+    }
+
+    void Serial_2_Socket::end() {
+        _web_socket = NULL;
+        _RXbufferSize = 0;
+        _RXbufferpos  = 0;
+    }
+
+    WebSocketsServer* Serial_2_Socket::get_current_attach_handle() {
+        return _web_socket;
+    }
+
+    long Serial_2_Socket::baudRate() { return 0; }
+
+    bool Serial_2_Socket::attachWS(WebSocketsServer* web_socket) {
+        if (web_socket) {
+            _web_socket   = web_socket;
+            return true;
+        }
+        return false;
+    }
+
+    bool Serial_2_Socket::detachWS() {
+        _web_socket = NULL;
+        return true;
+    }
+
+    Serial_2_Socket::operator bool() const { return true; }
+
+    int Serial_2_Socket::available() { return _RXbufferSize; }
+
+    size_t Serial_2_Socket::write(uint8_t c) {
+        if (!_web_socket) {
+            return 0;
+        }
+        write(&c, 1);
+        return 1;
+    }
+
+    size_t Serial_2_Socket::write(const uint8_t* buffer, size_t size) {
+        if ((buffer == NULL) || (!_web_socket)) {
+            if (buffer == NULL) {
+                ESP_LOGD(TAG, "[SOCKET]No buffer");
+            }
+            if (!_web_socket) {
+                ESP_LOGD(TAG, "[SOCKET]No socket");
+            }
+            return 0;
+        }
+        ESP_LOGW(TAG, "write buffer:%s", buffer);
+        _web_socket->broadcastBIN(buffer, size);
+        return size;
+    }
+
+    int Serial_2_Socket::peek(void) {
+        if (_RXbufferSize > 0) {
+            return _RXbuffer[_RXbufferpos];
+        } else {
+            return -1;
+        }
+    }
+
+    bool Serial_2_Socket::push(const char* data) {
+#    if defined(ENABLE_SERIAL2SOCKET_IN)
+        int data_size = strlen(data);
+        if ((data_size + _RXbufferSize) <= RXBUFFERSIZE) {
+            int current = _RXbufferpos + _RXbufferSize;
+            if (current > RXBUFFERSIZE) {
+                current = current - RXBUFFERSIZE;
+            }
+
+            for (int i = 0; i < data_size; i++) {
+                if (current > (RXBUFFERSIZE - 1)) {
+                    current = 0;
+                }
+                _RXbuffer[current] = data[i];
+                current++;
+            }
+
+            _RXbufferSize += strlen(data);
+            return true;
+        }
+        return false;
+#    else
+        return true;
+#    endif
+    }
+
+    int Serial_2_Socket::read(void) {
+        if (_RXbufferSize > 0) {
+            int v = _RXbuffer[_RXbufferpos];
+            _RXbufferpos++;
+
+            if (_RXbufferpos > (RXBUFFERSIZE - 1)) {
+                _RXbufferpos = 0;
+            }
+            _RXbufferSize--;
+            return v;
+        } else {
+            return -1;
+        }
+    }
+    
+    Serial_2_Socket::~Serial_2_Socket() {
+        if (_web_socket) {
+            detachWS();
+        }
+        _RXbufferSize = 0;
+        _RXbufferpos  = 0;
+    }
+}
+#endif  // ENABLE_WIFI

@@ -1,0 +1,20 @@
+[submodule "components/TMCStepper"]
+	path = components/TMCStepper
+	url = http://192.168.1.207:3000/Longer/TMCStepper.git
+	branch = master
+[submodule "components/ESP32SSDP"]
+	path = components/ESP32SSDP
+	url = http://192.168.1.207:3000/Longer/ESP32SSDP.git
+	branch = master
+[submodule "components/arduinoWebSockets"]
+	path = components/arduinoWebSockets
+	url = http://192.168.1.207:3000/Longer/arduinoWebSockets.git
+	branch = master
+[submodule "components/arduino_esp32"]
+	path = components/arduino_esp32
+	url = http://192.168.1.207:3000/Longer/arduino_esp32.git
+	branch = master
+[submodule "components/grbl_esp32s3"]
+	path = components/grbl_esp32s3
+	url = http://192.168.1.207:3000/Longer/grbl_esp32s3.git
+	branch = master
