@@ -2,17 +2,11 @@
 #define _EPD_H_
 
 #include "SPI_Init.h"
-
 #define EPD_W	240 
 #define EPD_H	416
 
 #define WHITE 0xFF
 #define BLACK 0x00
-
-/* 定义管脚端口 */
-#define EPD_RES_GPIO_PIN GPIO_NUM_12
-#define EPD_DC_GPIO_PIN GPIO_NUM_13
-#define EPD_BUSY_GPIO_PIN GPIO_NUM_4
 
 /* 定义端口电平状态 */
 #define EPD_RES_Set() gpio_set_level(EPD_RES_GPIO_PIN, 1)

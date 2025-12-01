@@ -24,6 +24,14 @@
 #define GRBL_SPI_SCK                GPIO_NUM_37
 #define GRBL_SPI_FREQ                40 * 1000 * 1000
 
+/* 墨水屏 */
+#define EPD_RES_GPIO_PIN            GPIO_NUM_12
+#define EPD_DC_GPIO_PIN             GPIO_NUM_13
+#define EPD_BUSY_GPIO_PIN           GPIO_NUM_4
+#define BSP_SPI_MOSI_GPIO_PIN       GPIO_NUM_47
+#define BSP_SPI_CLK_GPIO_PIN        GPIO_NUM_48
+#define BSP_SPI_CS_GPIO_PIN         GPIO_NUM_14
+#define BSP_SPI_FREQ                20 * 1000 * 1000
 
 #define DEFAULT_X_MAX_TRAVEL 450.0
 #define DEFAULT_Y_MAX_TRAVEL 440.0

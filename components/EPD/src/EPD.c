@@ -4,21 +4,6 @@
 uint8_t oldImage[12480];
 /* SPI句柄 */
 spi_device_handle_t EPD_Handle;
-void BSP_SPI_GPIOInit(void)
-{
-    // esp_err_t ret = 0;
-    // spi_bus_config_t spi_bus_conf = {0};
-    // /* SPI�������� */
-    // spi_bus_conf.miso_io_num = -1;
-    // spi_bus_conf.mosi_io_num = BSP_SPI_MOSI_GPIO_PIN; 
-    // spi_bus_conf.sclk_io_num = BSP_SPI_CLK_GPIO_PIN; 
-    // spi_bus_conf.quadwp_io_num = -1;              
-    // spi_bus_conf.quadhd_io_num = -1;            
-    // spi_bus_conf.max_transfer_sz = 416*240/4;    
-    // /* ��ʼ��SPI���� */
-    // ret = spi_bus_initialize(SPI2_HOST, &spi_bus_conf, SPI_DMA_CH_AUTO); 
-    // ESP_ERROR_CHECK(ret);                                               
-}
 
 void EPD_GPIOInit(void)
 {
@@ -38,7 +23,7 @@ void EPD_GPIOInit(void)
 
 	    /* SPI驱动接口配置 */
     spi_device_interface_config_t devcfg = {
-        .clock_speed_hz = 20 * 1000 * 1000,  /* SPI时钟 */
+        .clock_speed_hz = BSP_SPI_FREQ,  /* SPI时钟 */
         .mode = 0,                           /* SPI模式0 */
         .spics_io_num = BSP_SPI_CS_GPIO_PIN, /* SPI设备引脚 */
         .queue_size = 7,                     /* 事务队列尺寸 7个 */
@@ -81,7 +66,6 @@ void EPD_READBUSY(void)
     while (1)
     {
         vTaskDelay(10/ portTICK_PERIOD_MS);
-		//ESP_LOGI("TAG","EPD_READBUSY111111111");
         if (EPD_ReadBUSY == 1)
         {
 			ESP_LOGI("TAG","EPD_READBUSY");

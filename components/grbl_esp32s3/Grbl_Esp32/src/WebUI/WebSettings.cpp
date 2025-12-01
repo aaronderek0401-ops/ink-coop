@@ -938,6 +938,7 @@ namespace WebUI {
     }
     static Error inkScreenTest(char* parameter, AuthenticationLevel auth_level) {  // ESP210
         if(parameter != nullptr) {
+            update_activity_time();
             int value = atoi(parameter);
             // 使用转换后的值
             inkScreenTestFlag = value;  // 或者您的逻辑
@@ -949,7 +950,47 @@ namespace WebUI {
             int value = atoi(parameter);
             // 使用转换后的值
             inkScreenTestFlagTwo = value;  // 或者您的逻辑
+            update_activity_time();
+            ESP_LOGI("TAG","set inkScreenTestFlagTwo###########\r\n");
         }
+        return Error::Ok;
+    }
+    static Error updatePrompt(char* parameter, AuthenticationLevel auth_level) {  // ESP210
+        // 输入验证
+        #define MAX_PROMPT_LENGTH 64
+        if (parameter == nullptr) {
+            ESP_LOGE("PROMPT", "Null parameter received");
+            return Error::InvalidValue;
+        }
+        
+        // 长度检查
+        size_t param_len = strlen(parameter);
+        if (param_len == 0) {
+            ESP_LOGE("PROMPT", "Empty prompt parameter");
+            return Error::InvalidValue;
+        }
+        
+        if (param_len > MAX_PROMPT_LENGTH) {  // 定义合理的最大值
+            ESP_LOGE("PROMPT", "Prompt too long: %d bytes (max: %d)", param_len, MAX_PROMPT_LENGTH);
+            return Error::InvalidValue;
+        }
+        
+        update_activity_time();
+        
+        // 安全地复制字符串
+        if (showPrompt != nullptr) {
+            free(showPrompt);  // 释放旧内存
+        }
+        
+        showPrompt = (uint8_t*)malloc(param_len + 1);
+        if (showPrompt == nullptr) {
+            ESP_LOGE("PROMPT", "Memory allocation failed");
+            return Error::Eol;
+        }
+        
+        memcpy(showPrompt, parameter, param_len + 1);  // 包括终止符
+        
+        ESP_LOGI("PROMPT", "Prompt updated to: %s", parameter);
         return Error::Ok;
     }
 #endif
@@ -1245,9 +1286,10 @@ namespace WebUI {
         new WebCommand("file_or_directory_path", WEBCMD, WU, "ESP215", "SD/AllDelete", deleteAllSDFiles);
         new WebCommand(NULL, WEBCMD, WU, "ESP210", "SD/List", listSDFiles);
         new WebCommand(NULL, WEBCMD, WU, "ESP210", "inkScreen/Test", inkScreenTest);
-         new WebCommand(NULL, WEBCMD, WU, "ESP210", "inkScreenTwo/Test", inkScreenTestTwo);
+        new WebCommand(NULL, WEBCMD, WU, "ESP210", "inkScreenTwo/Test", inkScreenTestTwo);
+        new WebCommand(NULL, WEBCMD, WU, "ESP210", "update/prompt", updatePrompt);
 #endif
-#ifdef WEB_COMMON
+#ifdef WEB_COMMON   
         new WebCommand(NULL, WEBCMD, WU, "ESP200", "SD/Status", showSDStatus);
         new WebCommand("STA|AP|BT|OFF", WEBCMD, WA, "ESP115", "Radio/State", setRadioState);
 #endif

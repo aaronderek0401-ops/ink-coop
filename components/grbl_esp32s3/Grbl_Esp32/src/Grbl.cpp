@@ -22,9 +22,6 @@
 #include <WiFi.h>
 
 void grbl_init() {
-#ifdef USE_I2S_OUT
-    i2s_out_init();  // The I2S out must be initialized before it can access the expanded GPIO port
-#endif
     // WiFi.persistent(false);
     // WiFi.disconnect(true);
     // WiFi.enableSTA(false);
@@ -41,7 +38,6 @@ void grbl_init() {
     settings_init();  // Load Grbl settings from non-volatile storage
     system_ini();     // Configure pinout pins and pin-change interrupt (Renamed due to conflict with esp32 files)
     machine_init();                                 // weak definition in Grbl.cpp does nothing
-//    ink_screen_init();
 //     Serial1.begin(115200, SERIAL_8N1, HMI_UART_RX_PIN, HMI_UART_TX_PIN);
 //     Serial2.begin(115200, SERIAL_8N1, LASER_UART_RX_PIN, LASER_UART_TX_PIN);
 
@@ -72,6 +68,7 @@ void grbl_init() {
     WebUI::bt_config.begin();
 #endif
     WebUI::inputBuffer.begin();
+      ink_screen_init();
 }
 
 static void reset_variables() {

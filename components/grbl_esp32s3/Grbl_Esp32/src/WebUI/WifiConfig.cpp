@@ -35,7 +35,7 @@ namespace WebUI {
 
     String WiFiConfig::_hostname          = "";
     bool   WiFiConfig::_events_registered = false;
-
+    bool   WiFiConfig::ConectWifiFlag = false;
     WiFiConfig::WiFiConfig() {}
 
 
@@ -163,11 +163,11 @@ namespace WebUI {
         if (!ssid) {
             return true;
         }
-        for (int i = 0; i < strlen(ssid); i++) {
-            if (!isPrintable(ssid[i])) {
-                return false;
-            }
-        }
+        // for (int i = 0; i < strlen(ssid); i++) {
+        //     if (!isPrintable(ssid[i])) {
+        //         return false;
+        //     }
+        // }
         return true;
     }
 
@@ -228,11 +228,13 @@ namespace WebUI {
     void WiFiConfig::WiFiEvent(WiFiEvent_t event) {
         switch (event) {
             case SYSTEM_EVENT_STA_GOT_IP:
-                grbl_sendf(CLIENT_ALL, "[MSG:Connected with %s]\r\n", WiFi.localIP().toString().c_str());
+                grbl_sendf(CLIENT_ALL, "[MSG:Connected22222222222222 with %s]\r\n", WiFi.localIP().toString().c_str());
                // BuzzerON(1);
+               ConectWifiFlag = true;
                 break;
             case SYSTEM_EVENT_STA_DISCONNECTED:
-                grbl_send(CLIENT_ALL, "[MSG:Disconnected]\r\n");
+                grbl_send(CLIENT_ALL, "[MSG:Disconnected11111111111111111]\r\n");
+                ConectWifiFlag = false;
                 break;
             default:
                 break;
@@ -485,6 +487,8 @@ namespace WebUI {
         grbl_send(CLIENT_ALL, "[MSG:WiFi reset done]\r\n");
     }
     bool WiFiConfig::Is_WiFi_on() { return !(WiFi.getMode() == WIFI_MODE_NULL); }
+
+    bool WiFiConfig::isConnectWifi() { return ConectWifiFlag; }
 
     /**
      * Handle not critical actions that must be done in sync environement

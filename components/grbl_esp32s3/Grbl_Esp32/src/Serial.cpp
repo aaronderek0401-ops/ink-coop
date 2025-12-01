@@ -239,9 +239,26 @@ int client_read(uint8_t client) {
     portEXIT_CRITICAL(&myMutex);
     return data;
 }
-
+static int utf8_remaining_bytes = 0;
 // checks to see if a character is a realtime character
 bool is_realtime_command(uint8_t data) {
+    // 如果正在处理 UTF-8 多字节字符的后续字节
+    if (utf8_remaining_bytes > 0) {
+        utf8_remaining_bytes--;
+        return false;  // UTF-8 后续字节，不是实时命令
+    }
+    
+    // 检测 UTF-8 多字节字符首字节
+    if ((data & 0xE0) == 0xC0) {      // 2字节 UTF-8 (110xxxxx)
+        utf8_remaining_bytes = 1;
+        return false;
+    } else if ((data & 0xF0) == 0xE0) { // 3字节 UTF-8 (1110xxxx)
+        utf8_remaining_bytes = 2;
+        return false;
+    } else if ((data & 0xF8) == 0xF0) { // 4字节 UTF-8 (11110xxx)
+        utf8_remaining_bytes = 3;
+        return false;
+    }
     if (data >= 0x80) {
         return true;
     }

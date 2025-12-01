@@ -1,21 +1,5 @@
 #include "SPI_Init.h"
 #include "EPD.h"
-void EPD_SPIInit(void)
-{
-    // esp_err_t ret = 0;
-    // /* ��ʼ��SPI���� */
-    // EPD_GPIOInit();
-    // /* SPI�����ӿ����� */
-    // spi_device_interface_config_t devcfg = {
-    //     .clock_speed_hz = 1 * 1000 * 1000,  /* SPIʱ�� */
-    //     .mode = 0,                           /* SPIģʽ0 */
-    //     .spics_io_num = BSP_SPI_CS_GPIO_PIN, /* SPI�豸���� */
-    //     .queue_size = 7,                     /* ������гߴ� 7�� */
-    // };
-    // /* ����SPI�����豸 */
-    // ret = spi_bus_add_device(SPI2_HOST, &devcfg, &EPD_Handle); /* ����SPI�����豸 */
-    // ESP_ERROR_CHECK(ret);
-}
 
 void EPD_WR_Bus(spi_device_handle_t handle, uint8_t dat)
 {

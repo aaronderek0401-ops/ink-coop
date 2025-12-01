@@ -43,14 +43,18 @@ void Paint_ClearWindows(uint16_t Xstart, uint16_t Ystart, uint16_t Xend, uint16_
 void EPD_ShowFloatNum1(uint16_t x,uint16_t y,float num,uint8_t len,uint8_t pre,uint8_t sizey,uint8_t color);
 void EPD_ShowWatch(uint16_t x,uint16_t y,float num,uint8_t len,uint8_t pre,uint8_t sizey,uint8_t color);
 
+/*************************************GB******************************************** */
 void EPD_ShowChinese(uint16_t x,uint16_t y,uint8_t *s,uint8_t sizey,uint16_t color);
 void EPD_ShowChinese12x12(uint16_t x,uint16_t y,uint8_t *s,uint8_t sizey,uint16_t color);
 void EPD_ShowChinese16x16(uint16_t x,uint16_t y,uint8_t *s,uint8_t sizey,uint16_t color);
 void EPD_ShowChinese24x24(uint16_t x,uint16_t y,uint8_t *s,uint8_t sizey,uint16_t color);
 void EPD_ShowChinese32x32(uint16_t x,uint16_t y,uint8_t *s,uint8_t sizey,uint16_t color);
-void EPD_ShowChinese16x16_UTF8(uint16_t x, uint16_t y, uint8_t *s, uint8_t sizey, uint16_t color);
-void EPD_ShowEnglishString(uint16_t x, uint16_t y, const int* char_indices, int count, uint16_t color);
-void EPD_ShowEnglishChar(uint16_t x, uint16_t y, int char_index, uint16_t color);
+/*********************************************************************************** */
+
+void EPD_ShowEnglishChar(uint16_t x, uint16_t y, int char_index, uint16_t color);//未用到
+void EPD_ShowChar_24x24(uint16_t x, uint16_t y, char ch, uint16_t color);
+void EPD_ShowChinese_UTF8_Single(uint16_t x, uint16_t y, uint8_t *s, uint8_t sizey, uint16_t color);
+void EPD_ShowMixedString(uint16_t x, uint16_t y, uint8_t *str, uint8_t font_size, uint16_t color);
 #ifdef __cplusplus
 }
 #endif

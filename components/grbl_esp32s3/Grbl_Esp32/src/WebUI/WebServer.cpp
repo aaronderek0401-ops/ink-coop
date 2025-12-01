@@ -121,6 +121,7 @@ static const char* TAG = "WebServer.cpp";
         }
         return hasError;
     }
+
     void url_decode(char* str) {
         char *pstr = str;
         char hex[3] = {0}; 
@@ -917,7 +918,8 @@ Error delete_files(const char *path) {
         set_sd_state(SDState::Idle);
         return ESP_OK;
     }
-        uint16_t fileNum = 0;
+    
+    uint16_t fileNum = 0;
     static esp_err_t handle_getsd_fileAndNum_handler(httpd_req_t *req) {
         #define UPLOAD_FILE_BUFFER_SIZE 2048
         static File   sdUploadFile;
@@ -1317,7 +1319,7 @@ Error delete_files(const char *path) {
         .method   = HTTP_POST,
         .handler  = update_upload_handler,
         .user_ctx = NULL,
-        }
+        },
     };
     static const uint8_t basic_handlers_no = sizeof(basic_handlers)/sizeof(httpd_uri_t);
 

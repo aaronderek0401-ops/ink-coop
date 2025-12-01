@@ -112,13 +112,14 @@ namespace WebUI {
         static void        reset_settings();
         static bool        Is_WiFi_on();
         static String      setAPSSID();
-
+        static bool        isConnectWifi();
         ~WiFiConfig();
 
     private:
         static bool   ConnectSTA2AP();
         static void   WiFiEvent(WiFiEvent_t event);
         static String _hostname;
+        static bool   ConectWifiFlag;
         static bool   _events_registered;
     };
 

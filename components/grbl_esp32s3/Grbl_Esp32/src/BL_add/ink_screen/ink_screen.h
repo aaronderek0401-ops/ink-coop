@@ -10,9 +10,34 @@ struct WordEntry {
   String translation;
   String pos;
 };
+// 定义图片显示区域结构体
+typedef struct {
+    uint16_t x;
+    uint16_t y;
+    uint16_t width;
+    uint16_t height;
+    bool displayed;  // 标记是否正在显示
+} display_area_t;
+
+// 图片显示区域数组
+static display_area_t picture_areas[] = {
+    {60, 40, 62, 64, false},   // icon_1
+    {180, 40, 64, 64, false},  // icon_2
+    {300, 40, 86, 64, false},  // icon_3
+    {60, 140, 71, 56, false},  // icon_4
+    {180, 140, 76, 56, false}, // icon_5
+    {300, 140, 94, 64, false}  // icon_6
+};
+
+
+#define PICTURE_AREA_COUNT (sizeof(picture_areas) / sizeof(picture_areas[0]))
+
 void parseCSVLine(String line, WordEntry &entry);
 int countLines(File &file);
 void printWordEntry(WordEntry &entry, int lineNumber);
 void assignField(int fieldCount, String &field, WordEntry &entry);
+void update_activity_time();
+void clearDisplayArea(uint16_t start_x, uint16_t start_y, uint16_t end_x, uint16_t end_y);
 extern uint8_t inkScreenTestFlag;
 extern uint8_t inkScreenTestFlagTwo;
+extern uint8_t* showPrompt;
