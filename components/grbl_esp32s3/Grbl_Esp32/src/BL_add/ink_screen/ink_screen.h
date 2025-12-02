@@ -21,14 +21,47 @@ typedef struct {
 
 // 图片显示区域数组
 static display_area_t picture_areas[] = {
-    {60, 40, 62, 64, false},   // icon_1
-    {180, 40, 64, 64, false},  // icon_2
-    {300, 40, 86, 64, false},  // icon_3
-    {60, 140, 71, 56, false},  // icon_4
-    {180, 140, 76, 56, false}, // icon_5
-    {300, 140, 94, 64, false}  // icon_6
+    {60, 40, 62, 64, false},   // ZHONGJINGYUAN_3_7_ICON_1
+    {180, 40, 64, 64, false},  // ZHONGJINGYUAN_3_7_ICON_2
+    {300, 40, 86, 64, false},  // ZHONGJINGYUAN_3_7_ICON_3
+    {60, 140, 71, 56, false},  // ZHONGJINGYUAN_3_7_ICON_4
+    {180, 140, 76, 56, false}, // ZHONGJINGYUAN_3_7_ICON_5
+    {300, 140, 94, 64, false}  // ZHONGJINGYUAN_3_7_ICON_6
 };
 
+typedef struct {
+    int grid_cols;
+    int grid_rows;
+    int icon_width;
+    int icon_height;
+    int icon_spacing_x;
+    int icon_spacing_y;
+    int status_bar_height;
+} LayoutConfig;
+
+// 全局变量记录选中的图标位置
+typedef struct {
+    uint16_t x;
+    uint16_t y;
+    uint16_t width;
+    uint16_t height;
+    bool selected;
+} IconPosition;
+
+// 全局变量记录上次下划线信息
+typedef struct {
+    uint16_t x;
+    uint16_t y;
+    uint16_t width;
+    uint16_t height;
+    uint16_t color;
+    bool has_underline;  // 是否有下划线
+} LastUnderlineInfo;
+
+typedef struct {
+    uint16_t screenWidth;
+    uint16_t screenHeigt;
+}InkScreenSize;
 
 #define PICTURE_AREA_COUNT (sizeof(picture_areas) / sizeof(picture_areas[0]))
 

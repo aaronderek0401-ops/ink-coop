@@ -87,7 +87,12 @@ namespace WebUI {
     static const int MIN_NOTIFICATION_TOKEN_LENGTH   = 0;
     static const int MAX_NOTIFICATION_TOKEN_LENGTH   = 63;
     static const int MAX_NOTIFICATION_SETTING_LENGTH = 127;
-
+    static const int DEFAULT_INKSCREEN_XSIZE         = 416;
+    static const int MIN_INKSCREEN_XSIZE             = 152;
+    static const int MAX_INKSCREEN_XSIZE             = 800;
+    static const int DEFAULT_INKSCREEN_YSIZE         = 240;
+    static const int MIN_INKSCREEN_YSIZE             = 152;
+    static const int MAX_INKSCREEN_YSIZE             = 800;
     class WiFiConfig {
     public:
         WiFiConfig();

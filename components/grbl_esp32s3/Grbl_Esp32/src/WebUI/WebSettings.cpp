@@ -55,7 +55,8 @@ namespace WebUI {
     IntSetting*    http_port;
     EnumSetting*   telnet_enable;
     IntSetting*    telnet_port;
-
+    IntSetting*    inkScreenXSizeSet;
+    IntSetting*    inkScreenYSizeSet;
     typedef std::map<const char*, int8_t, cmp_str> enum_opt_t;
 
     enum_opt_t staModeOptions = {
@@ -992,7 +993,33 @@ namespace WebUI {
         
         ESP_LOGI("PROMPT", "Prompt updated to: %s", parameter);
         return Error::Ok;
-    }
+    } 
+
+    static Error switchScreenSize(char* parameter, AuthenticationLevel auth_level) {  // ESP210
+        // 输入验证
+        #define MAX_PROMPT_LENGTH 64
+        if (parameter == nullptr) {
+            ESP_LOGE("PROMPT", "Null parameter received");
+            return Error::InvalidValue;
+        }
+        
+        // 长度检查
+        size_t param_len = strlen(parameter);
+        if (param_len == 0) {
+            ESP_LOGE("PROMPT", "Empty prompt parameter");
+            return Error::InvalidValue;
+        }
+        
+        if (param_len > MAX_PROMPT_LENGTH) {  // 定义合理的最大值
+            ESP_LOGE("PROMPT", "Prompt too long: %d bytes (max: %d)", param_len, MAX_PROMPT_LENGTH);
+            return Error::InvalidValue;
+        }
+        
+        update_activity_time();
+        
+        ESP_LOGI("PROMPT", "Prompt updated to: %s", parameter);
+        return Error::Ok;
+    } 
 #endif
 
     void listDirLocalFS(fs::FS& fs, const char* dirname, uint8_t levels, uint8_t client) {
@@ -1288,6 +1315,11 @@ namespace WebUI {
         new WebCommand(NULL, WEBCMD, WU, "ESP210", "inkScreen/Test", inkScreenTest);
         new WebCommand(NULL, WEBCMD, WU, "ESP210", "inkScreenTwo/Test", inkScreenTestTwo);
         new WebCommand(NULL, WEBCMD, WU, "ESP210", "update/prompt", updatePrompt);
+        new WebCommand(NULL, WEBCMD, WU, "ESP210", "switch/screenSize", switchScreenSize);
+        inkScreenXSizeSet =
+            new IntSetting("ink set", WEBSET, WA, "ESP210", "set/screenXSize", DEFAULT_INKSCREEN_XSIZE, MIN_INKSCREEN_XSIZE, MAX_INKSCREEN_XSIZE, NULL);
+        inkScreenYSizeSet =
+            new IntSetting("ink set", WEBSET, WA, "ESP210", "set/screenYSize", DEFAULT_INKSCREEN_YSIZE, MIN_INKSCREEN_YSIZE, MAX_INKSCREEN_YSIZE, NULL);
 #endif
 #ifdef WEB_COMMON   
         new WebCommand(NULL, WEBCMD, WU, "ESP200", "SD/Status", showSDStatus);

@@ -42,6 +42,8 @@ namespace WebUI {
     extern IntSetting*    http_port;
     extern EnumSetting*   telnet_enable;
     extern IntSetting*    telnet_port;
+    extern IntSetting*    inkScreenXSizeSet;
+    extern IntSetting*    inkScreenYSizeSet;
 #endif
 
 #ifdef WIFI_OR_BLUETOOTH

@@ -9,18 +9,21 @@ extern "C" {
 #include "./Pic.h"
 }
 
+// 全局变量：当前选中的图标索引
+int g_selected_icon_index = -1;
 uint8_t inkScreenTestFlag = 0; 
 uint8_t inkScreenTestFlagTwo = 0;
 uint8_t interfaceIndex=1;
-const unsigned char *gamePeople[] = {game_1, game_2, game_3, game_4, game_5, game_6, game_7};
+IconPosition g_icon_positions[6] = {0};
+// const unsigned char *gamePeople[] = {game_1, game_2, game_3, game_4, game_5, game_6, game_7};
 #define GAME_PEOPLE_COUNT (sizeof(gamePeople) / sizeof(gamePeople[0]))
-
+LastUnderlineInfo g_last_underline = {0, 0, 0, 0, BLACK, false};
 const char *TAG = "ink_screen.cpp";
 static TaskHandle_t _eventTaskHandle = NULL;
 uint8_t ImageBW[12480];
 WordEntry entry;
 uint8_t *showPrompt=nullptr;
-
+IconPosition selected_icon = {0, 0, 0, 0, false};
 // 全局变量记录上次显示信息
 static char lastDisplayedText[256] = {0};
 static uint16_t lastTextLength = 0;
@@ -35,7 +38,8 @@ static const uint32_t SLEEP_TIMEOUT_MS = 25000; // 15秒
 // 休眠模式显示的数据
 static WordEntry sleep_mode_entry;
 static bool has_sleep_data = false;
-
+InkScreenSize setInkScreenSize;
+TimerHandle_t inkScreenDebounceTimer = NULL;
 void showChineseString(uint16_t x, uint16_t y, uint8_t *s, uint8_t sizey, uint16_t color)
 {
     uint16_t currentX = x;
@@ -77,60 +81,208 @@ void showChineseString(uint16_t x, uint16_t y, uint8_t *s, uint8_t sizey, uint16
     ESP_LOGI(TAG, "显示完成");
 }
 
+// 清除上次显示的下划线
 void clearLastDisplay() {
-    if (lastTextLength > 0) {
-        // 根据字体大小计算清除区域
-        uint16_t charWidth = (lastSize == 0) ? 8 : lastSize;  // 默认8像素，或使用实际字体大小
-        uint16_t clearWidth = lastTextLength * charWidth + 2;  // 加2像素边距
-        uint16_t clearHeight = (lastSize == 0) ? 16 : lastSize + 2;  // 默认16像素高度
-        
-        // 确保清除区域在屏幕范围内
-        if (lastX + clearWidth > EPD_H) {
-            clearWidth = EPD_H - lastX;
-        }
-        if (lastY + clearHeight > EPD_W) {
-            clearHeight = EPD_W - lastY;
-        }
-        
-        // 用白色矩形覆盖上次显示的区域
-        EPD_DrawRectangle(lastX, lastY, lastX + clearWidth, lastY + clearHeight, WHITE, 1);
-        
-        ESP_LOGI(TAG, "清除上次显示区域: 位置(%d,%d), 大小(%dx%d)", 
-                 lastX, lastY, clearWidth, clearHeight);
-        
-        // 重置记录
-        lastTextLength = 0;
-        lastDisplayedText[0] = '\0';
+    if (!g_last_underline.has_underline) {
+        return;  // 没有下划线需要清除
     }
+    
+    ESP_LOGI(TAG, "清除上次下划线: 位置(%d,%d), 尺寸(%dx%d)", 
+            g_last_underline.x, g_last_underline.y, 
+            g_last_underline.width, g_last_underline.height);
+    
+    // 计算下划线位置
+    uint16_t underline_y = g_last_underline.y + g_last_underline.height + 3;
+    uint16_t underline_length = g_last_underline.width;
+    uint16_t underline_thickness = 2;
+    
+    // 使用白色覆盖下划线（清除）
+    for (int i = 0; i < underline_thickness; i++) {
+        EPD_DrawLine(g_last_underline.x, 
+                    underline_y + i, 
+                    g_last_underline.x + underline_length - 1, 
+                    underline_y + i, 
+                    WHITE);  // 使用白色覆盖
+    }
+    
+    // 重置记录
+    g_last_underline.has_underline = false;
+    
+    ESP_LOGI(TAG, "下划线清除完成");
 }
 
-void updateDisplayWithPicture(uint16_t x, uint16_t y, uint16_t sizeX, uint16_t sizeY, uint8_t *pic, uint16_t color) {
-	
-	EPD_FastInit();
-	EPD_Display_Clear();
-	EPD_Update();  //局刷之前先对E-Paper进行清屏操作
-	delay_ms(100);
-	EPD_PartInit();
+// 记录下划线信息
+void recordUnderlineInfo(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t color) {
+    g_last_underline.x = x;
+    g_last_underline.y = y;
+    g_last_underline.width = width;
+    g_last_underline.height = height;
+    g_last_underline.color = color;
+    g_last_underline.has_underline = true;
+    
+    ESP_LOGI(TAG, "记录下划线信息: 位置(%d,%d), 尺寸(%dx%d)", x, y, width, height);
+}
 
-	// 清除上次显示的内容
+// 绘制下划线（使用实际图片尺寸）
+void drawUnderlineForIcon(uint16_t x, uint16_t y, uint16_t icon_width, uint16_t icon_height, uint16_t color = BLACK) {
+    // 下划线参数：使用实际图标宽度
+    uint16_t underline_y = y + icon_height + 3;  // 图标下方3像素
+    uint16_t underline_length = icon_width;      // 使用图标实际宽度
+    uint16_t underline_thickness = 2;            // 线粗2像素
+    
+    // 绘制下划线
+    for (int i = 0; i < underline_thickness; i++) {
+        EPD_DrawLine(x, 
+                    underline_y + i, 
+                    x + underline_length - 1, 
+                    underline_y + i, 
+                    color);
+    }
+    
+    ESP_LOGI("UNDERLINE", "绘制下划线: 图标位置(%d,%d), 实际尺寸(%dx%d), 下划线长度:%d", 
+            x, y, icon_width, icon_height, underline_length);
+}
+
+// 扩展版本：自动记录和清除
+void drawUnderlineForIconEx(uint16_t x, uint16_t y, uint16_t icon_width, uint16_t icon_height, uint16_t color) {
+    // 先清除上次的下划线
     clearLastDisplay();
     
-    // 显示图片
-    EPD_ShowPicture(x, y, sizeX, sizeY, pic, color);
+    // 绘制下划线（使用实际图片尺寸）
+    drawUnderlineForIcon(x, y, icon_width, icon_height, color);
     
-    // 对于图片，记录显示区域信息而不是内容
-    snprintf(lastDisplayedText, sizeof(lastDisplayedText), "PIC:%dx%d", sizeX, sizeY);
-    lastTextLength = strlen(lastDisplayedText);
-    lastX = x;
-    lastY = y;
-    lastSize = 0;  // 图片没有字体大小
-    
-    ESP_LOGI(TAG, "更新图片显示: 位置(%d,%d), 大小(%dx%d)", x, y, sizeX, sizeY);
+    // 记录这次的下划线信息
+    recordUnderlineInfo(x, y, icon_width, icon_height, color);
+}
 
-	EPD_Display(ImageBW);
-	EPD_Update();
-	EPD_DeepSleep();
-	delay_ms(1000);
+// 检查电池图标是否有效的函数
+bool isValidBatteryIcon(const uint8_t* icon_data) {
+    if (icon_data == NULL) {
+        ESP_LOGE("ICON_CHECK", "电池图标数据为空");
+        return false;
+    }
+    
+    // 简单检查：确保不是WiFi图标
+    if (icon_data == ZHONGJINGYUAN_3_7_WIFI_DISCONNECT) {
+        ESP_LOGE("ICON_CHECK", "电池图标指向了WiFi图标");
+        return false;
+    }
+    
+    // 可以添加更详细的检查
+    // 例如检查图标数据的前几个字节
+    return true;
+}
+// 改进的状态栏绘制函数
+void drawStatusBar() {
+    #define STATUS_BAR_MARGIN 1
+    #define STATUS_BAR_HEIGHT 40
+    
+    int status_y = STATUS_BAR_MARGIN;
+    
+    // 先清除整个状态栏区域
+    EPD_DrawRectangle(STATUS_BAR_MARGIN, STATUS_BAR_MARGIN, 
+                 setInkScreenSize.screenWidth * STATUS_BAR_MARGIN, STATUS_BAR_HEIGHT, WHITE,1);
+    
+    // 最右侧：WiFi图标（32x32）
+    int wifi_x = setInkScreenSize.screenWidth - STATUS_BAR_MARGIN - 32;
+    EPD_ShowPicture(wifi_x, status_y, 32, 32, ZHONGJINGYUAN_3_7_WIFI_DISCONNECT, BLACK);
+    
+    // WiFi左侧：电池图标（36x24）
+    int battery_x = wifi_x - 36 - 5;  // 5像素间距
+    
+    // 检查电池图标数据是否有效
+    if (isValidBatteryIcon(ZHONGJINGYUAN_3_7_BATTERY_1)) {
+        EPD_ShowPicture(battery_x, status_y, 36, 24, ZHONGJINGYUAN_3_7_BATTERY_1, BLACK);
+    } else {
+        // 如果图标无效，绘制一个简单的矩形作为占位符
+        EPD_DrawRectangle(battery_x, status_y, battery_x + 36, status_y + 24, BLACK,1);
+        EPD_DrawLine(battery_x + 34, status_y + 6, battery_x + 34, status_y + 18, BLACK); // 电池正极
+        ESP_LOGW("STATUS", "使用占位符绘制电池图标");
+    }
+    
+    ESP_LOGI("STATUS_BAR", "绘制状态栏: WiFi图标(%d,%d), 电池图标(%d,%d)", 
+            wifi_x, status_y, battery_x, status_y);
+}
+
+// 在指定图标位置绘制下划线
+void drawUnderlineAtIcon(int icon_index, uint16_t color = BLACK) {
+    if (icon_index < 0 || icon_index >= 6) {
+        ESP_LOGE(TAG, "无效的图标索引: %d", icon_index);
+        return;
+    }
+    
+    IconPosition* icon = &g_icon_positions[icon_index];
+    
+    // 检查图标位置是否有效
+    if (icon->width == 0 || icon->height == 0) {
+        ESP_LOGE(TAG, "图标%d位置未初始化或未显示", icon_index);
+        return;
+    }
+    
+    ESP_LOGI(TAG, "在图标%d位置绘制下划线: 位置(%d,%d), 实际尺寸(%dx%d), 颜色:%d", 
+            icon_index, icon->x, icon->y, icon->width, icon->height, color);
+    
+    // 初始化显示
+    EPD_FastInit();
+    EPD_Display_Clear();  // 全屏清除
+    EPD_Update();
+    delay_ms(100);
+    EPD_PartInit();
+    
+    // 清除上次显示的内容
+    clearLastDisplay();
+    
+    // ==================== 重新显示状态栏图标 ====================
+    drawStatusBar();
+    
+    // 使用扩展函数绘制下划线（会自动清除上次的）
+    drawUnderlineForIconEx(icon->x, icon->y, icon->width, icon->height, color);
+    
+    // 更新显示
+    EPD_Display(ImageBW);
+    EPD_Update();
+    EPD_DeepSleep();
+    delay_ms(1000);
+    
+    ESP_LOGI(TAG, "图标%d下划线绘制完成", icon_index);
+}
+
+
+// 清除所有下划线（完全清除）
+void clearAllUnderlines() {
+    ESP_LOGI(TAG, "清除所有下划线");
+    
+    // 如果没有下划线记录，直接返回
+    if (!g_last_underline.has_underline) {
+        return;
+    }
+    
+    // 清除当前记录的下划线
+    clearLastDisplay();
+    
+    // 额外清除可能存在的其他下划线
+    // 这里可以根据需要扩展，清除多个可能的位置
+    
+    ESP_LOGI(TAG, "所有下划线已清除");
+}
+
+// 检查是否需要清除下划线的辅助函数
+bool shouldClearUnderline(uint16_t new_x, uint16_t new_y, uint16_t new_width) {
+    if (!g_last_underline.has_underline) {
+        return false;
+    }
+    
+    // 如果新的下划线位置和上次不同，需要清除上次的
+    bool different_position = (new_x != g_last_underline.x) || 
+                             (new_y != g_last_underline.y) ||
+                             (new_width != g_last_underline.width);
+    
+    if (different_position) {
+        ESP_LOGI(TAG, "下划线位置变化，需要清除上次的下划线");
+        return true;
+    }
+    
+    return false;
 }
 
 void updateDisplayWithWifiIcon()
@@ -141,9 +293,9 @@ void updateDisplayWithWifiIcon()
 
 	if(isFrist == 0 && lastWifiStatus==currentWifiStatus) {
 		if(currentWifiStatus) {
-			EPD_ShowPicture(340, 1, 32, 32, icon_9 , BLACK);
+			EPD_ShowPicture(340, 1, 32, 32, ZHONGJINGYUAN_3_7_WIFI_CONNECT , BLACK);
 		} else {
-			 EPD_ShowPicture(340, 1, 32, 32, icon_10, BLACK); 
+			 EPD_ShowPicture(340, 1, 32, 32, ZHONGJINGYUAN_3_7_WIFI_DISCONNECT, BLACK); 
 		}
 		isFrist = 1;
 	}
@@ -156,22 +308,22 @@ void updateDisplayWithWifiIcon()
 		EPD_PartInit();
         clearDisplayArea(5,5,340,30);
 	    clearDisplayArea(60,40,EPD_H,EPD_W);
-		EPD_ShowPicture(380,2,36,24,icon_11,BLACK);
-		EPD_ShowPicture(60,40,62,64,icon_1,BLACK);
-		EPD_ShowPicture(180,40,64,64,icon_2,BLACK);
-		EPD_ShowPicture(300,40,86,64,icon_3,BLACK);
-		EPD_ShowPicture(60,140,71,56,icon_4,BLACK);
-		EPD_ShowPicture(180,140,76,56,icon_5,BLACK);
-		EPD_ShowPicture(300,140,94,64,icon_6,BLACK);
+		EPD_ShowPicture(380,2,36,24,ZHONGJINGYUAN_3_7_BATTERY_1,BLACK);
+		EPD_ShowPicture(60,40,62,64,ZHONGJINGYUAN_3_7_ICON_1,BLACK);
+		EPD_ShowPicture(180,40,64,64,ZHONGJINGYUAN_3_7_ICON_2,BLACK);
+		EPD_ShowPicture(300,40,86,64,ZHONGJINGYUAN_3_7_ICON_3,BLACK);
+		EPD_ShowPicture(60,140,71,56,ZHONGJINGYUAN_3_7_ICON_4,BLACK);
+		EPD_ShowPicture(180,140,76,56,ZHONGJINGYUAN_3_7_ICON_5,BLACK);
+		EPD_ShowPicture(300,140,94,64,ZHONGJINGYUAN_3_7_ICON_6,BLACK);
         // 清除原图标区域
         EPD_DrawRectangle(340, 1, 340+32, 1+32, WHITE, 1);
         
         // 根据 WiFi 连接状态选择图标
         if(currentWifiStatus) {
-           EPD_ShowPicture(340, 1, 32, 32, icon_9 , BLACK);  // WiFi 已连接
+           EPD_ShowPicture(340, 1, 32, 32, ZHONGJINGYUAN_3_7_WIFI_CONNECT , BLACK);  // WiFi 已连接
             ESP_LOGI("WIFI222222222222", "WiFi状态: 已连接");
         } else {
-           EPD_ShowPicture(340, 1, 32, 32, icon_10, BLACK); // WiFi 未连接
+           EPD_ShowPicture(340, 1, 32, 32, ZHONGJINGYUAN_3_7_WIFI_DISCONNECT, BLACK); // WiFi 未连接
             ESP_LOGI("WIFI111111111111111", "WiFi状态: 未连接");
         }
         
@@ -261,27 +413,261 @@ void clearSpecificIcons(uint8_t *icon_indices, uint8_t count) {
 }
 
 void updateDisplayWithMain() {
-	EPD_FastInit();
-	EPD_Display_Clear();
-	EPD_Update();  //局刷之前先对E-Paper进行清屏操作
-	delay_ms(100);
-	EPD_PartInit();
-    clearDisplayArea(5,5,340,30);
-	clearDisplayArea(60,40,EPD_H,EPD_W);
-	EPD_ShowPicture(340, 1, 32, 32, icon_10, BLACK); 
-	EPD_ShowPicture(380,2,36,24,icon_11,BLACK);
-	EPD_ShowPicture(60,40,62,64,icon_1,BLACK);
-	EPD_ShowPicture(180,40,64,64,icon_2,BLACK);
-	EPD_ShowPicture(300,40,86,64,icon_3,BLACK);
-	EPD_ShowPicture(60,140,71,56,icon_4,BLACK);
-	EPD_ShowPicture(180,140,76,56,icon_5,BLACK);
-	EPD_ShowPicture(300,140,94,64,icon_6,BLACK);
+    // 图标数据
+    typedef struct {
+        const uint8_t* data;
+        int width;
+        int height;
+    } IconInfo;
+    
+    // 所有图标信息
+    IconInfo icons[] = {
+        {ZHONGJINGYUAN_3_7_ICON_1, 62, 64},
+        {ZHONGJINGYUAN_3_7_ICON_2, 64, 64},
+        {ZHONGJINGYUAN_3_7_ICON_3, 86, 64},
+        {ZHONGJINGYUAN_3_7_ICON_4, 71, 56},
+        {ZHONGJINGYUAN_3_7_ICON_5, 76, 56},
+        {ZHONGJINGYUAN_3_7_ICON_6, 94, 64}
+    };
+    
+    int icon_count = sizeof(icons) / sizeof(IconInfo);
+    
+    // 布局配置
+    typedef struct {
+        int grid_cols;           // 每行图标个数（自动计算）
+        int grid_rows;           // 行数（自动计算）
+        int cell_width;          // 单元格宽度
+        int cell_height;         // 单元格高度
+        int icon_spacing_x;      // 图标水平间距
+        int icon_spacing_y;      // 图标垂直间距
+        int status_bar_height;   // 状态栏高度
+        int margin;              // 边距
+    } LayoutConfig;
+    
+    LayoutConfig layout = {
+        .grid_cols = 0,          // 自动计算
+        .grid_rows = 0,          // 自动计算
+        .cell_width = 0,         // 自动计算
+        .cell_height = 80,       // 固定单元格高度
+        .icon_spacing_x = 10,    // 最小水平间距
+        .icon_spacing_y = 15,    // 最小垂直间距
+        .status_bar_height = 35,
+        .margin = 5
+    };
+    
+    // 初始化显示
+    EPD_FastInit();
+    EPD_Display_Clear();
+    EPD_Update();
+    delay_ms(100);
+    EPD_PartInit();
+    
+    // ==================== 自适应布局计算 ====================
+    
+    // 计算可用区域
+    int available_width = setInkScreenSize.screenWidth - 2 * layout.margin;
+    int available_height = setInkScreenSize.screenHeigt - 2 * layout.margin - layout.status_bar_height;
+    
+    // 自动计算每行最大图标数量
+    // 基于平均图标宽度和最小间距
+    int avg_icon_width = 0;
+    for (int i = 0; i < icon_count; i++) {
+        avg_icon_width += icons[i].width;
+    }
+    avg_icon_width /= icon_count;
+    
+    // 计算每行最大可能的图标数量
+    int max_cols = (available_width + layout.icon_spacing_x) / 
+                   (avg_icon_width + layout.icon_spacing_x);
+    max_cols = (max_cols < 1) ? 1 : max_cols;
+    max_cols = (max_cols > 6) ? 6 : max_cols;  // 最多6个
+    
+    // 计算实际每行图标数量（尽量接近正方形布局）
+    layout.grid_cols = max_cols;
+    layout.grid_rows = (icon_count + layout.grid_cols - 1) / layout.grid_cols;
+    
+    // 如果行数太多，增加每行图标数量
+    while (layout.grid_rows > 3 && layout.grid_cols < 6) {
+        layout.grid_cols++;
+        layout.grid_rows = (icon_count + layout.grid_cols - 1) / layout.grid_cols;
+    }
+    
+    // 计算单元格尺寸（基于可用空间）
+    layout.cell_width = (available_width - (layout.grid_cols + 1) * layout.icon_spacing_x) / 
+                       layout.grid_cols;
+    
+    // 调整垂直间距，使图标垂直居中
+    layout.cell_height = (available_height - (layout.grid_rows + 1) * layout.icon_spacing_y) / 
+                        layout.grid_rows;
+    
+    // 确保单元格尺寸合理
+    if (layout.cell_width < 40) layout.cell_width = 40;
+    if (layout.cell_height < 40) layout.cell_height = 40;
+    
+    // 如果单元格太小，减少列数
+    while ((layout.cell_width < 50 || layout.cell_height < 50) && layout.grid_cols > 1) {
+        layout.grid_cols--;
+        layout.grid_rows = (icon_count + layout.grid_cols - 1) / layout.grid_cols;
+        
+        layout.cell_width = (available_width - (layout.grid_cols + 1) * layout.icon_spacing_x) / 
+                           layout.grid_cols;
+        layout.cell_height = (available_height - (layout.grid_rows + 1) * layout.icon_spacing_y) / 
+                            layout.grid_rows;
+    }
+    
+    // 最终计算间距
+    layout.icon_spacing_x = (available_width - layout.grid_cols * layout.cell_width) / 
+                           (layout.grid_cols + 1);
+    layout.icon_spacing_y = (available_height - layout.grid_rows * layout.cell_height) / 
+                           (layout.grid_rows + 1);
+    
+    // 确保最小间距
+    if (layout.icon_spacing_x < 5) layout.icon_spacing_x = 5;
+    if (layout.icon_spacing_y < 5) layout.icon_spacing_y = 5;
+    
+    // ==================== 显示布局信息 ====================
+    ESP_LOGI("LAYOUT", "屏幕尺寸: %dx%d", setInkScreenSize.screenWidth, setInkScreenSize.screenHeigt);
+    ESP_LOGI("LAYOUT", "布局: %d列 x %d行", layout.grid_cols, layout.grid_rows);
+    ESP_LOGI("LAYOUT", "单元格: %dx%d, 间距: %dx%d", 
+            layout.cell_width, layout.cell_height, 
+            layout.icon_spacing_x, layout.icon_spacing_y);
+    
+    // 清除区域
+    clearDisplayArea(layout.margin, layout.margin, 
+                     setInkScreenSize.screenWidth - layout.margin, layout.status_bar_height);
+    
+    clearDisplayArea(layout.margin, layout.status_bar_height + layout.margin, 
+                     setInkScreenSize.screenWidth - layout.margin, setInkScreenSize.screenHeigt - layout.margin);
 
-	EPD_Display(ImageBW);
-	EPD_Update();
-	EPD_DeepSleep();
-	delay_ms(1000);
+    // ==================== 状态栏图标（修正） ====================
+    int status_y = layout.margin;
+    
+    // 最右侧：WiFi图标（32x32）
+    int wifi_x = setInkScreenSize.screenWidth - layout.margin - 32;
+    EPD_ShowPicture(wifi_x, status_y, 32, 32, ZHONGJINGYUAN_3_7_WIFI_DISCONNECT, BLACK);
+    
+    // WiFi左侧：电池图标（36x24）
+    int battery_x = wifi_x - 36 - 5;  // 5像素间距
+    // 根据实际电量选择合适的电池图标
+    #ifdef BATTERY_LEVEL
+        // 根据电量选择不同等级的电池图标
+        uint8_t* battery_icon = NULL;
+        if (BATTERY_LEVEL >= 80) {
+            battery_icon = ZHONGJINGYUAN_3_7_BATTERY_4;  // 满电
+        } else if (BATTERY_LEVEL >= 60) {
+            battery_icon = ZHONGJINGYUAN_3_7_BATTERY_3;  // 高电量
+        } else if (BATTERY_LEVEL >= 40) {
+            battery_icon = ZHONGJINGYUAN_3_7_BATTERY_2;  // 中电量
+        } else if (BATTERY_LEVEL >= 20) {
+            battery_icon = ZHONGJINGYUAN_3_7_BATTERY_1;  // 低电量
+        } else {
+            battery_icon = ZHONGJINGYUAN_3_7_BATTERY_0;  // 空电量
+        }
+        EPD_ShowPicture(battery_x, status_y, 36, 24, battery_icon, BLACK);
+    #else
+        // 如果没有电量信息，使用默认电池图标
+        EPD_ShowPicture(battery_x, status_y, 36, 24, ZHONGJINGYUAN_3_7_BATTERY_1, BLACK);
+    #endif
+    
+    ESP_LOGI("STATUS_BAR", "状态栏: WiFi图标(%d,%d), 电池图标(%d,%d)", 
+            wifi_x, status_y, battery_x, status_y);
+    
+    // ==================== 初始化图标位置数组 ====================
+    for (int i = 0; i < 6; i++) {
+        g_icon_positions[i].x = 0;
+        g_icon_positions[i].y = 0;
+        g_icon_positions[i].width = 0;
+        g_icon_positions[i].height = 0;
+        g_icon_positions[i].selected = false;
+    }
+    
+    // ==================== 显示网格图标并记录位置 ====================
+    
+    for (int i = 0; i < icon_count; i++) {
+        // 计算图标在网格中的位置
+        int row = i / layout.grid_cols;
+        int col = i % layout.grid_cols;
+        
+        // 如果超过最大行数，停止显示
+        if (row >= layout.grid_rows) {
+            ESP_LOGW("LAYOUT", "图标%d超出网格范围，停止显示", i);
+            break;
+        }
+        
+        // 计算单元格位置
+        int cell_x = layout.margin + layout.icon_spacing_x + 
+                    col * (layout.cell_width + layout.icon_spacing_x);
+        int cell_y = layout.status_bar_height + layout.margin + layout.icon_spacing_y + 
+                    row * (layout.cell_height + layout.icon_spacing_y);
+        
+        // 计算图标居中位置
+        int icon_x = cell_x + (layout.cell_width - icons[i].width) / 2;
+        int icon_y = cell_y + (layout.cell_height - icons[i].height) / 2;
+        
+        // 边界检查
+        if (icon_x < 0 || icon_x + icons[i].width > setInkScreenSize.screenWidth ||
+            icon_y < 0 || icon_y + icons[i].height > setInkScreenSize.screenHeigt) {
+            ESP_LOGE("LAYOUT", "图标%d位置超出屏幕范围: (%d,%d)", i, icon_x, icon_y);
+            continue;
+        }
+        
+        // 记录图标位置信息到全局数组
+        g_icon_positions[i].x = icon_x;
+        g_icon_positions[i].y = icon_y;
+        g_icon_positions[i].width = icons[i].width;    // 记录实际图片宽度
+        g_icon_positions[i].height = icons[i].height;  // 记录实际图片高度
+        g_icon_positions[i].selected = false;  // 默认未选中
+        
+        // 显示图标
+        EPD_ShowPicture(icon_x, icon_y, icons[i].width, icons[i].height, icons[i].data, BLACK);
+        
+        ESP_LOGI("ICON_POS", "图标%d位置已记录: 坐标(%d,%d), 实际尺寸(%dx%d)", 
+                i, icon_x, icon_y, icons[i].width, icons[i].height);
+    }
+    
+    // ==================== 显示选中的图标下划线（如果有） ====================
+    if (g_selected_icon_index >= 0 && g_selected_icon_index < icon_count) {
+        IconPosition* selected = &g_icon_positions[g_selected_icon_index];
+        if (selected->width > 0 && selected->height > 0) {
+            // 使用实际图片尺寸绘制下划线
+            drawUnderlineForIconEx(selected->x, selected->y, 
+                                 selected->width, selected->height, BLACK);
+            
+            ESP_LOGI("ICON_POS", "显示选中图标%d的下划线: 使用实际图片尺寸(%dx%d)", 
+                    g_selected_icon_index, selected->width, selected->height);
+        }
+    }
+    
+    #define DEBUG_LAYOUT 1
+    // ==================== 显示网格线（调试用，可选） ====================
+    #ifdef DEBUG_LAYOUT
+    for (int row = 0; row <= layout.grid_rows; row++) {
+        int y = layout.status_bar_height + layout.margin + layout.icon_spacing_y + 
+               row * (layout.cell_height + layout.icon_spacing_y);
+        if (row < layout.grid_rows) y -= 1;  // 单元格之间的线
+        
+        EPD_DrawLine(layout.margin, y, setInkScreenSize.screenWidth - layout.margin, y, BLACK);
+    }
+    
+    for (int col = 0; col <= layout.grid_cols; col++) {
+        int x = layout.margin + layout.icon_spacing_x + 
+               col * (layout.cell_width + layout.icon_spacing_x);
+        if (col < layout.grid_cols) x -= 1;  // 单元格之间的线
+        
+        EPD_DrawLine(x, layout.status_bar_height + layout.margin, 
+                    x, setInkScreenSize.screenHeigt - layout.margin, BLACK);
+    }
+    #endif
+    
+    // 更新显示
+    EPD_Display(ImageBW);
+    EPD_Update();
+    EPD_DeepSleep();
+    vTaskDelay(1000);
+    
+    ESP_LOGI("ICON_POS", "所有图标位置记录完成，共%d个图标", icon_count);
 }
+
 // 辅助函数：估算文本显示宽度
 uint16_t calculateTextWidth(const char* text, uint8_t font_size) {
     if (text == NULL) return 0;
@@ -645,7 +1031,7 @@ void safeDisplayWordEntry(const WordEntry& entry, uint16_t x, uint16_t y) {
             uint16_t icon_x = phonetic_x + phonetic_width - icon_width + 2; // 偏右2像素
             uint16_t icon_y = y + icon_offset_y; // 向上偏移
             
-            EPD_ShowPicture(icon_x, icon_y, icon_width, icon_height, (uint8_t *)icon_13, BLACK);
+            EPD_ShowPicture(icon_x, icon_y, icon_width, icon_height, (uint8_t *)ZHONGJINGYUAN_3_7_HORN, BLACK);
             updateDisplayWithString(phonetic_x, y, (uint8_t*)formattedPhonetic.c_str(), 24, BLACK);
             // 音标与单词同行，Y坐标保持不变
             
@@ -658,7 +1044,7 @@ void safeDisplayWordEntry(const WordEntry& entry, uint16_t x, uint16_t y) {
             uint16_t icon_x = phonetic_x + phonetic_width - icon_width + 2; // 偏右2像素
             uint16_t icon_y = current_y + icon_offset_y; // 向上偏移
             
-            EPD_ShowPicture(icon_x, icon_y, icon_width, icon_height, (uint8_t *)icon_13, BLACK);
+            EPD_ShowPicture(icon_x, icon_y, icon_width, icon_height, (uint8_t *)ZHONGJINGYUAN_3_7_HORN, BLACK);
             updateDisplayWithString(phonetic_x, current_y, (uint8_t*)formattedPhonetic.c_str(), 24, BLACK);
             current_y += line_height_word;  // 移动到音标下方
             
@@ -899,7 +1285,7 @@ void showPromptInfor(uint8_t *tempPrompt,bool isAllRefresh) {
             EPD_Display_Clear();
             EPD_Update();  //局刷之前先对E-Paper进行清屏操作
             EPD_PartInit();
-            EPD_ShowPicture(5,5,15,16,icon_122,BLACK);
+            EPD_ShowPicture(5,5,15,16,ZHONGJINGYUAN_3_7_NAIL,BLACK);
             clearDisplayArea(30,10,340,30);
             updateDisplayWithString(30,10, tempPrompt,16,BLACK);
             EPD_Display(ImageBW);
@@ -907,7 +1293,7 @@ void showPromptInfor(uint8_t *tempPrompt,bool isAllRefresh) {
             EPD_DeepSleep();
             vTaskDelay(1000);
         } else {
-            EPD_ShowPicture(5,5,15,16,icon_122,BLACK);
+            EPD_ShowPicture(5,5,15,16,ZHONGJINGYUAN_3_7_NAIL,BLACK);
             clearDisplayArea(30,10,340,30);
             updateDisplayWithString(30,10, tempPrompt,16,BLACK);
         }
@@ -1070,7 +1456,7 @@ void display_sleep_mode() {
     EPD_Update();
     EPD_PartInit();
     clearDisplayArea(10,40,EPD_H,EPD_W);
-    EPD_ShowPicture(380,40,32,32,icon_14,BLACK);
+    EPD_ShowPicture(380,40,32,32,ZHONGJINGYUAN_3_7_LOCK,BLACK);
     uint16_t screen_width = 416;
     uint16_t screen_height = 240;
     uint16_t center_x = screen_width / 2;
@@ -1148,6 +1534,21 @@ void init_sleep_timer() {
     
     ESP_LOGI("SLEEP", "休眠定时器初始化完成");
 }
+
+void changeInkSreenSize() {
+    uint16_t newWidth = WebUI::inkScreenXSizeSet->get();
+    uint16_t newHeight = WebUI::inkScreenYSizeSet->get();
+    
+    if(setInkScreenSize.screenWidth != newWidth && 
+       setInkScreenSize.screenHeigt != newHeight) {
+        setInkScreenSize.screenHeigt = newHeight;
+        setInkScreenSize.screenWidth = newWidth;
+        ESP_LOGI(TAG,"screenHeigt:%d,screenWidth:%d\r\n", setInkScreenSize.screenHeigt, setInkScreenSize.screenWidth);
+        inkScreenTestFlag = 7;
+
+    }
+}
+
 void ink_screen_show(void *args)
 {
     float num=12.05;
@@ -1210,13 +1611,13 @@ void ink_screen_show(void *args)
 						EPD_PartInit();
 						ESP_LOGI(TAG,"inkScreenTestFlagTwo\r\n");
 						// 遍历所有图像
-						for(int i = 0; i < GAME_PEOPLE_COUNT; i++) {
-							EPD_ShowPicture(60,40,128,128,gamePeople[i],BLACK);
-							EPD_Display(ImageBW);
-							EPD_Update();
-							vTaskDelay(1000);
-							ESP_LOGI(TAG,"gamePeople[%d]\r\n",i);
-						}
+						// for(int i = 0; i < GAME_PEOPLE_COUNT; i++) {
+						// 	EPD_ShowPicture(60,40,128,128,gamePeople[i],BLACK);
+						// 	EPD_Display(ImageBW);
+						// 	EPD_Update();
+						// 	vTaskDelay(1000);
+						// 	ESP_LOGI(TAG,"gamePeople[%d]\r\n",i);
+						// }
 						EPD_DeepSleep();
 						inkScreenTestFlagTwo = 0;
                         inkScreenTestFlag = 0;
@@ -1231,32 +1632,32 @@ void ink_screen_show(void *args)
 			break;
 			case 1:
                 update_activity_time(); 
-				updateDisplayWithPicture(65,120,60,16,(uint8_t *)icon_7,BLACK);
+                drawUnderlineAtIcon(0);
 				inkScreenTestFlag = 0;
 			break;
 			case 2:
                 update_activity_time(); 
-				updateDisplayWithPicture(185,120,60,16,(uint8_t *)icon_7,BLACK);
+                drawUnderlineAtIcon(1);
 				inkScreenTestFlag = 0;
 			break;
 			case 3:
                 update_activity_time(); 
-				updateDisplayWithPicture(305,120,60,16,(uint8_t *)icon_7,BLACK);
+				drawUnderlineAtIcon(2);
 				inkScreenTestFlag = 0;
 			break;
 			case 4:
                 update_activity_time(); 
-				updateDisplayWithPicture(65,200,60,16,(uint8_t *)icon_7,BLACK);
+                drawUnderlineAtIcon(3);
 				inkScreenTestFlag = 0;
 			break;
 			case 5:
                 update_activity_time(); 
-				updateDisplayWithPicture(185,200,60,16,(uint8_t *)icon_7,BLACK);
+				drawUnderlineAtIcon(4);
 				inkScreenTestFlag = 0;
 			break;
 			case 6:
                 update_activity_time(); 
-				updateDisplayWithPicture(305,200,60,16,(uint8_t *)icon_7,BLACK);
+                drawUnderlineAtIcon(5);
 				inkScreenTestFlag = 0;
 			break;
 			case 7:
@@ -1270,14 +1671,19 @@ void ink_screen_show(void *args)
 		}
         showPromptInfor(showPrompt,true);
 		updateDisplayWithWifiIcon();
+        changeInkSreenSize();
        // ESP_LOGI(TAG,"ink_screen_show\r\n");
         vTaskDelay(100);
 	}
 }
+
 void ink_screen_init()
 {
-	 Uart0.printf("ink_screen_init\r\n");
-	 
+    Uart0.printf("ink_screen_init\r\n");
+    WebUI::inkScreenXSizeSet->load();
+    WebUI::inkScreenYSizeSet->load();
+	setInkScreenSize.screenWidth = WebUI::inkScreenXSizeSet->get();
+    setInkScreenSize.screenHeigt = WebUI::inkScreenYSizeSet->get();
     EPD_GPIOInit();	
     Paint_NewImage(ImageBW,EPD_W,EPD_H,0,WHITE);//create  Canvas 
     Paint_Clear(WHITE);
