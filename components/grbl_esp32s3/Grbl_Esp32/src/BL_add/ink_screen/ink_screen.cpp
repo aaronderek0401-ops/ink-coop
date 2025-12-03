@@ -8,7 +8,10 @@ extern "C" {
 #include "./EPD_Font.h"
 #include "./Pic.h"
 }
-
+// 全局变量定义
+int g_last_underline_x = 0;
+int g_last_underline_y = 0;
+int g_last_underline_width = 0;
 // 全局变量：当前选中的图标索引
 int g_selected_icon_index = -1;
 uint8_t inkScreenTestFlag = 0; 
@@ -111,178 +114,129 @@ void clearLastDisplay() {
     ESP_LOGI(TAG, "下划线清除完成");
 }
 
-// 记录下划线信息
-void recordUnderlineInfo(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t color) {
-    g_last_underline.x = x;
-    g_last_underline.y = y;
-    g_last_underline.width = width;
-    g_last_underline.height = height;
-    g_last_underline.color = color;
-    g_last_underline.has_underline = true;
-    
-    ESP_LOGI(TAG, "记录下划线信息: 位置(%d,%d), 尺寸(%dx%d)", x, y, width, height);
+// 清除上次绘制的下划线
+void clearLastUnderline() {
+    if (g_last_underline_width > 0) {
+        ESP_LOGI(TAG, "开始清除上次下划线: 位置(%d,%d), 宽度%d", 
+                g_last_underline_x, g_last_underline_y, g_last_underline_width);
+        
+        // 用白色覆盖上次的下划线
+        for (int i = 0; i < 3; i++) {  // 清除3像素高度的区域
+            EPD_DrawLine(g_last_underline_x, 
+                        g_last_underline_y + i, 
+                        g_last_underline_x + g_last_underline_width, 
+                        g_last_underline_y + i, 
+                        WHITE);
+        }
+        
+        ESP_LOGI(TAG, "清除上次下划线完成");
+        // 重置记录
+        g_last_underline_width = 0;
+    }
 }
 
-// 绘制下划线（使用实际图片尺寸）
-void drawUnderlineForIcon(uint16_t x, uint16_t y, uint16_t icon_width, uint16_t icon_height, uint16_t color = BLACK) {
-    // 下划线参数：使用实际图标宽度
-    uint16_t underline_y = y + icon_height + 3;  // 图标下方3像素
-    uint16_t underline_length = icon_width;      // 使用图标实际宽度
-    uint16_t underline_thickness = 2;            // 线粗2像素
-    
-    // 绘制下划线
-    for (int i = 0; i < underline_thickness; i++) {
-        EPD_DrawLine(x, 
-                    underline_y + i, 
-                    x + underline_length - 1, 
-                    underline_y + i, 
-                    color);
-    }
-    
-    ESP_LOGI("UNDERLINE", "绘制下划线: 图标位置(%d,%d), 实际尺寸(%dx%d), 下划线长度:%d", 
-            x, y, icon_width, icon_height, underline_length);
-}
-
-// 扩展版本：自动记录和清除
-void drawUnderlineForIconEx(uint16_t x, uint16_t y, uint16_t icon_width, uint16_t icon_height, uint16_t color) {
-    // 先清除上次的下划线
-    clearLastDisplay();
-    
-    // 绘制下划线（使用实际图片尺寸）
-    drawUnderlineForIcon(x, y, icon_width, icon_height, color);
-    
-    // 记录这次的下划线信息
-    recordUnderlineInfo(x, y, icon_width, icon_height, color);
-}
-
-// 检查电池图标是否有效的函数
-bool isValidBatteryIcon(const uint8_t* icon_data) {
-    if (icon_data == NULL) {
-        ESP_LOGE("ICON_CHECK", "电池图标数据为空");
-        return false;
-    }
-    
-    // 简单检查：确保不是WiFi图标
-    if (icon_data == ZHONGJINGYUAN_3_7_WIFI_DISCONNECT) {
-        ESP_LOGE("ICON_CHECK", "电池图标指向了WiFi图标");
-        return false;
-    }
-    
-    // 可以添加更详细的检查
-    // 例如检查图标数据的前几个字节
-    return true;
-}
-// 改进的状态栏绘制函数
-void drawStatusBar() {
-    #define STATUS_BAR_MARGIN 1
-    #define STATUS_BAR_HEIGHT 40
-    
-    int status_y = STATUS_BAR_MARGIN;
-    
-    // 先清除整个状态栏区域
-    EPD_DrawRectangle(STATUS_BAR_MARGIN, STATUS_BAR_MARGIN, 
-                 setInkScreenSize.screenWidth * STATUS_BAR_MARGIN, STATUS_BAR_HEIGHT, WHITE,1);
-    
-    // 最右侧：WiFi图标（32x32）
-    int wifi_x = setInkScreenSize.screenWidth - STATUS_BAR_MARGIN - 32;
-    EPD_ShowPicture(wifi_x, status_y, 32, 32, ZHONGJINGYUAN_3_7_WIFI_DISCONNECT, BLACK);
-    
-    // WiFi左侧：电池图标（36x24）
-    int battery_x = wifi_x - 36 - 5;  // 5像素间距
-    
-    // 检查电池图标数据是否有效
-    if (isValidBatteryIcon(ZHONGJINGYUAN_3_7_BATTERY_1)) {
-        EPD_ShowPicture(battery_x, status_y, 36, 24, ZHONGJINGYUAN_3_7_BATTERY_1, BLACK);
-    } else {
-        // 如果图标无效，绘制一个简单的矩形作为占位符
-        EPD_DrawRectangle(battery_x, status_y, battery_x + 36, status_y + 24, BLACK,1);
-        EPD_DrawLine(battery_x + 34, status_y + 6, battery_x + 34, status_y + 18, BLACK); // 电池正极
-        ESP_LOGW("STATUS", "使用占位符绘制电池图标");
-    }
-    
-    ESP_LOGI("STATUS_BAR", "绘制状态栏: WiFi图标(%d,%d), 电池图标(%d,%d)", 
-            wifi_x, status_y, battery_x, status_y);
-}
-
-// 在指定图标位置绘制下划线
-void drawUnderlineAtIcon(int icon_index, uint16_t color = BLACK) {
+void drawUnderlineForIconEx(int icon_index) {
     if (icon_index < 0 || icon_index >= 6) {
         ESP_LOGE(TAG, "无效的图标索引: %d", icon_index);
         return;
     }
     
+    // 获取图标位置信息
     IconPosition* icon = &g_icon_positions[icon_index];
     
-    // 检查图标位置是否有效
     if (icon->width == 0 || icon->height == 0) {
-        ESP_LOGE(TAG, "图标%d位置未初始化或未显示", icon_index);
+        ESP_LOGE(TAG, "图标%d位置未初始化", icon_index);
         return;
     }
     
-    ESP_LOGI(TAG, "在图标%d位置绘制下划线: 位置(%d,%d), 实际尺寸(%dx%d), 颜色:%d", 
-            icon_index, icon->x, icon->y, icon->width, icon->height, color);
+    // 调试：显示图标信息
+    ESP_LOGI(TAG, "图标%d信息: 原始坐标(%d,%d), 原始尺寸(%dx%d)", 
+            icon_index, icon->x, icon->y, icon->width, icon->height);
     
-    // 初始化显示
+    // 初始化显示（确保可以绘制）
     EPD_FastInit();
-    EPD_Display_Clear();  // 全屏清除
-    EPD_Update();
-    delay_ms(100);
+    EPD_Display_Clear();
+    EPD_Update();  //局刷之前先对E-Paper进行清屏操作
+    vTaskDelay(100 / portTICK_PERIOD_MS);
     EPD_PartInit();
+      // 清除上次的下划线（如果有）
+    clearLastUnderline();
+    // 计算缩放比例
+    float scale_x = (float)setInkScreenSize.screenWidth / 416.0f;
+    float scale_y = (float)setInkScreenSize.screenHeigt / 240.0f;
+    float scale = (scale_x < scale_y) ? scale_x : scale_y;
     
-    // 清除上次显示的内容
-    clearLastDisplay();
+    ESP_LOGI(TAG, "屏幕尺寸: %dx%d, 缩放比例: X=%.2f, Y=%.2f, 使用: %.2f", 
+            setInkScreenSize.screenWidth, setInkScreenSize.screenHeigt, 
+            scale_x, scale_y, scale);
     
-    // ==================== 重新显示状态栏图标 ====================
-    drawStatusBar();
+    // 计算实际显示位置
+    int x = (int)(icon->x * scale);
+    int y = (int)(icon->y * scale);
+    int width = (int)(icon->width * scale);
+    int height = (int)(icon->height * scale);
     
-    // 使用扩展函数绘制下划线（会自动清除上次的）
-    drawUnderlineForIconEx(icon->x, icon->y, icon->width, icon->height, color);
+    // 调试：显示计算后的位置
+    ESP_LOGI(TAG, "计算后位置: X=%d, Y=%d, 宽度=%d, 高度=%d", x, y, width, height);
+    
+    // 绘制下划线（在图标下方，跟图标同宽）
+    // 方法1：在图标底部绘制
+    int underline_y = y + height + 3;  // 图标下方3像素
+    
+    // 方法2：如果方法1不行，尝试固定位置测试
+    // int underline_y = 150;  // 临时固定位置测试
+    
+    // 绘制2像素粗的线
+    EPD_DrawLine(x, underline_y, x + width, underline_y, BLACK);
+    EPD_DrawLine(x, underline_y + 1, x + width, underline_y + 1, BLACK);
+    
+    // 绘制一个测试矩形，确认绘制功能正常
+    // EPD_DrawRectangle(x, y, x + width, y + height, BLACK, 1);
+    
+    // 记录这次的下划线位置（用于下次清除）
+    g_last_underline_x = x;
+    g_last_underline_y = underline_y;
+    g_last_underline_width = width;
     
     // 更新显示
     EPD_Display(ImageBW);
     EPD_Update();
     EPD_DeepSleep();
-    delay_ms(1000);
+
+    ESP_LOGI(TAG, "在图标%d下方绘制下划线完成: 位置(%d,%d), 宽度%d, 图标底部Y=%d", 
+            icon_index, x, underline_y, width, y + height);
     
-    ESP_LOGI(TAG, "图标%d下划线绘制完成", icon_index);
+    // 短暂延迟，确保显示更新
+    vTaskDelay(100 / portTICK_PERIOD_MS);
 }
 
-
-// 清除所有下划线（完全清除）
-void clearAllUnderlines() {
-    ESP_LOGI(TAG, "清除所有下划线");
+// 调试函数：显示所有图标位置信息
+void debugIconPositions() {
+    ESP_LOGI(TAG, "=== 图标位置调试信息 ===");
+    ESP_LOGI(TAG, "屏幕尺寸: %dx%d", setInkScreenSize.screenWidth, setInkScreenSize.screenHeigt);
     
-    // 如果没有下划线记录，直接返回
-    if (!g_last_underline.has_underline) {
-        return;
+    float scale_x = (float)setInkScreenSize.screenWidth / 416.0f;
+    float scale_y = (float)setInkScreenSize.screenHeigt / 240.0f;
+    float scale = (scale_x < scale_y) ? scale_x : scale_y;
+    ESP_LOGI(TAG, "缩放比例: %.2f", scale);
+    
+    for (int i = 0; i < 6; i++) {
+        IconPosition* icon = &g_icon_positions[i];
+        if (icon->width > 0 && icon->height > 0) {
+            int display_x = (int)(icon->x * scale);
+            int display_y = (int)(icon->y * scale);
+            int display_width = (int)(icon->width * scale);
+            int display_height = (int)(icon->height * scale);
+            
+            ESP_LOGI(TAG, "图标%d: 原始(%d,%d,%dx%d) -> 显示(%d,%d,%dx%d)", 
+                    i, 
+                    icon->x, icon->y, icon->width, icon->height,
+                    display_x, display_y, display_width, display_height);
+        } else {
+            ESP_LOGI(TAG, "图标%d: 未初始化", i);
+        }
     }
-    
-    // 清除当前记录的下划线
-    clearLastDisplay();
-    
-    // 额外清除可能存在的其他下划线
-    // 这里可以根据需要扩展，清除多个可能的位置
-    
-    ESP_LOGI(TAG, "所有下划线已清除");
-}
-
-// 检查是否需要清除下划线的辅助函数
-bool shouldClearUnderline(uint16_t new_x, uint16_t new_y, uint16_t new_width) {
-    if (!g_last_underline.has_underline) {
-        return false;
-    }
-    
-    // 如果新的下划线位置和上次不同，需要清除上次的
-    bool different_position = (new_x != g_last_underline.x) || 
-                             (new_y != g_last_underline.y) ||
-                             (new_width != g_last_underline.width);
-    
-    if (different_position) {
-        ESP_LOGI(TAG, "下划线位置变化，需要清除上次的下划线");
-        return true;
-    }
-    
-    return false;
+    ESP_LOGI(TAG, "=== 调试结束 ===");
 }
 
 void updateDisplayWithWifiIcon()
@@ -411,7 +365,52 @@ void clearSpecificIcons(uint8_t *icon_indices, uint8_t count) {
     EPD_Display(ImageBW);
     EPD_Update();
 }
+void EPD_ShowPictureScaled(uint16_t orig_x, uint16_t orig_y, 
+                           uint16_t orig_w, uint16_t orig_h,
+                           const uint8_t* BMP, uint16_t color) {
+    // 使用统一的缩放因子保持长宽比（按最小缩放因子适配到屏幕）
+    float scale_x = (float) setInkScreenSize.screenWidth / (float)416;
+    float scale_y = (float)setInkScreenSize.screenHeigt / (float)240;
+    float scale = (scale_x < scale_y) ? scale_x : scale_y;
+                            
+    // 计算缩放后的位置和尺寸（统一缩放，保持比例）
+    uint16_t new_x = (uint16_t)(orig_x * scale);
+    uint16_t new_y = (uint16_t)(orig_y * scale);
+    uint16_t new_w = (uint16_t)(orig_w * scale);
+    uint16_t new_h = (uint16_t)(orig_h * scale);
 
+    // 确保最小尺寸
+    if (new_w < 4) new_w = 4;
+    if (new_h < 4) new_h = 4;
+
+    // 源图每列的字节数（源图按列存储，每字节8个垂直像素）
+    uint16_t src_bytes_per_col = (orig_h + 7) / 8;
+
+    // 对目标区域每个像素进行最近邻采样
+    for (uint16_t dx = 0; dx < new_w; dx++) {
+        for (uint16_t dy = 0; dy < new_h; dy++) {
+            // 映射回源图坐标
+            uint16_t sx = dx * orig_w / new_w;
+            uint16_t sy = dy * orig_h / new_h;
+
+            // 计算源图中该像素的字节和位
+            uint32_t src_byte_idx = (uint32_t)sx * src_bytes_per_col + sy / 8;
+            uint8_t src_bit_pos = sy % 8;
+            uint8_t src_byte = BMP[src_byte_idx];
+
+            // 读取源像素（MSB first：bit 7 对应第 0 行）
+            bool pixel_on = (src_byte & (0x80 >> src_bit_pos)) != 0;
+
+            // 设置目标像素
+            Paint_SetPixel(new_x + dx, new_y + dy, pixel_on ? !color : color);
+        }
+    }
+
+    ESP_LOGD(TAG, "Scaled icon: (%d,%d) %dx%d -> (%d,%d) %dx%d",
+             orig_x, orig_y, orig_w, orig_h, new_x, new_y, new_w, new_h);
+}
+
+#define DEBUG_LAYOUT 1
 void updateDisplayWithMain() {
     // 图标数据
     typedef struct {
@@ -442,6 +441,7 @@ void updateDisplayWithMain() {
         int icon_spacing_y;      // 图标垂直间距
         int status_bar_height;   // 状态栏高度
         int margin;              // 边距
+        float scale_factor;      // 缩放比例（0.0-1.0）
     } LayoutConfig;
     
     LayoutConfig layout = {
@@ -452,7 +452,8 @@ void updateDisplayWithMain() {
         .icon_spacing_x = 10,    // 最小水平间距
         .icon_spacing_y = 15,    // 最小垂直间距
         .status_bar_height = 35,
-        .margin = 5
+        .margin = 5,
+        .scale_factor = 1.0      // 默认不缩放
     };
     
     // 初始化显示
@@ -462,115 +463,172 @@ void updateDisplayWithMain() {
     delay_ms(100);
     EPD_PartInit();
     
-    // ==================== 自适应布局计算 ====================
+    // ==================== 计算缩放比例 ====================
     
     // 计算可用区域
     int available_width = setInkScreenSize.screenWidth - 2 * layout.margin;
     int available_height = setInkScreenSize.screenHeigt - 2 * layout.margin - layout.status_bar_height;
     
-    // 自动计算每行最大图标数量
-    // 基于平均图标宽度和最小间距
-    int avg_icon_width = 0;
+    // 计算所有图标的最大尺寸
+    int max_icon_width = 0;
+    int max_icon_height = 0;
     for (int i = 0; i < icon_count; i++) {
-        avg_icon_width += icons[i].width;
+        if (icons[i].width > max_icon_width) max_icon_width = icons[i].width;
+        if (icons[i].height > max_icon_height) max_icon_height = icons[i].height;
     }
-    avg_icon_width /= icon_count;
     
-    // 计算每行最大可能的图标数量
-    int max_cols = (available_width + layout.icon_spacing_x) / 
-                   (avg_icon_width + layout.icon_spacing_x);
+    // 计算EPD_ShowPictureScaled的全局缩放比例
+    float global_scale_x = (float)setInkScreenSize.screenWidth / 416.0f;
+    float global_scale_y = (float)setInkScreenSize.screenHeigt / 240.0f;
+    float global_scale = (global_scale_x < global_scale_y) ? global_scale_x : global_scale_y;
+    
+    // ==================== 自适应布局计算 ====================
+    
+    // 使用原始坐标系统（416×240基准）进行布局计算
+    int base_width = 416;
+    int base_height = 240;
+    int base_available_width = base_width - 2 * layout.margin;
+    int base_available_height = base_height - 2 * layout.margin - layout.status_bar_height;
+    
+    // 基于原始图标尺寸计算布局
+    int max_cols = (base_available_width + layout.icon_spacing_x) / 
+                   (max_icon_width + layout.icon_spacing_x);
     max_cols = (max_cols < 1) ? 1 : max_cols;
-    max_cols = (max_cols > 6) ? 6 : max_cols;  // 最多6个
+    max_cols = (max_cols > 6) ? 6 : max_cols;
     
-    // 计算实际每行图标数量（尽量接近正方形布局）
+    // 计算实际每行图标数量
     layout.grid_cols = max_cols;
     layout.grid_rows = (icon_count + layout.grid_cols - 1) / layout.grid_cols;
     
-    // 如果行数太多，增加每行图标数量
-    while (layout.grid_rows > 3 && layout.grid_cols < 6) {
-        layout.grid_cols++;
-        layout.grid_rows = (icon_count + layout.grid_cols - 1) / layout.grid_cols;
-    }
-    
-    // 计算单元格尺寸（基于可用空间）
-    layout.cell_width = (available_width - (layout.grid_cols + 1) * layout.icon_spacing_x) / 
-                       layout.grid_cols;
-    
-    // 调整垂直间距，使图标垂直居中
-    layout.cell_height = (available_height - (layout.grid_rows + 1) * layout.icon_spacing_y) / 
-                        layout.grid_rows;
-    
-    // 确保单元格尺寸合理
-    if (layout.cell_width < 40) layout.cell_width = 40;
-    if (layout.cell_height < 40) layout.cell_height = 40;
-    
-    // 如果单元格太小，减少列数
-    while ((layout.cell_width < 50 || layout.cell_height < 50) && layout.grid_cols > 1) {
+    // 如果一行显示不下，调整列数
+    while (layout.grid_cols > 1 && 
+           (max_icon_width * layout.grid_cols + 
+            layout.icon_spacing_x * (layout.grid_cols + 1)) > base_available_width) {
         layout.grid_cols--;
         layout.grid_rows = (icon_count + layout.grid_cols - 1) / layout.grid_cols;
-        
-        layout.cell_width = (available_width - (layout.grid_cols + 1) * layout.icon_spacing_x) / 
-                           layout.grid_cols;
-        layout.cell_height = (available_height - (layout.grid_rows + 1) * layout.icon_spacing_y) / 
-                            layout.grid_rows;
     }
     
-    // 最终计算间距
-    layout.icon_spacing_x = (available_width - layout.grid_cols * layout.cell_width) / 
+    // 计算单元格尺寸（使用原始基准尺寸）
+    layout.cell_width = (base_available_width - (layout.grid_cols + 1) * layout.icon_spacing_x) / 
+                       layout.grid_cols;
+    layout.cell_height = (base_available_height - (layout.grid_rows + 1) * layout.icon_spacing_y) / 
+                        layout.grid_rows;
+    
+    // 确保单元格足够大以容纳图标
+    if (layout.cell_width < max_icon_width) {
+        layout.cell_width = max_icon_width + 10;
+    }
+    
+    if (layout.cell_height < max_icon_height) {
+        layout.cell_height = max_icon_height + 10;
+    }
+    
+    // 重新计算间距
+    layout.icon_spacing_x = (base_available_width - layout.grid_cols * layout.cell_width) / 
                            (layout.grid_cols + 1);
-    layout.icon_spacing_y = (available_height - layout.grid_rows * layout.cell_height) / 
+    layout.icon_spacing_y = (base_available_height - layout.grid_rows * layout.cell_height) / 
                            (layout.grid_rows + 1);
     
     // 确保最小间距
     if (layout.icon_spacing_x < 5) layout.icon_spacing_x = 5;
     if (layout.icon_spacing_y < 5) layout.icon_spacing_y = 5;
     
-    // ==================== 显示布局信息 ====================
-    ESP_LOGI("LAYOUT", "屏幕尺寸: %dx%d", setInkScreenSize.screenWidth, setInkScreenSize.screenHeigt);
+    // 重新计算是否适合
+    if ((max_icon_width * layout.grid_cols + 
+         layout.icon_spacing_x * (layout.grid_cols + 1)) > base_available_width &&
+        layout.grid_cols > 1) {
+        layout.grid_cols--;
+        layout.grid_rows = (icon_count + layout.grid_cols - 1) / layout.grid_cols;
+        
+        layout.cell_width = (base_available_width - (layout.grid_cols + 1) * layout.icon_spacing_x) / 
+                           layout.grid_cols;
+        layout.cell_height = (base_available_height - (layout.grid_rows + 1) * layout.icon_spacing_y) / 
+                            layout.grid_rows;
+        
+        layout.icon_spacing_x = (base_available_width - layout.grid_cols * layout.cell_width) / 
+                               (layout.grid_cols + 1);
+        layout.icon_spacing_y = (base_available_height - layout.grid_rows * layout.cell_height) / 
+                               (layout.grid_rows + 1);
+    }
+    
+    // 记录布局计算的缩放因子
+    layout.scale_factor = global_scale;
+    
+    ESP_LOGI("LAYOUT", "屏幕尺寸: %dx%d, 全局缩放: %.2f", 
+            setInkScreenSize.screenWidth, setInkScreenSize.screenHeigt, global_scale);
     ESP_LOGI("LAYOUT", "布局: %d列 x %d行", layout.grid_cols, layout.grid_rows);
     ESP_LOGI("LAYOUT", "单元格: %dx%d, 间距: %dx%d", 
             layout.cell_width, layout.cell_height, 
             layout.icon_spacing_x, layout.icon_spacing_y);
     
-    // 清除区域
-    clearDisplayArea(layout.margin, layout.margin, 
-                     setInkScreenSize.screenWidth - layout.margin, layout.status_bar_height);
+    // 清除区域（使用实际坐标）
+    clearDisplayArea((int)(layout.margin * global_scale), (int)(layout.margin * global_scale), 
+                     (int)((setInkScreenSize.screenWidth - layout.margin) * global_scale), 
+                     (int)(layout.status_bar_height * global_scale));
     
-    clearDisplayArea(layout.margin, layout.status_bar_height + layout.margin, 
-                     setInkScreenSize.screenWidth - layout.margin, setInkScreenSize.screenHeigt - layout.margin);
+    clearDisplayArea((int)(layout.margin * global_scale), 
+                     (int)((layout.status_bar_height + layout.margin) * global_scale), 
+                     (int)((setInkScreenSize.screenWidth - layout.margin) * global_scale), 
+                     (int)((setInkScreenSize.screenHeigt - layout.margin) * global_scale));
 
-    // ==================== 状态栏图标（修正） ====================
-    int status_y = layout.margin;
+    // ==================== 状态栏图标（使用统一坐标系统） ====================
+    
+    // 原始状态栏图标尺寸
+    const int wifi_orig_width = 32;
+    const int wifi_orig_height = 32;
+    const int battery_orig_width = 36;
+    const int battery_orig_height = 24;
+    
+    // 状态栏高度（原始坐标）
+    int status_bar_orig_y = layout.margin;
     
     // 最右侧：WiFi图标（32x32）
-    int wifi_x = setInkScreenSize.screenWidth - layout.margin - 32;
-    EPD_ShowPicture(wifi_x, status_y, 32, 32, ZHONGJINGYUAN_3_7_WIFI_DISCONNECT, BLACK);
+    // 使用与主图标相同的原始坐标系统
+    int wifi_orig_x = base_width - layout.margin - wifi_orig_width;
+    
+    // 使用EPD_ShowPictureScaled显示WiFi图标（传入原始坐标和尺寸）
+    EPD_ShowPictureScaled(wifi_orig_x, status_bar_orig_y, 
+                         wifi_orig_width, wifi_orig_height, 
+                         ZHONGJINGYUAN_3_7_WIFI_DISCONNECT, BLACK);
+    
+    ESP_LOGI("STATUS_BAR", "WiFi图标: 原始位置(%d,%d), 原始尺寸(%dx%d), 缩放后位置(%.0f,%.0f)", 
+            wifi_orig_x, status_bar_orig_y, wifi_orig_width, wifi_orig_height,
+            wifi_orig_x * global_scale, status_bar_orig_y * global_scale);
     
     // WiFi左侧：电池图标（36x24）
-    int battery_x = wifi_x - 36 - 5;  // 5像素间距
-    // 根据实际电量选择合适的电池图标
+    int battery_orig_x = wifi_orig_x - battery_orig_width - 5;  // 5像素间距
+    
     #ifdef BATTERY_LEVEL
         // 根据电量选择不同等级的电池图标
         uint8_t* battery_icon = NULL;
         if (BATTERY_LEVEL >= 80) {
-            battery_icon = ZHONGJINGYUAN_3_7_BATTERY_4;  // 满电
+            battery_icon = ZHONGJINGYUAN_3_7_BATTERY_4;
         } else if (BATTERY_LEVEL >= 60) {
-            battery_icon = ZHONGJINGYUAN_3_7_BATTERY_3;  // 高电量
+            battery_icon = ZHONGJINGYUAN_3_7_BATTERY_3;
         } else if (BATTERY_LEVEL >= 40) {
-            battery_icon = ZHONGJINGYUAN_3_7_BATTERY_2;  // 中电量
+            battery_icon = ZHONGJINGYUAN_3_7_BATTERY_2;
         } else if (BATTERY_LEVEL >= 20) {
-            battery_icon = ZHONGJINGYUAN_3_7_BATTERY_1;  // 低电量
+            battery_icon = ZHONGJINGYUAN_3_7_BATTERY_1;
         } else {
-            battery_icon = ZHONGJINGYUAN_3_7_BATTERY_0;  // 空电量
+            battery_icon = ZHONGJINGYUAN_3_7_BATTERY_0;
         }
-        EPD_ShowPicture(battery_x, status_y, 36, 24, battery_icon, BLACK);
+        
+        // 使用EPD_ShowPictureScaled显示电池图标（传入原始坐标和尺寸）
+        EPD_ShowPictureScaled(battery_orig_x, status_bar_orig_y, 
+                             battery_orig_width, battery_orig_height, 
+                             battery_icon, BLACK);
+        
+        ESP_LOGI("STATUS_BAR", "电池图标: 原始位置(%d,%d), 原始尺寸(%dx%d), 电量:%d%%", 
+                battery_orig_x, status_bar_orig_y, battery_orig_width, battery_orig_height, BATTERY_LEVEL);
     #else
         // 如果没有电量信息，使用默认电池图标
-        EPD_ShowPicture(battery_x, status_y, 36, 24, ZHONGJINGYUAN_3_7_BATTERY_1, BLACK);
+        EPD_ShowPictureScaled(battery_orig_x, status_bar_orig_y, 
+                             battery_orig_width, battery_orig_height, 
+                             ZHONGJINGYUAN_3_7_BATTERY_1, BLACK);
+        
+        ESP_LOGI("STATUS_BAR", "电池图标: 原始位置(%d,%d), 原始尺寸(%dx%d)", 
+                battery_orig_x, status_bar_orig_y, battery_orig_width, battery_orig_height);
     #endif
-    
-    ESP_LOGI("STATUS_BAR", "状态栏: WiFi图标(%d,%d), 电池图标(%d,%d)", 
-            wifi_x, status_y, battery_x, status_y);
     
     // ==================== 初始化图标位置数组 ====================
     for (int i = 0; i < 6; i++) {
@@ -594,68 +652,91 @@ void updateDisplayWithMain() {
             break;
         }
         
-        // 计算单元格位置
+        // 计算单元格位置（使用原始坐标系统）
         int cell_x = layout.margin + layout.icon_spacing_x + 
                     col * (layout.cell_width + layout.icon_spacing_x);
         int cell_y = layout.status_bar_height + layout.margin + layout.icon_spacing_y + 
                     row * (layout.cell_height + layout.icon_spacing_y);
         
-        // 计算图标居中位置
-        int icon_x = cell_x + (layout.cell_width - icons[i].width) / 2;
-        int icon_y = cell_y + (layout.cell_height - icons[i].height) / 2;
+        // 计算图标的原始居中位置
+        int icon_orig_x = cell_x + (layout.cell_width - icons[i].width) / 2;
+        int icon_orig_y = cell_y + (layout.cell_height - icons[i].height) / 2;
         
-        // 边界检查
-        if (icon_x < 0 || icon_x + icons[i].width > setInkScreenSize.screenWidth ||
-            icon_y < 0 || icon_y + icons[i].height > setInkScreenSize.screenHeigt) {
-            ESP_LOGE("LAYOUT", "图标%d位置超出屏幕范围: (%d,%d)", i, icon_x, icon_y);
+        // 边界检查（使用原始坐标检查）
+        if (icon_orig_x < 0 || icon_orig_x + icons[i].width > base_width ||
+            icon_orig_y < 0 || icon_orig_y + icons[i].height > base_height) {
+            ESP_LOGE("LAYOUT", "图标%d逻辑位置超出基准范围: (%d,%d)", i, icon_orig_x, icon_orig_y);
             continue;
         }
         
-        // 记录图标位置信息到全局数组
-        g_icon_positions[i].x = icon_x;
-        g_icon_positions[i].y = icon_y;
-        g_icon_positions[i].width = icons[i].width;    // 记录实际图片宽度
-        g_icon_positions[i].height = icons[i].height;  // 记录实际图片高度
-        g_icon_positions[i].selected = false;  // 默认未选中
+        // 记录图标位置信息到全局数组（记录原始坐标）
+        g_icon_positions[i].x = icon_orig_x;
+        g_icon_positions[i].y = icon_orig_y;
+        g_icon_positions[i].width = icons[i].width;    // 记录原始宽度
+        g_icon_positions[i].height = icons[i].height;  // 记录原始高度
+        g_icon_positions[i].selected = false;
         
-        // 显示图标
-        EPD_ShowPicture(icon_x, icon_y, icons[i].width, icons[i].height, icons[i].data, BLACK);
+        // 使用缩放函数显示图标（传入原始坐标和尺寸）
+        EPD_ShowPictureScaled(icon_orig_x, icon_orig_y, 
+                             icons[i].width, icons[i].height,  // 原始尺寸
+                             icons[i].data, BLACK);           // 缩放显示
         
-        ESP_LOGI("ICON_POS", "图标%d位置已记录: 坐标(%d,%d), 实际尺寸(%dx%d)", 
-                i, icon_x, icon_y, icons[i].width, icons[i].height);
+        // 计算并显示缩放后的位置（用于调试）
+        int icon_display_x = (int)(icon_orig_x * global_scale);
+        int icon_display_y = (int)(icon_orig_y * global_scale);
+        int icon_display_width = (int)(icons[i].width * global_scale);
+        int icon_display_height = (int)(icons[i].height * global_scale);
+        
+        ESP_LOGI("ICON_POS", "图标%d: 原始位置(%d,%d)尺寸(%dx%d) -> 显示位置(%d,%d)尺寸(%dx%d)", 
+                i, icon_orig_x, icon_orig_y, icons[i].width, icons[i].height,
+                icon_display_x, icon_display_y, icon_display_width, icon_display_height);
     }
     
-    // ==================== 显示选中的图标下划线（如果有） ====================
+    // ==================== 显示选中的图标下划线 ====================
     if (g_selected_icon_index >= 0 && g_selected_icon_index < icon_count) {
         IconPosition* selected = &g_icon_positions[g_selected_icon_index];
         if (selected->width > 0 && selected->height > 0) {
-            // 使用实际图片尺寸绘制下划线
-            drawUnderlineForIconEx(selected->x, selected->y, 
-                                 selected->width, selected->height, BLACK);
+            // 计算下划线的原始位置
+            int underline_orig_x = selected->x;
+            int underline_orig_y = selected->y + selected->height;
+            int underline_orig_width = selected->width;
             
-            ESP_LOGI("ICON_POS", "显示选中图标%d的下划线: 使用实际图片尺寸(%dx%d)", 
-                    g_selected_icon_index, selected->width, selected->height);
+            // 计算缩放后的坐标并绘制
+            int underline_display_x = (int)(underline_orig_x * global_scale);
+            int underline_display_y = (int)(underline_orig_y * global_scale);
+            int underline_display_width = (int)(underline_orig_width * global_scale);
+            
+            EPD_DrawLine(underline_display_x, underline_display_y, 
+                        underline_display_x + underline_display_width, underline_display_y, BLACK);
+            
+            ESP_LOGI("ICON_POS", "显示选中图标%d的下划线: 原始位置(%d,%d)宽度%d -> 显示位置(%d,%d)宽度%d", 
+                    g_selected_icon_index, underline_orig_x, underline_orig_y, underline_orig_width,
+                    underline_display_x, underline_display_y, underline_display_width);
         }
     }
     
-    #define DEBUG_LAYOUT 1
-    // ==================== 显示网格线（调试用，可选） ====================
+    // ==================== 显示网格线（调试用） ====================
     #ifdef DEBUG_LAYOUT
     for (int row = 0; row <= layout.grid_rows; row++) {
-        int y = layout.status_bar_height + layout.margin + layout.icon_spacing_y + 
+        int y_orig = layout.status_bar_height + layout.margin + layout.icon_spacing_y + 
                row * (layout.cell_height + layout.icon_spacing_y);
-        if (row < layout.grid_rows) y -= 1;  // 单元格之间的线
+        int y_display = (int)(y_orig * global_scale);
         
-        EPD_DrawLine(layout.margin, y, setInkScreenSize.screenWidth - layout.margin, y, BLACK);
+        int x1_display = (int)(layout.margin * global_scale);
+        int x2_display = (int)((base_width - layout.margin) * global_scale);
+        
+        EPD_DrawLine(x1_display, y_display, x2_display, y_display, BLACK);
     }
     
     for (int col = 0; col <= layout.grid_cols; col++) {
-        int x = layout.margin + layout.icon_spacing_x + 
+        int x_orig = layout.margin + layout.icon_spacing_x + 
                col * (layout.cell_width + layout.icon_spacing_x);
-        if (col < layout.grid_cols) x -= 1;  // 单元格之间的线
+        int x_display = (int)(x_orig * global_scale);
         
-        EPD_DrawLine(x, layout.status_bar_height + layout.margin, 
-                    x, setInkScreenSize.screenHeigt - layout.margin, BLACK);
+        int y1_display = (int)((layout.status_bar_height + layout.margin) * global_scale);
+        int y2_display = (int)((base_height - layout.margin) * global_scale);
+        
+        EPD_DrawLine(x_display, y1_display, x_display, y2_display, BLACK);
     }
     #endif
     
@@ -665,7 +746,8 @@ void updateDisplayWithMain() {
     EPD_DeepSleep();
     vTaskDelay(1000);
     
-    ESP_LOGI("ICON_POS", "所有图标位置记录完成，共%d个图标", icon_count);
+    ESP_LOGI("ICON_POS", "所有图标位置记录完成，共%d个图标，全局缩放%.2f", 
+            icon_count, global_scale);
 }
 
 // 辅助函数：估算文本显示宽度
@@ -1632,32 +1714,33 @@ void ink_screen_show(void *args)
 			break;
 			case 1:
                 update_activity_time(); 
-                drawUnderlineAtIcon(0);
+                drawUnderlineForIconEx(0);
 				inkScreenTestFlag = 0;
 			break;
 			case 2:
                 update_activity_time(); 
-                drawUnderlineAtIcon(1);
+                drawUnderlineForIconEx(1);
 				inkScreenTestFlag = 0;
 			break;
 			case 3:
                 update_activity_time(); 
-				drawUnderlineAtIcon(2);
+				drawUnderlineForIconEx(2);
 				inkScreenTestFlag = 0;
 			break;
 			case 4:
                 update_activity_time(); 
-                drawUnderlineAtIcon(3);
+                drawUnderlineForIconEx(3);
 				inkScreenTestFlag = 0;
 			break;
 			case 5:
                 update_activity_time(); 
-				drawUnderlineAtIcon(4);
+				drawUnderlineForIconEx(4);
+                debugIconPositions();
 				inkScreenTestFlag = 0;
 			break;
 			case 6:
                 update_activity_time(); 
-                drawUnderlineAtIcon(5);
+                drawUnderlineForIconEx(5);
 				inkScreenTestFlag = 0;
 			break;
 			case 7:
