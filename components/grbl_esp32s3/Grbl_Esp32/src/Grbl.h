@@ -52,6 +52,7 @@ const char* const GRBL_VERSION_BUILD = "20211103";
 #include "SettingsDefinitions.h"
 #include "WebUI/WebSettings.h"
 #include "src/BL_add/ink_screen/ink_screen.h"
+#include "src/BL_add/ink_screen/web_layout.h"
 #include "src/BL_add/ota/ota_update.h"
 
 #include <Wire.h>

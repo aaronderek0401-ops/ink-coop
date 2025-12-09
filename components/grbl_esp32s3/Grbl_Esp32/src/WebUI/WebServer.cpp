@@ -450,14 +450,36 @@ Error delete_files(const char *path) {
     
     static esp_err_t root_handler(httpd_req_t *req)
     {
-        extern const unsigned char file_start[] asm("_binary_index_html_gz_start");
-        extern const unsigned char file_end[]   asm("_binary_index_html_gz_end");
-        const size_t file_size = (file_end - file_start);
-
-        httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-
-        httpd_resp_send(req, (char *)file_start, file_size);
+        // 使用未压缩的HTML文件
+        extern const char web_layout_start[] asm("_binary_web_layout_html_start");
+        extern const char web_layout_end[]   asm("_binary_web_layout_html_end");
+        const size_t file_size = (web_layout_end - web_layout_start);
+        
+        ESP_LOGI("WEB", "web_layout.html size: %d bytes", file_size);
+        
+        if (file_size == 0) {
+            ESP_LOGE("WEB", "web_layout.html not found or empty");
+            // 返回一个简单的错误页面
+            const char* error_html = 
+                "<!DOCTYPE html><html><head><title>Error</title></head>"
+                "<body><h1>Layout Editor Not Available</h1>"
+                "<p>Please check if web_layout.html is properly embedded.</p></body></html>";
+            httpd_resp_set_type(req, "text/html");
+            httpd_resp_send(req, error_html, strlen(error_html));
+            return ESP_OK;
+        }
+        
+        httpd_resp_set_type(req, "text/html");
+        httpd_resp_send(req, web_layout_start, file_size);
         return ESP_OK;
+        //         extern const unsigned char file_start[] asm("_binary_index_html_gz_start");
+        // extern const unsigned char file_end[]   asm("_binary_index_html_gz_end");
+        // const size_t file_size = (file_end - file_start);
+
+        // httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+
+        // httpd_resp_send(req, (char *)file_start, file_size);
+        // return ESP_OK;
     }
     static esp_err_t icon_handler(httpd_req_t *req)
     {
@@ -919,6 +941,130 @@ Error delete_files(const char *path) {
         return ESP_OK;
     }
     
+    static esp_err_t Web_layout_upload_handler(httpd_req_t *req) {
+        #define LAYOUT_UPLOAD_BUFFER_SIZE 8192
+        
+        if (req->method == HTTP_POST) {
+            char* buf = (char*)heap_caps_malloc(LAYOUT_UPLOAD_BUFFER_SIZE, MALLOC_CAP_INTERNAL);
+            if (!buf) {
+                ESP_LOGE(TAG, "Failed to allocate memory for layout upload!");
+                httpd_resp_send_500(req);
+                return ESP_ERR_NO_MEM;
+            }
+
+            int received = 0;
+            char layout_json[4096] = {0};
+            size_t json_length = 0;
+            
+            // 接收JSON数据
+            while ((received = httpd_req_recv(req, buf, LAYOUT_UPLOAD_BUFFER_SIZE)) > 0) {
+                if (json_length + received < sizeof(layout_json)) {
+                    memcpy(layout_json + json_length, buf, received);
+                    json_length += received;
+                } else {
+                    ESP_LOGE(TAG, "Layout JSON too large!");
+                    free(buf);
+                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Layout JSON too large");
+                    return ESP_FAIL;
+                }
+            }
+            free(buf);
+            
+            if (json_length == 0) {
+                ESP_LOGE(TAG, "No layout data received");
+                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No layout data received");
+                return ESP_FAIL;
+            }
+            
+            // 解析布局JSON
+            ESP_LOGI(TAG, "Received layout JSON, length: %d", json_length);
+            
+            // 保存到文件
+            if (get_sd_state(true) != SDState::Idle) {
+                grbl_send(CLIENT_ALL, "[MSG:Upload cancelled - SD card busy]\r\n");
+                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "SD card busy");
+                return ESP_ERR_INVALID_STATE;
+            }
+            
+            set_sd_state(SDState::BusyUploading);
+            
+            String filename = "/layout.json";
+            if (SD.exists(filename)) {
+                SD.remove(filename);
+            }
+            
+            File layoutFile = SD.open(filename.c_str(), FILE_WRITE);
+            if (!layoutFile) {
+                ESP_LOGE(TAG, "Failed to create layout file");
+                set_sd_state(SDState::Idle);
+                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create layout file");
+                return ESP_FAIL;
+            }
+            
+            size_t bytesWritten = layoutFile.write((const uint8_t *)layout_json, json_length);
+            layoutFile.close();
+            
+            if (bytesWritten != json_length) {
+                ESP_LOGE(TAG, "Failed to write layout file");
+                set_sd_state(SDState::Idle);
+                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to write layout file");
+                return ESP_FAIL;
+            }
+            
+            ESP_LOGI(TAG, "Layout saved to SD card: %d bytes", bytesWritten);
+            set_sd_state(SDState::Idle);
+            
+            // 解析并应用布局
+            if (parseAndApplyLayout(layout_json)) {
+                ESP_LOGI(TAG, "Layout applied successfully");
+                httpd_resp_sendstr(req, "{\"status\":\"success\",\"message\":\"Layout uploaded and applied successfully\"}");
+            } else {
+                ESP_LOGE(TAG, "Failed to apply layout");
+                httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Layout uploaded but failed to apply\"}");
+            }
+            
+            return ESP_OK;
+            
+        }else if (req->method == HTTP_GET) {
+            // 使用动态内存分配，避免栈溢出
+            char *response = (char*)heap_caps_malloc(8192, MALLOC_CAP_INTERNAL);
+            if (!response) {
+                ESP_LOGE("HTTP", "内存分配失败");
+                httpd_resp_send_500(req);
+                return ESP_FAIL;
+            }
+            
+            // 调用 getCurrentLayoutInfo 函数获取布局信息
+            bool success = getCurrentLayoutInfo(response, 8192);
+            
+            if (success) {
+                ESP_LOGI("HTTP", "返回JSON数据，长度: %d", strlen(response));
+                
+                // 设置响应头
+                httpd_resp_set_type(req, "application/json");
+                httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+                httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+                httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
+                
+                // 发送响应
+                esp_err_t ret = httpd_resp_send(req, response, strlen(response));
+                free(response);
+                return ret;
+            } else {
+                ESP_LOGE("HTTP", "获取布局信息失败");
+                free(response);
+                httpd_resp_set_type(req, "application/json");
+                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "获取布局信息失败");
+                return ESP_FAIL;
+            }
+        } else {
+            // 处理其他HTTP方法
+            ESP_LOGW(TAG, "不支持的HTTP方法: %d", req->method);
+            httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method not allowed");
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
+
     uint16_t fileNum = 0;
     static esp_err_t handle_getsd_fileAndNum_handler(httpd_req_t *req) {
         #define UPLOAD_FILE_BUFFER_SIZE 2048
@@ -1320,6 +1466,16 @@ Error delete_files(const char *path) {
         .handler  = update_upload_handler,
         .user_ctx = NULL,
         },
+        { .uri      = "/getlayout",
+        .method   = HTTP_GET,
+        .handler  = Web_layout_upload_handler,
+        .user_ctx = NULL,
+        },
+        { .uri      = "/setlayout",
+        .method   = HTTP_POST,
+        .handler  = Web_layout_upload_handler,
+        .user_ctx = NULL,
+        },
     };
     static const uint8_t basic_handlers_no = sizeof(basic_handlers)/sizeof(httpd_uri_t);
 
@@ -1337,8 +1493,8 @@ Error delete_files(const char *path) {
     {
         httpd_handle_t server = NULL;
         httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-        config.stack_size = 5120;
-        config.max_uri_handlers  = 8;
+        config.stack_size = 8192;
+        config.max_uri_handlers  = 10;
         config.server_port = 8848;
         // Start the httpd server
         

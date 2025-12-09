@@ -27,6 +27,7 @@ set(srcs Grbl_Esp32/src/Grbl.cpp
     Grbl_Esp32/src/WebUI/WifiConfig.cpp
     Grbl_Esp32/src/WebUI/WifiServices.cpp
     Grbl_Esp32/src/BL_add/ink_screen/ink_screen.cpp
+    Grbl_Esp32/src/BL_add/ink_screen/web_layout.cpp
     Grbl_Esp32/src/BL_add/ota/ota_update.cpp
      )
 
@@ -37,4 +38,4 @@ idf_component_register(SRCS ${srcs}
                        INCLUDE_DIRS ${includes}
                        REQUIRES soc driver hal arduino_esp32 ESP32SSDP arduinoWebSockets newlib
                        esp_http_server EPD
-                       EMBED_FILES "Grbl_Esp32/data/index.html.gz" "Grbl_Esp32/data/favicon.ico")
+                       EMBED_FILES "Grbl_Esp32/data/index.html.gz" "Grbl_Esp32/data/favicon.ico" "Grbl_Esp32/data/web_layout.html")
