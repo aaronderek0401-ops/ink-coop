@@ -7,52 +7,52 @@ spi_device_handle_t EPD_Handle;
 
 void EPD_GPIOInit(void)
 {
-      esp_err_t ret = 0;
-    spi_bus_config_t spi_bus_conf = {0};
-    /* SPI�������� */
-    spi_bus_conf.miso_io_num = -1;
-    spi_bus_conf.mosi_io_num = BSP_SPI_MOSI_GPIO_PIN; /* SPI_MOSI���� */
-    spi_bus_conf.sclk_io_num = BSP_SPI_CLK_GPIO_PIN;  /* SPI_SCLK���� */
-    spi_bus_conf.quadwp_io_num = -1;              /* SPIд�����ź����ţ�������δʹ�� */
-    spi_bus_conf.quadhd_io_num = -1;              /* SPI�����ź����ţ�������δʹ�� */
-    spi_bus_conf.max_transfer_sz = 416*240/4;     /* ����������С�����ֽ�Ϊ��λ */
+    //   esp_err_t ret = 0;
+    // spi_bus_config_t spi_bus_conf = {0};
+    // /* SPI�������� */
+    // spi_bus_conf.miso_io_num = -1;
+    // spi_bus_conf.mosi_io_num = BSP_SPI_MOSI_GPIO_PIN; /* SPI_MOSI���� */
+    // spi_bus_conf.sclk_io_num = BSP_SPI_CLK_GPIO_PIN;  /* SPI_SCLK���� */
+    // spi_bus_conf.quadwp_io_num = -1;              /* SPIд�����ź����ţ�������δʹ�� */
+    // spi_bus_conf.quadhd_io_num = -1;              /* SPI�����ź����ţ�������δʹ�� */
+    // spi_bus_conf.max_transfer_sz = 416*240/4;     /* ����������С�����ֽ�Ϊ��λ */
    
-	/* ��ʼ��SPI���� */
-    ret = spi_bus_initialize(SPI3_HOST, &spi_bus_conf, SPI_DMA_CH_AUTO); /* SPI���߳�ʼ�� */
-    ESP_ERROR_CHECK(ret);   
+	// /* ��ʼ��SPI���� */
+    // ret = spi_bus_initialize(SPI3_HOST, &spi_bus_conf, SPI_DMA_CH_AUTO); /* SPI���߳�ʼ�� */
+    // ESP_ERROR_CHECK(ret);   
 
-	    /* SPI驱动接口配置 */
-    spi_device_interface_config_t devcfg = {
-        .clock_speed_hz = BSP_SPI_FREQ,  /* SPI时钟 */
-        .mode = 0,                           /* SPI模式0 */
-        .spics_io_num = BSP_SPI_CS_GPIO_PIN, /* SPI设备引脚 */
-        .queue_size = 7,                     /* 事务队列尺寸 7个 */
-    };
-    /* 添加SPI总线设备 */
-    ret = spi_bus_add_device(SPI3_HOST, &devcfg, &EPD_Handle); /* 配置SPI总线设备 */
-    ESP_ERROR_CHECK(ret);
+	//     /* SPI驱动接口配置 */
+    // spi_device_interface_config_t devcfg = {
+    //     .clock_speed_hz = BSP_SPI_FREQ,  /* SPI时钟 */
+    //     .mode = 0,                           /* SPI模式0 */
+    //     .spics_io_num = BSP_SPI_CS_GPIO_PIN, /* SPI设备引脚 */
+    //     .queue_size = 7,                     /* 事务队列尺寸 7个 */
+    // };
+    // /* 添加SPI总线设备 */
+    // ret = spi_bus_add_device(SPI3_HOST, &devcfg, &EPD_Handle); /* 配置SPI总线设备 */
+    // ESP_ERROR_CHECK(ret);
 
-	    gpio_config_t gpio_init_struct = {0};
-    gpio_init_struct.intr_type = GPIO_INTR_DISABLE;           /* 失能引脚中断 */
-    gpio_init_struct.mode = GPIO_MODE_OUTPUT;                 /* 输出模式 */
-    gpio_init_struct.pull_up_en = GPIO_PULLUP_ENABLE;         /* 使能上拉 */
-    gpio_init_struct.pull_down_en = GPIO_PULLDOWN_DISABLE;    /* 失能下拉 */
-    gpio_init_struct.pin_bit_mask = 1ull << EPD_RES_GPIO_PIN; /* 设置的引脚的位掩码 */
-    gpio_config(&gpio_init_struct);                           /* 配置GPIO */
+	//     gpio_config_t gpio_init_struct = {0};
+    // gpio_init_struct.intr_type = GPIO_INTR_DISABLE;           /* 失能引脚中断 */
+    // gpio_init_struct.mode = GPIO_MODE_OUTPUT;                 /* 输出模式 */
+    // gpio_init_struct.pull_up_en = GPIO_PULLUP_ENABLE;         /* 使能上拉 */
+    // gpio_init_struct.pull_down_en = GPIO_PULLDOWN_DISABLE;    /* 失能下拉 */
+    // gpio_init_struct.pin_bit_mask = 1ull << EPD_RES_GPIO_PIN; /* 设置的引脚的位掩码 */
+    // gpio_config(&gpio_init_struct);                           /* 配置GPIO */
 
-    gpio_init_struct.intr_type = GPIO_INTR_DISABLE;          /* 失能引脚中断 */
-    gpio_init_struct.mode = GPIO_MODE_OUTPUT;                /* 输出模式 */
-    gpio_init_struct.pull_up_en = GPIO_PULLUP_ENABLE;        /* 使能上拉 */
-    gpio_init_struct.pull_down_en = GPIO_PULLDOWN_DISABLE;   /* 失能下拉 */
-    gpio_init_struct.pin_bit_mask = 1ull << EPD_DC_GPIO_PIN; /* 设置的引脚的位掩码 */
-    gpio_config(&gpio_init_struct);                          /* 配置GPIO */
+    // gpio_init_struct.intr_type = GPIO_INTR_DISABLE;          /* 失能引脚中断 */
+    // gpio_init_struct.mode = GPIO_MODE_OUTPUT;                /* 输出模式 */
+    // gpio_init_struct.pull_up_en = GPIO_PULLUP_ENABLE;        /* 使能上拉 */
+    // gpio_init_struct.pull_down_en = GPIO_PULLDOWN_DISABLE;   /* 失能下拉 */
+    // gpio_init_struct.pin_bit_mask = 1ull << EPD_DC_GPIO_PIN; /* 设置的引脚的位掩码 */
+    // gpio_config(&gpio_init_struct);                          /* 配置GPIO */
 
-    gpio_init_struct.intr_type = GPIO_INTR_DISABLE;            /* 失能引脚中断 */
-    gpio_init_struct.mode = GPIO_MODE_INPUT;                   /* 输入模式 */
-    gpio_init_struct.pull_up_en = GPIO_PULLUP_DISABLE;         /* 失能上拉 */
-    gpio_init_struct.pull_down_en = GPIO_PULLDOWN_ENABLE;     /* 使能下拉 */
-    gpio_init_struct.pin_bit_mask = 1ull << EPD_BUSY_GPIO_PIN; /* 设置的引脚的位掩码 */
-    gpio_config(&gpio_init_struct); 
+    // gpio_init_struct.intr_type = GPIO_INTR_DISABLE;            /* 失能引脚中断 */
+    // gpio_init_struct.mode = GPIO_MODE_INPUT;                   /* 输入模式 */
+    // gpio_init_struct.pull_up_en = GPIO_PULLUP_DISABLE;         /* 失能上拉 */
+    // gpio_init_struct.pull_down_en = GPIO_PULLDOWN_ENABLE;     /* 使能下拉 */
+    // gpio_init_struct.pin_bit_mask = 1ull << EPD_BUSY_GPIO_PIN; /* 设置的引脚的位掩码 */
+    // gpio_config(&gpio_init_struct); 
 }
 
 /**

@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>TTF 字体转换功能测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .test-section {
+            border: 1px solid #ccc;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 3px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f0f0f0;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 TTF 字体转换功能测试</h1>
+    
+    <div class="test-section">
+        <h2>测试 1: Python 服务连接</h2>
+        <button onclick="testPythonService()">测试连接</button>
+        <div id="test1-status" class="status"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>测试 2: 函数定义检查</h2>
+        <button onclick="checkFunctions()">检查函数</button>
+        <div id="test2-status" class="status"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>测试 3: TTF 上传和预览</h2>
+        <input type="file" id="ttfUpload" accept=".ttf,.otf">
+        <br><br>
+        <button onclick="testPreview()">测试预览</button>
+        <div id="test3-status" class="status"></div>
+    </div>
+
+    <script>
+        // 测试 Python 服务
+        async function testPythonService() {
+            const status = document.getElementById('test1-status');
+            status.innerHTML = '⏳ 正在测试...';
+            
+            try {
+                const response = await fetch('http://localhost:5000/', {
+                    method: 'GET',
+                    mode: 'cors'
+                });
+                
+                const result = await response.json();
+                status.innerHTML = `✅ 服务运行正常<br>
+                    <code>${JSON.stringify(result, null, 2)}</code>`;
+            } catch (error) {
+                status.innerHTML = `❌ 无法连接到服务<br>
+                    错误: ${error.message}<br><br>
+                    <strong>解决方案:</strong><br>
+                    运行: <code>python tools/ttf_to_gfx_webservice.py</code><br>
+                    或双击: <code>启动字体转换服务.bat</code>`;
+            }
+        }
+        
+        // 检查函数是否定义
+        function checkFunctions() {
+            const status = document.getElementById('test2-status');
+            
+            const functions = [
+                'previewTTFFont',
+                'convertTTFtoGFX',
+                'downloadGFXHeader'
+            ];
+            
+            let html = '<strong>函数检查结果:</strong><br>';
+            let allDefined = true;
+            
+            functions.forEach(funcName => {
+                const isDefined = typeof window[funcName] === 'function';
+                allDefined = allDefined && isDefined;
+                html += `${isDefined ? '✅' : '❌'} ${funcName}: ${isDefined ? '已定义' : '未定义'}<br>`;
+            });
+            
+            html += '<br>';
+            if (allDefined) {
+                html += '✅ 所有函数都已正确定义';
+            } else {
+                html += '❌ 部分函数未定义，请检查 web_layout.html';
+            }
+            
+            status.innerHTML = html;
+        }
+        
+        // 测试预览功能
+        function testPreview() {
+            const status = document.getElementById('test3-status');
+            const fileInput = document.getElementById('ttfUpload');
+            
+            if (!fileInput.files[0]) {
+                status.innerHTML = '❌ 请先选择一个 TTF 文件';
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            status.innerHTML = `✅ 已选择文件: ${file.name}<br>
+                大小: ${(file.size / 1024).toFixed(2)} KB<br>
+                类型: ${file.type || '未知'}`;
+        }
+        
+        // 页面加载时自动检查
+        window.onload = function() {
+            checkFunctions();
+        };
+    </script>
+</body>
+</html>

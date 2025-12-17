@@ -1,6 +1,12 @@
 #include "ink_screen.h"
 #include "./SPI_Init.h"
 #include "esp_timer.h"
+#include "word_book.h"
+#include "wordbook_interface.h"
+#include "sleep_interface.h"
+
+// 前向声明 wordbook_interface.cpp 中的函数
+extern void showPromptInfor(uint8_t *tempPrompt, bool isAllRefresh);
 
 extern "C" {
 	#include "./EPD.h"
@@ -8,12 +14,75 @@ extern "C" {
 #include "./EPD_Font.h"
 #include "./Pic.h"
 }
+
+// ===== GXEPD2 集成 - 支持多种墨水屏 =====
+// 必须先包含 GxEPD2 和 Arduino 库,它们会提供 Adafruit_GFX.h
+#include <GxEPD2_BW.h>
+
+// 选择使用的屏幕驱动 (取消注释其中一个)
+#include <gdey/GxEPD2_370_GDEY037T03.h>  // 中景园 3.7" UC8253 (240x416) - 当前使用
+// #include <epd/GxEPD2_213_BN.h>        // 微雪 2.13" V4 SSD1680 (122x250)
+
+#include <Fonts/FreeMonoBold9pt7b.h>      // Adafruit GFX 字体
+#include <SPI.h>                          // Arduino SPI 库
+// ===== SD卡字库支持 (.bin 字库系统) =====
+#include "chinese_text_display.h"  // SD卡.bin字库显示助手
+#include "image_loader.h"          // SD卡图片加载器
+#include "multi_font_manager.h"    // 多字体管理器 (English 24x24 + 16x16)
+// ===== GXEPD2 全局显示对象 =====
+// 引脚定义（根据 inkScreen.h 硬件配置）
+#define EPD_CS_PIN     14  // BSP_SPI_CS_GPIO_PIN
+#define EPD_DC_PIN     13  // EPD_DC_GPIO_PIN
+#define EPD_RST_PIN    12  // EPD_RES_GPIO_PIN
+#define EPD_BUSY_PIN   4   // EPD_BUSY_GPIO_PIN
+
+// ===== 使用两个独立的 SPI 总线 =====
+// SPI2 (FSPI) - 用于 SD 卡（Arduino 默认 SPI 对象）
+//   在 system_ini() 中由 SPI.begin() 初始化
+//   引脚: SCK=37, MOSI=38, MISO=39, SS=36
+
+// SPI3 (HSPI) - 用于墨水屏（新建独立 SPI 对象）
+//   引脚: SCK=48, MOSI=47, MISO=-1, SS=14
+SPIClass EPD_SPI(HSPI);  // 创建独立的 SPI3 实例用于墨水屏 (ESP32-S3 使用 HSPI 代表 SPI3)
+#define EPD_SPI_SCK   48
+#define EPD_SPI_MOSI  47
+#define EPD_SPI_MISO  -1   // 墨水屏不需要 MISO
+
+// 选择显示对象 (取消注释其中一个)
+// 1. 中景园 3.7" UC8253 (240x416) - 当前使用
+GxEPD2_BW<GxEPD2_370_GDEY037T03, GxEPD2_370_GDEY037T03::HEIGHT> display(
+    GxEPD2_370_GDEY037T03(EPD_CS_PIN, EPD_DC_PIN, EPD_RST_PIN, EPD_BUSY_PIN)
+);
+
+// 2. 微雪 2.13" V4 SSD1680 (122x250)
+// GxEPD2_BW<GxEPD2_213_BN, GxEPD2_213_BN::HEIGHT> display(
+//     GxEPD2_213_BN(EPD_CS_PIN, EPD_DC_PIN, EPD_RST_PIN, EPD_BUSY_PIN)
+// ); 
+
 // 全局变量定义
 int g_last_underline_x = 0;
 int g_last_underline_y = 0;
 int g_last_underline_width = 0;
 // 全局变量：当前选中的图标索引
 int g_selected_icon_index = -1;
+
+// ======== 焦点系统变量 ========
+int g_current_focus_rect = 0;  // 当前焦点所在的矩形索引
+static int g_total_focusable_rects = 0;  // 可获得焦点的矩形总数
+bool g_focus_mode_enabled = false;  // 是否启用焦点模式
+
+// 可配置的焦点矩形列表
+static int g_focusable_rect_indices[MAX_FOCUSABLE_RECTS];  // 可焦点矩形的索引数组（母数组）
+static int g_focusable_rect_count = 0;  // 实际可焦点矩形数量
+static int g_current_focus_index = 0;  // 当前焦点在g_focusable_rect_indices中的位置
+
+// ======== 子母数组系统变量 ========
+static bool g_in_sub_array = false;  // 是否在子数组模式
+static int g_sub_array_indices[MAX_FOCUSABLE_RECTS][MAX_FOCUSABLE_RECTS];  // 每个母数组元素对应的子数组
+static int g_sub_array_counts[MAX_FOCUSABLE_RECTS];  // 每个母数组元素对应的子数组长度
+static int g_current_sub_focus_index = 0;  // 当前在子数组中的焦点位置
+static int g_parent_focus_index_backup = 0;  // 进入子数组前的母数组焦点位置备份
+
 uint8_t inkScreenTestFlag = 0; 
 uint8_t inkScreenTestFlagTwo = 0;
 uint8_t interfaceIndex=1;
@@ -26,53 +95,64 @@ LastUnderlineInfo g_last_underline = {0, 0, 0, 0, BLACK, false};
 const char *TAG = "ink_screen.cpp";
 static TaskHandle_t _eventTaskHandle = NULL;
 uint8_t ImageBW[12480];
-WordEntry entry;
+
 uint8_t *showPrompt=nullptr;
-IconPosition selected_icon = {0, 0, 0, 0, false};
+IconPosition selected_icon = {0, 0, 0, 0, false, 0, nullptr};
 // 全局变量记录上次显示信息
-static char lastDisplayedText[256] = {0};
-static uint16_t lastTextLength = 0;
-static uint16_t lastX = 65;
-static uint16_t lastY = 120;
-static uint16_t lastSize = 0;  // 添加字体大小记录
+char lastDisplayedText[256] = {0};
+uint16_t lastTextLength = 0;
+uint16_t lastX = 65;
+uint16_t lastY = 120;
+uint16_t lastSize = 0;  // 添加字体大小记录
 
 static esp_timer_handle_t sleep_timer;
 static bool is_sleep_mode = false;
 static uint32_t last_activity_time = 0;
 static const uint32_t SLEEP_TIMEOUT_MS = 25000; // 15秒
-// 休眠模式显示的数据
-static WordEntry sleep_mode_entry;
-static bool has_sleep_data = false;
+
 InkScreenSize setInkScreenSize;
 TimerHandle_t inkScreenDebounceTimer = NULL;
-// 全局图标数组
-IconInfo g_available_icons[21] = {
-    {ZHONGJINGYUAN_3_7_ICON_1, 62, 64},//1
-    {ZHONGJINGYUAN_3_7_ICON_2, 64, 64},//2
-    {ZHONGJINGYUAN_3_7_ICON_3, 86, 64},//3
-    {ZHONGJINGYUAN_3_7_ICON_4, 71, 56},//4
-    {ZHONGJINGYUAN_3_7_ICON_5, 76, 56},//5
-    {ZHONGJINGYUAN_3_7_ICON_6, 94, 64},//6
-    {ZHONGJINGYUAN_3_7_NAIL,15,16},//7
-    {ZHONGJINGYUAN_3_7_LOCK,32,32},//8
-    {ZHONGJINGYUAN_3_7_HORN,16,16},//9
-    {ZHONGJINGYUAN_3_7_BATTERY_1,36,24},//10
-    {ZHONGJINGYUAN_3_7_WIFI_DISCONNECT,32,32},//11
-    {ZHONGJINGYUAN_3_7_WIFI_CONNECT,32,32},//12
-    {ZHONGJINGYUAN_3_7_UNDERLINE,60,16},//13
-    {ZHONGJINGYUAN_3_7_promt,320,36},//14
-    {ZHONGJINGYUAN_3_7_wifi_battry,80,36},//15
-    {ZHONGJINGYUAN_3_7_word,336,48},//16
-    {ZHONGJINGYUAN_3_7_Translation1,416,24},//17
-    {ZHONGJINGYUAN_3_7_separate,416,16},//18
-    {ZHONGJINGYUAN_3_7_horn,80,16},//19
-    {ZHONGJINGYUAN_3_7_pon,80,32},//20
-    {ZHONGJINGYUAN_3_7_definition,416,72}//21
 
+// ======== 图标文件名映射表 ========
+// 与 g_available_icons 数组保持同步
+// 每个文件对应 components/resource/icon/ 文件夹中的文件
+const char *g_icon_filenames[13] = {
+    "icon1.jpg",             // 0: ICON_1
+    "icon2.jpg",             // 1: ICON_2
+    "icon3.jpg",             // 2: ICON_3
+    "icon4.jpg",             // 3: ICON_4
+    "icon5.jpg",             // 4: ICON_5
+    "icon6.jpg",             // 5: ICON_6
+    "12.jpg",                // 6: separate (分隔线)
+    "wifi_connect.jpg",      // 7: WIFI_CONNECT
+    "wifi_disconnect.jpg",   // 8: WIFI_DISCONNECT
+    "battery_1.jpg",         // 9: BATTERY_1
+    "horn.jpg",              // 10: HORN (喇叭)
+    "nail.jpg",              // 11: NAIL (钉子)
+    "lock.jpg"               // 12: LOCK (锁)
+};
+
+// 全局图标数组 - 仅使用在 Pic.h 中定义的有效图标
+// 注：部分位图未在 Pic.h 中定义（ZHONGJINGYUAN_3_7_promt, wifi_battry, word, Translation1, pon, definition）
+// 图标索引对应的文件在 components/resource/icon/ 文件夹中
+IconInfo g_available_icons[13] = {
+    {ZHONGJINGYUAN_3_7_ICON_1, 62, 64},           // 0: ICON_1 -> icon1.jpg
+    {ZHONGJINGYUAN_3_7_ICON_2, 64, 64},           // 1: ICON_2 -> icon2.jpg
+    {ZHONGJINGYUAN_3_7_ICON_3, 86, 64},           // 2: ICON_3 -> icon3.jpg
+    {ZHONGJINGYUAN_3_7_ICON_4, 71, 56},           // 3: ICON_4 -> icon4.jpg
+    {ZHONGJINGYUAN_3_7_ICON_5, 76, 56},           // 4: ICON_5 -> icon5.jpg
+    {ZHONGJINGYUAN_3_7_ICON_6, 94, 64},           // 5: ICON_6 -> icon6.jpg
+    {ZHONGJINGYUAN_3_7_separate, 120, 8},         // 6: separate (分隔线) -> 12.jpg
+    {ZHONGJINGYUAN_3_7_WIFI_CONNECT, 32, 32},     // 7: WIFI_CONNECT -> wifi_connect.jpg
+    {ZHONGJINGYUAN_3_7_WIFI_DISCONNECT, 32, 32},  // 8: WIFI_DISCONNECT -> wifi_disconnect.jpg
+    {ZHONGJINGYUAN_3_7_BATTERY_1, 36, 24},        // 9: BATTERY_1 -> battery_1.jpg
+    {ZHONGJINGYUAN_3_7_HORN, 16, 16},             // 10: HORN (喇叭) -> horn.jpg
+    {ZHONGJINGYUAN_3_7_NAIL, 15, 16},             // 11: NAIL (钉子) -> nail.jpg
+    {ZHONGJINGYUAN_3_7_LOCK, 32, 32}              // 12: LOCK (锁) -> lock.jpg
 };
 
 // 全局界面管理器实例
-static ScreenManager g_screen_manager;
+ScreenManager g_screen_manager;
 
 void showChineseString(uint16_t x, uint16_t y, uint8_t *s, uint8_t sizey, uint16_t color)
 {
@@ -93,7 +173,7 @@ void showChineseString(uint16_t x, uint16_t y, uint8_t *s, uint8_t sizey, uint16
         }
         
         // 显示单个汉字
-        EPD_ShowChinese_UTF8_Single(currentX, y, p, sizey, color);
+        // display.drawBitmap(中文显示);
         
         // 移动到下一个字符
         p += 3;
@@ -123,7 +203,7 @@ void clearLastUnderline() {
         
         // 用白色覆盖上次的下划线
         for (int i = 0; i < 3; i++) {  // 清除3像素高度的区域
-            EPD_DrawLine(g_last_underline_x, 
+            display.drawLine(g_last_underline_x, 
                         g_last_underline_y + i, 
                         g_last_underline_x + g_last_underline_width, 
                         g_last_underline_y + i, 
@@ -154,13 +234,13 @@ void drawUnderlineForIconEx(int icon_index) {
     ESP_LOGI(TAG, "图标%d信息: 原始坐标(%d,%d), 原始尺寸(%dx%d)", 
             icon_index, icon->x, icon->y, icon->width, icon->height);
     
-    // 初始化显示（确保可以绘制）
-    EPD_FastInit();
-    EPD_Display_Clear();
-    EPD_Update();  //局刷之前先对E-Paper进行清屏操作
+    // 初始化显示（使用 GXEPD2）
+    display.init(0, true, 2, true);  // 完全初始化
+    display.clearScreen();            // 清空屏幕
+    display.display(true);            // 完全刷新
     vTaskDelay(100 / portTICK_PERIOD_MS);
-    EPD_PartInit();
-      // 清除上次的下划线（如果有）
+    display.setPartialWindow(0, 0, display.width(), display.height());  // 设置局部更新区域
+    // 清除上次的下划线（如果有）
     clearLastUnderline();
     // 计算缩放比例
     float scale_x = (float)setInkScreenSize.screenWidth / 416.0f;
@@ -188,11 +268,11 @@ void drawUnderlineForIconEx(int icon_index) {
     // int underline_y = 150;  // 临时固定位置测试
     
     // 绘制2像素粗的线
-    EPD_DrawLine(x, underline_y, x + width, underline_y, BLACK);
-    EPD_DrawLine(x, underline_y + 1, x + width, underline_y + 1, BLACK);
+    display.drawLine(x, underline_y, x + width, underline_y, BLACK);
+    display.drawLine(x, underline_y + 1, x + width, underline_y + 1, BLACK);
     
     // 绘制一个测试矩形，确认绘制功能正常
-    // EPD_DrawRectangle(x, y, x + width, y + height, BLACK, 1);
+    // display.drawRect(x, y, x + width - x, y + height - y, BLACK);
     
     // 记录这次的下划线位置（用于下次清除）
     g_last_underline_x = x;
@@ -200,9 +280,9 @@ void drawUnderlineForIconEx(int icon_index) {
     g_last_underline_width = width;
     
     // 更新显示
-    EPD_Display(ImageBW);
-    EPD_Update();
-    EPD_DeepSleep();
+    display.display();
+    display.display(true);
+    display.powerOff();
 
     ESP_LOGI(TAG, "在图标%d下方绘制下划线完成: 位置(%d,%d), 宽度%d, 图标底部Y=%d", 
             icon_index, x, underline_y, width, y + height);
@@ -248,45 +328,45 @@ void updateDisplayWithWifiIcon()
 
 	if(isFrist == 0 && lastWifiStatus==currentWifiStatus) {
 		if(currentWifiStatus) {
-			EPD_ShowPicture(340, 1, 32, 32, ZHONGJINGYUAN_3_7_WIFI_CONNECT , BLACK);
+			display.drawImage(ZHONGJINGYUAN_3_7_WIFI_CONNECT, 340, 1, 32, 32, true);
 		} else {
-			 EPD_ShowPicture(340, 1, 32, 32, ZHONGJINGYUAN_3_7_WIFI_DISCONNECT, BLACK); 
+			 display.drawImage(ZHONGJINGYUAN_3_7_WIFI_DISCONNECT, 340, 1, 32, 32, true); 
 		}
 		isFrist = 1;
 	}
     // 只在状态改变时更新显示
     if(lastWifiStatus != currentWifiStatus) {
-		EPD_FastInit();
-		EPD_Display_Clear();
-		EPD_Update();  //局刷之前先对E-Paper进行清屏操作
+		display.init(0, true, 2, true);
+		display.clearScreen();
+		display.display(true);  //局刷之前先对E-Paper进行清屏操作
 		delay_ms(100);
-		EPD_PartInit();
-        clearDisplayArea(5,5,340,30);
-	    clearDisplayArea(60,40,EPD_H,EPD_W);
-		EPD_ShowPicture(380,2,36,24,ZHONGJINGYUAN_3_7_BATTERY_1,BLACK);
-		EPD_ShowPicture(60,40,62,64,ZHONGJINGYUAN_3_7_ICON_1,BLACK);
-		EPD_ShowPicture(180,40,64,64,ZHONGJINGYUAN_3_7_ICON_2,BLACK);
-		EPD_ShowPicture(300,40,86,64,ZHONGJINGYUAN_3_7_ICON_3,BLACK);
-		EPD_ShowPicture(60,140,71,56,ZHONGJINGYUAN_3_7_ICON_4,BLACK);
-		EPD_ShowPicture(180,140,76,56,ZHONGJINGYUAN_3_7_ICON_5,BLACK);
-		EPD_ShowPicture(300,140,94,64,ZHONGJINGYUAN_3_7_ICON_6,BLACK);
+		display.setPartialWindow(0, 0, display.width(), display.height());
+        display.fillRect(5, 5, 340, 30, GxEPD_WHITE);
+	    display.fillRect(60, 40, EPD_H, EPD_W, GxEPD_WHITE);
+		display.drawImage(ZHONGJINGYUAN_3_7_BATTERY_1, 380, 2, 36, 24, true);
+		display.drawImage(ZHONGJINGYUAN_3_7_ICON_1, 60, 40, 62, 64, true);
+		display.drawImage(ZHONGJINGYUAN_3_7_ICON_2, 180, 40, 64, 64, true);
+		display.drawImage(ZHONGJINGYUAN_3_7_ICON_3, 300, 40, 86, 64, true);
+		display.drawImage(ZHONGJINGYUAN_3_7_ICON_4, 60, 140, 71, 56, true);
+		display.drawImage(ZHONGJINGYUAN_3_7_ICON_5, 180, 140, 76, 56, true);
+		display.drawImage(ZHONGJINGYUAN_3_7_ICON_6, 300, 140, 94, 64, true);
         // 清除原图标区域
-        EPD_DrawRectangle(340, 1, 340+32, 1+32, WHITE, 1);
+        display.drawRect(340, 1, 32, 32, WHITE);
         
         // 根据 WiFi 连接状态选择图标
         if(currentWifiStatus) {
-           EPD_ShowPicture(340, 1, 32, 32, ZHONGJINGYUAN_3_7_WIFI_CONNECT , BLACK);  // WiFi 已连接
+           display.drawImage(ZHONGJINGYUAN_3_7_WIFI_CONNECT, 340, 1, 32, 32, true);  // WiFi 已连接
             ESP_LOGI("WIFI222222222222", "WiFi状态: 已连接");
         } else {
-           EPD_ShowPicture(340, 1, 32, 32, ZHONGJINGYUAN_3_7_WIFI_DISCONNECT, BLACK); // WiFi 未连接
+           display.drawImage(ZHONGJINGYUAN_3_7_WIFI_DISCONNECT, 340, 1, 32, 32, true); // WiFi 未连接
             ESP_LOGI("WIFI111111111111111", "WiFi状态: 未连接");
         }
         
         lastWifiStatus = currentWifiStatus;
 
-		EPD_Display(ImageBW);
-		EPD_Update();
-		EPD_DeepSleep();
+		display.display();
+		display.display(true);
+		display.powerOff();
 	//	delay_ms(1000);
     }
 }
@@ -295,22 +375,18 @@ void updateDisplayWithWifiIcon()
 void clearEntireScreen() {
     ESP_LOGI(TAG, "清空整个屏幕");
     
-    EPD_FastInit();
-    EPD_Display_Clear();
-    EPD_Update();
+    display.init(0, true, 2, true);
+    display.clearScreen();
+    display.display(true);
     delay_ms(50);
-    EPD_PartInit();
+    display.setPartialWindow(0, 0, display.width(), display.height());
     
     // 清除整个屏幕区域
-    for (int y = 0; y < setInkScreenSize.screenHeigt; y += 8) {
-        for (int x = 0; x < setInkScreenSize.screenWidth; x++) {
-            Paint_SetPixel(x, y, WHITE);
-        }
-    }
+    display.fillRect(0, 0, setInkScreenSize.screenWidth, setInkScreenSize.screenHeigt, GxEPD_WHITE);
     
     // 更新显示
-    EPD_Display(ImageBW);
-    EPD_Update();
+    display.display();
+    display.display(true);
     delay_ms(50);
     ESP_LOGI(TAG, "屏幕已清空");
 }
@@ -344,11 +420,7 @@ void clearAllRectAreas(RectInfo *rects, int rect_count) {
         
         if (display_width > 0 && display_height > 0) {
             // 清除矩形区域（用白色填充）
-            for (int y = display_y; y < display_y + display_height; y++) {
-                for (int x = display_x; x < display_x + display_width; x++) {
-                    Paint_SetPixel(x, y, WHITE);
-                }
-            }
+            display.fillRect(display_x, display_y, display_width, display_height, GxEPD_WHITE);
             
             ESP_LOGD(TAG, "清除矩形%d区域: (%d,%d) %dx%d", 
                     i, display_x, display_y, display_width, display_height);
@@ -359,11 +431,11 @@ void clearAllRectAreas(RectInfo *rects, int rect_count) {
 void clearAllPictureAreas() {
     for (int i = 0; i < PICTURE_AREA_COUNT; i++) {
         if (picture_areas[i].displayed) {
-            EPD_DrawRectangle(picture_areas[i].x, 
+            display.drawRect(picture_areas[i].x, 
                             picture_areas[i].y, 
-                            picture_areas[i].x + picture_areas[i].width, 
-                            picture_areas[i].y + picture_areas[i].height, 
-                            WHITE, 1);
+                            picture_areas[i].width, 
+                            picture_areas[i].height, 
+                            WHITE);
             picture_areas[i].displayed = false;
             
             ESP_LOGI(TAG, "清除图片区域%d: 位置(%d,%d), 大小(%dx%d)", 
@@ -376,11 +448,11 @@ void clearAllPictureAreas() {
 // 清除指定图片区域
 void clearPictureArea(uint8_t area_index) {
     if (area_index < PICTURE_AREA_COUNT && picture_areas[area_index].displayed) {
-        EPD_DrawRectangle(picture_areas[area_index].x, 
+        display.drawRect(picture_areas[area_index].x, 
                         picture_areas[area_index].y, 
-                        picture_areas[area_index].x + picture_areas[area_index].width, 
-                        picture_areas[area_index].y + picture_areas[area_index].height, 
-                        WHITE, 1);
+                        picture_areas[area_index].width, 
+                        picture_areas[area_index].height, 
+                        WHITE);
         picture_areas[area_index].displayed = false;
         
         ESP_LOGI(TAG, "清除指定图片区域%d", area_index);
@@ -396,7 +468,7 @@ void markPictureAreaDisplayed(uint8_t area_index) {
 
 // 显示图片并自动标记区域
 void EPD_ShowPictureWithMark(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint8_t *image, uint16_t color) {
-    EPD_ShowPicture(x, y, width, height, image, color);
+    display.drawImage(image, x, y, width, height, true);
     
     // 查找并标记对应的显示区域
     for (int i = 0; i < PICTURE_AREA_COUNT; i++) {
@@ -416,7 +488,7 @@ void clearDisplayArea(uint16_t start_x, uint16_t start_y, uint16_t end_x, uint16
     if (end_x > EPD_H) end_x = EPD_H;
     if (end_y > EPD_W) end_y = EPD_W;
     
-    EPD_DrawRectangle(start_x, start_y, end_x, end_y, WHITE, 1);
+    display.fillRect(start_x, start_y, end_x - start_x, end_y - start_y, GxEPD_WHITE);
     
     ESP_LOGI(TAG, "清除显示区域: (%d,%d)到(%d,%d)", start_x, start_y, end_x, end_y);
 }
@@ -428,12 +500,19 @@ void clearSpecificIcons(uint8_t *icon_indices, uint8_t count) {
     }
     
     // 立即刷新显示
-    EPD_Display(ImageBW);
-    EPD_Update();
+    display.display();
+    display.display(true);
 }
-void EPD_ShowPictureScaled(uint16_t orig_x, uint16_t orig_y, 
+void drawPictureScaled(uint16_t orig_x, uint16_t orig_y, 
                            uint16_t orig_w, uint16_t orig_h,
                            const uint8_t* BMP, uint16_t color) {
+    // 安全检查：图片数据不能为空
+    if (BMP == nullptr) {
+        ESP_LOGE(TAG, "EPD_ShowPictureScaled: BMP数据为空指针！位置(%d,%d) 尺寸%dx%d", 
+                orig_x, orig_y, orig_w, orig_h);
+        return;
+    }
+    
     // 使用统一的缩放因子保持长宽比（按最小缩放因子适配到屏幕）
     float scale_x = (float) setInkScreenSize.screenWidth / (float)416;
     float scale_y = (float)setInkScreenSize.screenHeigt / (float)240;
@@ -448,6 +527,31 @@ void EPD_ShowPictureScaled(uint16_t orig_x, uint16_t orig_y,
     // 确保最小尺寸
     if (new_w < 4) new_w = 4;
     if (new_h < 4) new_h = 4;
+
+    // 边界裁剪，避免越界写入缓冲区
+    const uint16_t screen_w = setInkScreenSize.screenWidth;
+    const uint16_t screen_h = setInkScreenSize.screenHeigt;
+    if (new_x >= screen_w || new_y >= screen_h) {
+        ESP_LOGW(TAG, "EPD_ShowPictureScaled: 位置(%d,%d)超出屏幕(%d,%d)，跳过绘制", new_x, new_y, screen_w, screen_h);
+        return;
+    }
+
+    if (new_x + new_w > screen_w) {
+        uint16_t clipped_w = screen_w - new_x;
+        ESP_LOGW(TAG, "EPD_ShowPictureScaled: 宽度裁剪 %d -> %d (屏幕宽度=%d)", new_w, clipped_w, screen_w);
+        new_w = clipped_w;
+    }
+
+    if (new_y + new_h > screen_h) {
+        uint16_t clipped_h = screen_h - new_y;
+        ESP_LOGW(TAG, "EPD_ShowPictureScaled: 高度裁剪 %d -> %d (屏幕高度=%d)", new_h, clipped_h, screen_h);
+        new_h = clipped_h;
+    }
+
+    if (new_w == 0 || new_h == 0) {
+        ESP_LOGW(TAG, "EPD_ShowPictureScaled: 裁剪后尺寸为0，跳过绘制");
+        return;
+    }
 
     // 源图每列的字节数（源图按列存储，每字节8个垂直像素）
     uint16_t src_bytes_per_col = (orig_h + 7) / 8;
@@ -468,7 +572,7 @@ void EPD_ShowPictureScaled(uint16_t orig_x, uint16_t orig_y,
             bool pixel_on = (src_byte & (0x80 >> src_bit_pos)) != 0;
 
             // 设置目标像素
-            Paint_SetPixel(new_x + dx, new_y + dy, pixel_on ? !color : color);
+            display.drawPixel(new_x + dx, new_y + dy, pixel_on ? !color : color);
         }
     }
 
@@ -476,242 +580,154 @@ void EPD_ShowPictureScaled(uint16_t orig_x, uint16_t orig_y,
              orig_x, orig_y, orig_w, orig_h, new_x, new_y, new_w, new_h);
 }
 
-// 定义7个矩形，每个矩形可以显示多个图标
-RectInfo rects[7] = {
-    // ==================== 矩形0：状态栏 ====================
-    // 位于屏幕顶部，显示状态信息
-    {
-        0, 0, 416, 36,  // x, y, width, height - 横跨整个顶部
-        {                // icons数组
-            {0.0f, 0.0f, 0},
-            {0.0f, 0.0f, 0},
-            {0.0f, 0.0f, 0},
-            {0.0f, 0.0f, 0}
-        },
-        0                // icon_count - 状态栏不显示应用图标
-    },
-    
-    // ==================== 矩形1：左上区域 ====================
-    // 占据左上角，显示3个图标
-    {
-        0, 40, 138, 100,  // x, y, width, height
-        {
-            {0.1f, 0.1f, 0},  // 左上方，图标0
-            {0.4f, 0.1f, 1},  // 右上方，图标1
-            {0.2f, 0.3f, 2},   // 下方居中，图标2
-            {0.0f, 0.0f, 0}     // 填充
-        },
-        3
-    },
-    
-    // ==================== 矩形2：中上区域 ====================
-    // 位于矩形1右侧
-    {
-        142, 40, 132, 100,  // x, y, width, height
-        {
-            {0.1f, 0.1f, 3},  // 图标3
-            {0.3f, 0.3f, 4},  // 图标4
-            {0.0f, 0.0f, 0},  // 填充
-            {0.0f, 0.0f, 0}   // 填充
-        },
-        2
-    },
-    
-    // ==================== 矩形3：右上区域 ====================
-    // 位于矩形2右侧
-    {
-        278, 40, 138, 100,  // x, y, width, height
-        {
-            {0.1f, 0.2f, 5},  // 左侧居中，图标5
-            {0.4f, 0.2f, 0},  // 右侧居中，图标0（循环使用）
-            {0.0f, 0.0f, 0},   // 填充
-            {0.0f, 0.0f, 0}    // 填充
-        },
-        2
-    },
-    
-    // ==================== 矩形4：左下区域 ====================
-    // 位于屏幕左下角
-    {
-        0, 144, 138, 96,  // x, y, width, height
-        {
-            {0.1f, 0.1f, 1},  // 图标1
-            {0.2f, 0.1f, 2},  // 图标2
-            {0.4f, 0.1f, 3},  // 图标3
-            {0.2f, 0.3f, 4}   // 底部居中，图标4
-        },
-        4
-    },
-    
-    // ==================== 矩形5：中下区域 ====================
-    // 位于矩形4右侧
-    {
-        142, 144, 132, 96,  // x, y, width, height
-        {
-            {0.1f, 0.1f, 5},  // 顶部居中，图标5
-            {0.2f, 0.3f, 0},  // 左下，图标0
-            {0.4f, 0.3f, 1},  // 右下，图标1
-            {0.0f, 0.0f, 0}    // 填充
-        },
-        3
-    },
-    
-    // ==================== 矩形6：右下区域 ====================
-    // 位于屏幕右下角
-    {
-        278, 144, 138, 96,  // x, y, width, height
-        {
-            {0.2f, 0.2f, 2},  // 中心，图标2
-            {0.0f, 0.0f, 0},  // 填充
-            {0.0f, 0.0f, 0},  // 填充
-            {0.0f, 0.0f, 0}   // 填充
-        },
-        1
+// ==================== 框架辅助函数 ====================
+
+/**
+ * @brief 添加图标到矩形
+ * @param rects 矩形数组
+ * @param rect_index 目标矩形索引
+ * @param icon_index 图标索引（0-20）
+ * @param rel_x 相对X位置（0.0-1.0，0.5为中心）
+ * @param rel_y 相对Y位置（0.0-1.0，0.5为中心）
+ * @return 是否成功添加
+ */
+bool addIconToRect(RectInfo* rects, int rect_index, int icon_index, float rel_x, float rel_y) {
+    if (rects == nullptr) {
+        ESP_LOGE(TAG, "addIconToRect: rects为空");
+        return false;
     }
+    
+    RectInfo* rect = &rects[rect_index];
+    
+    // 检查是否还有空间
+    if (rect->icon_count >= 2) {
+        ESP_LOGW(TAG, "矩形%d已满，无法添加图标%d", rect_index, icon_index);
+        return false;
+    }
+    
+    // 添加图标
+    rect->icons[rect->icon_count].rel_x = rel_x;
+    rect->icons[rect->icon_count].rel_y = rel_y;
+    rect->icons[rect->icon_count].icon_index = icon_index;
+    rect->icon_count++;
+    
+    ESP_LOGI(TAG, "添加图标%d到矩形%d, 位置(%.2f, %.2f), 当前图标数:%d", 
+            icon_index, rect_index, rel_x, rel_y, rect->icon_count);
+    
+    return true;
+}
+
+/**
+ * @brief 清空矩形内所有图标
+ */
+void clearRectIcons(RectInfo* rect) {
+    if (rect == nullptr) return;
+    
+    for (int i = 0; i < 4; i++) {
+        rect->icons[i].rel_x = 0.0f;
+        rect->icons[i].rel_y = 0.0f;
+        rect->icons[i].icon_index = 0;
+    }
+    rect->icon_count = 0;
+}
+
+// ==================== 框架定义（主界面7个框） ====================
+
+// 定义7个框架，只定义位置和内容类型，图标后续添加
+RectInfo rects[MAX_MAIN_RECTS] = {
+    // 矩形0：状态栏
+    // {0, 0, 416, 36, CONTENT_ICON_ONLY, 0, ALIGN_CENTER, ALIGN_MIDDLE, 0, 0, 0, 0, 0, 
+    //  {{0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}}, 0,
+    //  {{0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}}, 0, false},
+    
+    // // 矩形1：左上区域
+    // {0, 40, 136, 100, CONTENT_ICON_ONLY, 0, ALIGN_CENTER, ALIGN_MIDDLE, 0, 0, 0, 0, 0, 
+    //  {{0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}}, 0,
+    //  {{0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}}, 0, false},
+    
+    // // 矩形2：中上区域
+    // {142, 40, 136, 100, CONTENT_ICON_ONLY, 0, ALIGN_CENTER, ALIGN_MIDDLE, 0, 0, 0, 0, 0, 
+    //  {{0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}}, 0,
+    //  {{0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}}, 0, false},
+    
+    // // 矩形3：右上区域
+    // {278, 40, 136, 100, CONTENT_ICON_ONLY, 0, ALIGN_CENTER, ALIGN_MIDDLE, 0, 0, 0, 0, 0, 
+    //  {{0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}}, 0,
+    //  {{0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}}, 0, false},
+    
+    // // 矩形4：左下区域
+    // {0, 144, 138, 96, CONTENT_ICON_ONLY, 0, ALIGN_CENTER, ALIGN_MIDDLE, 0, 0, 0, 0, 0, 
+    //  {{0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}}, 0,
+    //  {{0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}}, 0, false},
+    
+    // // 矩形5：中下区域
+    // {142, 144, 132, 96, CONTENT_ICON_ONLY, 0, ALIGN_CENTER, ALIGN_MIDDLE, 0, 0, 0, 0, 0, 
+    //  {{0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}}, 0,
+    //  {{0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}}, 0, false},
+    
+    // // 矩形6：右下区域
+    // {278, 144, 138, 96, CONTENT_ICON_ONLY, 0, ALIGN_CENTER, ALIGN_MIDDLE, 0, 0, 0, 0, 0, 
+    //  {{0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}}, 0,
+    //  {{0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}}, 0, false}
 };
 
-// 矩形总数
-int rect_count = sizeof(rects) / sizeof(rects[0]);
+// 矩形总数 - 从屏幕管理器中获取实际配置的数量
+int rect_count = 0;  // 将在ink_screen_init()中设置为实际值
 
-// 网格布局示意图：
-//  ┌─────────────────────────────────────────────────┐
-//  │                   状态栏 (0)                     │
-//  ├────────────┬────────────┬───────────────┤
-//  │  矩形1     │   矩形2    │    矩形3      │
-//  │  (3图标)   │  (2图标)   │   (2图标)     │
-//  │            │            │               │
-//  ├────────────┼────────────┼───────────────┤
-//  │  矩形4     │   矩形5    │    矩形6      │
-//  │  (4图标)   │  (3图标)   │   (1图标)     │
-//  │            │            │               │
-//  └────────────┴────────────┴───────────────┘
+// ==================== 框架定义（单词界面，最多MAX_VOCAB_RECTS个框） ====================
 
-
-   // 定义10个矩形，每个矩形可以显示多个图标
-    RectInfo vocab_rects[10] = {
-        // ==================== 矩形0：状态栏 ====================
-        // 位于屏幕顶部左侧，显示提示信息
-        {
-            0, 0, 336, 36,  // x, y, width, height - 占据屏幕整个顶部4/5区域
-            {                // icons数组
-                {0.0f, 0.0f, 7}, // 左上方，图标7
-                {0.1f, 0.1f, 14},
-                {0.0f, 0.0f, 0},
-                {0.0f, 0.0f, 0}
-            },
-            2               // icon_count - 状态栏不显示应用图标
-        },
-        
-        // ==================== 矩形1：右上区域 ====================
-        // 占据右上角，显示1个图标
-        {
-            336, 0, 416, 36,  // x, y, width, height
-            {
-                {0.2f, 0.2f, 15},  // 左上方，图标15
-                {0.0f, 0.0f, 0},  // 填充
-                {0.0f, 0.0f, 0},  // 填充
-                {0.0f, 0.0f, 0}     // 填充
-            },
-            1
-        },
-        
-        // ==================== 矩形2：中左区域 ====================
-        // 位于矩形2中左侧
-        {
-            0, 40, 336, 90,  // x, y, width, height
-            {
-                {0.1f, 0.1f, 16},  // 图标16
-                {0.0f, 0.0f, 0},  
-                {0.0f, 0.0f, 0},  // 填充
-                {0.0f, 0.0f, 0}   // 填充
-            },
-            1
-        },
-        
-        // ==================== 矩形3：中右区域 ====================
-        // 位于矩形2右侧
-        {
-            336, 40, 416, 56,  // x, y, width, height
-            {
-                {0.1f, 0.2f, 19},  // 左侧居中，图标5
-                {0.0f, 0.0f, 0},  //
-                {0.0f, 0.0f, 0},   // 填充
-                {0.0f, 0.0f, 0}    // 填充
-            },
-            1
-        },
-        
-        // ==================== 矩形4：左下区域 ====================
-        // 位于屏幕左下角
-        {
-            336, 56, 416, 90,  // x, y, width, height
-            {
-                {0.1f, 0.1f, 20},  // 图标20
-                {0.0f, 0.0f, 0},  
-                {00.0f, 0.0f, 0},  
-                {0.0f, 0.0f, 0}   
-            },
-            1
-        },
-        
-        // ==================== 矩形5：中下区域 ====================
-        // 位于矩形4右侧
-        {
-            0, 90, 416, 140,  // x, y, width, height
-            {
-                {0.1f, 0.1f, 5},  // 16
-                {0.0f, 0.0f, 0},  // 左下，图标0
-                {0.0f, 0.0f, 0},  // 右下，图标1
-                {0.0f, 0.0f, 0}    // 填充
-            },
-            1
-        },
-        
-        // ==================== 矩形6：右下区域 ====================
-        // 位于屏幕右下角
-        {
-            0, 140, 416, 166,  // x, y, width, height
-            {
-                {0.2f, 0.2f, 2},  // 17
-                {0.0f, 0.0f, 0},  // 填充
-                {0.0f, 0.0f, 0},  // 填充
-                {0.0f, 0.0f, 0}   // 填充
-            },
-            1
-        },
-
-        {
-            0, 184, 416, 200,  // x, y, width, height
-            {
-                {0.2f, 0.2f, 2},  // 18
-                {0.0f, 0.0f, 0},  // 填充
-                {0.0f, 0.0f, 0},  // 填充
-                {0.0f, 0.0f, 0}   // 填充
-            },
-            1
-        },
-        
-        {
-            0, 200, 416, 224,  // x, y, width, height
-            {
-                {0.2f, 0.2f, 2},  // 17
-                {0.0f, 0.0f, 0},  // 填充
-                {0.0f, 0.0f, 0},  // 填充
-                {0.0f, 0.0f, 0}   // 填充
-            },
-            1
-        },
-        {
-            0, 224, 416, 240,  // x, y, width, height
-            {
-                {0.2f, 0.2f, 2},  // 18
-                {0.0f, 0.0f, 0},  // 填充
-                {0.0f, 0.0f, 0},  // 填充
-                {0.0f, 0.0f, 0}   // 填充
-            },
-            1
-        }
-    };
+// 定义矩形框架数组，只定义位置和内容类型，图标后续添加
+RectInfo vocab_rects[MAX_VOCAB_RECTS] = {
+    // 矩形0：状态栏左侧（提示信息区）
+    // {0, 0, 336, 36, CONTENT_STATUS_BAR, 16, ALIGN_LEFT, ALIGN_MIDDLE, 
+    //  10, 10, 4, 4, 20, {{0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}}, 0,
+    //  {{0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}}, 0, false},
+    
+    // // 矩形1：状态栏右侧（WiFi/电池）
+    // {336, 0, 80, 36, CONTENT_ICON_ONLY, 0, ALIGN_CENTER, ALIGN_MIDDLE, 
+    //  0, 0, 0, 0, 0, {{0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}}, 0,
+    //  {{0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}}, 0, false},
+    
+    // // 矩形2：英文单词显示区 - 不预设文本内容
+    // {0, 40, 416, 48, CONTENT_WORD, 24, ALIGN_LEFT, ALIGN_MIDDLE, 
+    //  10, 10, 4, 4, 28, {{0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}}, 0,
+    //  {{0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}}, 0, true},
+    
+    // // 矩形3：音标喇叭图标区
+    // {336, 40, 80, 16, CONTENT_ICON_ONLY, 0, ALIGN_CENTER, ALIGN_MIDDLE, 
+    //  0, 0, 0, 0, 0, {{0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}}, 0,
+    //  {{0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}}, 0, false},
+    
+    // // 矩形4：音标文字显示区 - 不预设文本内容
+    // {336, 56, 80, 32, CONTENT_PHONETIC, 16, ALIGN_CENTER, ALIGN_MIDDLE, 
+    //  5, 5, 4, 4, 20, {{0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}}, 0,
+    //  {{0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}}, 0, true},
+    
+    // // 矩形5：英文例句/释义区 - 不预设文本内容
+    // {0, 90, 416, 72, CONTENT_DEFINITION, 16, ALIGN_LEFT, ALIGN_TOP, 
+    //  8, 8, 8, 8, 20, {{0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}}, 0,
+    //  {{0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}}, 0, true},
+    
+    // // 矩形6：分隔线1
+    // {0, 162, 416, 16, CONTENT_SEPARATOR, 0, ALIGN_CENTER, ALIGN_MIDDLE, 
+    //  0, 0, 0, 0, 0, {{0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}}, 0,
+    //  {{0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}}, 0, false},
+    
+    // // 矩形7：翻译标题
+    // {0, 178, 416, 24, CONTENT_ICON_ONLY, 0, ALIGN_CENTER, ALIGN_MIDDLE, 
+    //  0, 0, 0, 0, 0, {{0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}}, 0,
+    //  {{0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}}, 0, false},
+    
+    // // 矩形8：中文翻译区 - 不预设文本内容
+    // {0, 202, 416, 22, CONTENT_TRANSLATION, 16, ALIGN_LEFT, ALIGN_TOP, 
+    //  8, 8, 4, 4, 20, {{0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}}, 0,
+    //  {{0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}}, 0, true},
+    
+    // // 矩形9：底部分隔线
+    // {0, 224, 416, 16, CONTENT_SEPARATOR, 0, ALIGN_CENTER, ALIGN_MIDDLE, 
+    //  0, 0, 0, 0, 0, {{0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}}, 0,
+    //  {{0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 16, ALIGN_LEFT, ALIGN_TOP, 0, 0}}, 0, false}
+};
 
 /**
  * @brief 四舍五入浮点数到整数
@@ -736,6 +752,110 @@ int min_int(int a, int b) {
 
 
 int icon_totalCount = sizeof(g_available_icons) / sizeof(g_available_icons[0]);
+
+// ==================== 图标布局初始化函数 ====================
+
+/**
+ * @brief 初始化主界面的图标布局
+ * 
+ * 使用示例：
+ * - addIconToRect(rects, 1, 0, 0.2, 0.2);  // 矩形1，图标0，位置(20%, 20%)
+ * - addIconToRect(rects, 1, 1, 0.5, 0.5);  // 矩形1，图标1，中心位置
+ */
+void initMainScreenIcons() {
+    ESP_LOGI(TAG, "========== 初始化主界面图标布局 ==========");
+
+    // 矩形0：状态栏 - 1个图标
+    // addIconToRect(rects, 0, 11, 0.5, 0.0);   // 图标0 (ICON_1: 62x64)，左上
+
+
+    // 矩形1：左上区域
+    // addIconToRect(rects, 1, 1, 0.3, 0.3);   // 图标1 (ICON_2: 64x64)，右上
+    // addIconToRect(rects, 1, 2, 0.4, 0.6);
+    
+    // 矩形2：中上区域
+    // addIconToRect(rects, 2, 2, 0.3, 0.3);   // 图标2
+    // addIconToRect(rects, 2, 4, 0.6, 0.5);
+    
+    // 矩形3：右上区域
+    // addIconToRect(rects, 3, 3, 0.3, 0.3);   // 图标3 (ICON_6: 94x64)
+    // addIconToRect(rects, 3, 0, 0.6, 0.4);
+    
+    // 矩形4：左下区域
+    // addIconToRect(rects, 4, 4, 0.3, 0.3);  // 图标4
+    // addIconToRect(rects, 4, 2, 0.35, 0.2);
+    // addIconToRect(rects, 4, 3, 0.6, 0.2);
+    // addIconToRect(rects, 4, 4, 0.4, 0.6);
+    
+    // 矩形5：中下区域
+    // addIconToRect(rects, 5, 5, 0.3, 0.3);   // 图标5
+    // addIconToRect(rects, 5, 0, 0.3, 0.6);
+    // addIconToRect(rects, 5, 1, 0.6, 0.6);
+    
+    // 矩形6：右下区域
+    // addIconToRect(rects, 6, 6, 0.3, 0.3);   // 图标6
+    
+    ESP_LOGI(TAG, "主界面图标布局初始化完成");
+}
+
+/**
+ * @brief 初始化单词界面的图标布局
+ */
+void initVocabScreenIcons() {
+    ESP_LOGI(TAG, "========== 初始化单词界面图标布局 ==========");
+    
+    // 矩形0：状态栏左侧 - 2个图标
+    // addIconToRect(vocab_rects, 0, 7, 0.0, 0.0);    // 钉子图标，左上角
+    // addIconToRect(vocab_rects, 0, 14, 0.1, 0.1);   // 提示背景，稍偏右
+    
+    // 矩形1：状态栏右侧 - 1个图标（WiFi/电池组合）
+    // addIconToRect(vocab_rects, 1, 15, 0.2, 0.2);   // WiFi/电池组合图标
+    
+    // 矩形2：英文单词区 - 1个背景图标
+    // addIconToRect(vocab_rects, 2, 16, 0.0, 0.0);   // 单词背景
+    
+    // 矩形3：音标喇叭区 - 1个图标
+    // addIconToRect(vocab_rects, 3, 19, 0.0, 0.0);   // 喇叭图标
+    
+    // 矩形4：音标文字区 - 1个背景图标
+    // addIconToRect(vocab_rects, 4, 20, 0.0, 0.0);   // 音标背景
+    
+    // 矩形5：释义区 - 1个背景图标
+    // addIconToRect(vocab_rects, 5, 21, 0.0, 0.0);   // 释义背景
+    
+    // 矩形6：分隔线1
+    // addIconToRect(vocab_rects, 6, 18, 0.0, 0.0);   // 分隔线
+    
+    // 矩形7：翻译标题
+    // addIconToRect(vocab_rects, 7, 17, 0.0, 0.0);   // Translation图标
+    
+    // 矩形9：底部分隔线
+    // addIconToRect(vocab_rects, 9, 18, 0.0, 0.0);   // 分隔线
+    
+    ESP_LOGI(TAG, "单词界面图标布局初始化完成");
+}
+
+/**
+ * @brief 初始化单词界面的文本布局
+ */
+void initVocabScreenTexts() {
+    ESP_LOGI(TAG, "========== 初始化单词界面文本布局 ==========");
+    
+    // 矩形2：英文单词显示区 - 添加单词文本
+    // addTextToRect(vocab_rects, 2, CONTENT_WORD, 0.05, 0.5, 24, ALIGN_LEFT, ALIGN_MIDDLE);
+    
+    // 矩形4：音标文字显示区 - 添加音标文本
+    // addTextToRect(vocab_rects, 4, CONTENT_PHONETIC, 0.5, 0.5, 16, ALIGN_CENTER, ALIGN_MIDDLE);
+    
+    // 矩形5：英文释义区 - 添加释义文本
+    // addTextToRect(vocab_rects, 5, CONTENT_DEFINITION, 0.05, 0.05, 16, ALIGN_LEFT, ALIGN_TOP);
+    
+    // 矩形8：中文翻译区 - 添加翻译文本
+    // addTextToRect(vocab_rects, 8, CONTENT_TRANSLATION, 0.05, 0.05, 16, ALIGN_LEFT, ALIGN_TOP);
+    
+    ESP_LOGI(TAG, "单词界面文本布局初始化完成");
+}
+
 // 
 void initIconPositions() {
     for (int i = 0; i < 6; i++) {
@@ -825,12 +945,11 @@ int populateRectWithIcon(RectInfo* rect, int icon_index, float rel_x, float rel_
     // 获取图标信息
     IconInfo* icon = &g_available_icons[icon_index];
     
-    // 计算图标在矩形内的具体位置
-    // int icon_x = rect->x + (int)((rect->width - icon->width) * rel_x);
-    // int icon_y = rect->y + (int)((rect->height - icon->height) * rel_y);
-       // 新代码（左上角对齐，匹配前端）：
-    int icon_x = rect->x + (int)(rect->width * rel_x);
-    int icon_y = rect->y + (int)(rect->height * rel_y);
+    // 计算图标在矩形内的具体位置（基于左上角对齐）
+    // rel_x, rel_y 表示图标左上角在矩形中的相对位置
+    // 例如：rel_x=0.0, rel_y=0.0 表示图标左上角在矩形左上角
+    int icon_x = rect->x + (int)(rel_x * rect->width);
+    int icon_y = rect->y + (int)(rel_y * rect->height);
     // 边界检查
     // if (icon_x < 0) {
     //     ESP_LOGW("POPULATE_RECT", "图标x坐标调整: %d -> 0", icon_x);
@@ -983,6 +1102,50 @@ void populateRectsWithCustomIcons(RectInfo *rects, int rect_count,
 
 
 
+/**
+ * @brief 添加文本内容到矩形
+ */
+bool addTextToRect(RectInfo* rects, int rect_index, RectContentType content_type,
+                   float rel_x, float rel_y, uint8_t font_size,
+                   TextAlignment h_align, TextAlignment v_align) {
+    if (rects == nullptr || rect_index < 0) {
+        ESP_LOGE("TEXT", "参数无效");
+        return false;
+    }
+    
+    RectInfo* rect = &rects[rect_index];
+    
+    if (rect->text_count >= 4) {
+        ESP_LOGE("TEXT", "矩形%d已达到最大文本数量(4个)", rect_index);
+        return false;
+    }
+    
+    TextPositionInRect* text = &rect->texts[rect->text_count];
+    text->rel_x = rel_x;
+    text->rel_y = rel_y;
+    text->type = content_type;
+    text->font_size = font_size;
+    text->h_align = h_align;
+    text->v_align = v_align;
+    text->max_width = 0;  // 0表示使用矩形剩余宽度
+    text->max_height = 0; // 0表示使用矩形剩余高度
+    
+    rect->text_count++;
+    
+    ESP_LOGI("TEXT", "矩形%d添加文本类型%d，位置(%.2f, %.2f), 字体%d",
+             rect_index, content_type, rel_x, rel_y, font_size);
+    
+    return true;
+}
+
+/**
+ * @brief 清空矩形内所有文本
+ */
+void clearRectTexts(RectInfo* rect) {
+    if (rect == nullptr) return;
+    rect->text_count = 0;
+}
+
 // 判断点是否在图标区域内
 int findIconAtPoint(int x, int y) {
     for (int i = 0; i < g_global_icon_count; i++) {
@@ -1010,19 +1173,19 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
             global_scale, g_global_icon_count);
     
     // 初始化显示
-    EPD_FastInit();
-    EPD_Display_Clear();
-    EPD_Update();
+    display.init(0, true, 2, true);
+    display.clearScreen();
+    display.display(true);
     delay_ms(50);
-    EPD_PartInit();
+    display.setPartialWindow(0, 0, display.width(), display.height());
     
     // ==================== 显示状态栏图标 ====================
     int wifi_x, wifi_y, battery_x, battery_y;
     getStatusIconPositions(rects, rect_count, status_rect_index, 
                           &wifi_x, &wifi_y, &battery_x, &battery_y);
 
-    EPD_ShowPictureScaled(wifi_x, wifi_y, 32, 32, 
-                         ZHONGJINGYUAN_3_7_WIFI_DISCONNECT, BLACK);
+    // drawPictureScaled(wifi_x, wifi_y, 32, 32, 
+    //                      ZHONGJINGYUAN_3_7_WIFI_DISCONNECT, BLACK);
     
     #ifdef BATTERY_LEVEL
         const uint8_t* battery_icon = NULL;
@@ -1032,41 +1195,60 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
         else if (BATTERY_LEVEL >= 20) battery_icon = ZHONGJINGYUAN_3_7_BATTERY_1;
         else battery_icon = ZHONGJINGYUAN_3_7_BATTERY_0;
         
-        EPD_ShowPictureScaled(battery_x, battery_y, 36, 24, battery_icon, BLACK);
+        drawPictureScaled(battery_x, battery_y, 36, 24, battery_icon, BLACK);
     #else
-        EPD_ShowPictureScaled(battery_x, battery_y, 36, 24, 
-                             ZHONGJINGYUAN_3_7_BATTERY_1, BLACK);
+        // drawPictureScaled(battery_x, battery_y, 36, 24, 
+        //                      ZHONGJINGYUAN_3_7_BATTERY_1, BLACK);
     #endif
     
-    // ==================== 显示所有图标 ====================
-    int displayed_icon_count = 0;
-    for (int i = 0; i < g_global_icon_count; i++) {
-        if (g_icon_positions[i].width > 0 && g_icon_positions[i].height > 0) {
-            // 使用存储的图标数据直接显示
-            if (g_icon_positions[i].data != NULL) {
-                EPD_ShowPictureScaled(g_icon_positions[i].x, g_icon_positions[i].y, 
-                                     g_icon_positions[i].width, g_icon_positions[i].height, 
-                                     g_icon_positions[i].data, BLACK);
-                displayed_icon_count++;
+    // ==================== 遍历所有矩形，显示图标 ====================
+    ESP_LOGI("MAIN", "开始显示主界面，共%d个矩形", rect_count);
+    
+    for (int i = 0; i < rect_count; i++) {
+        RectInfo* rect = &rects[i];
+        
+        // 计算缩放后的矩形位置和尺寸
+        int display_x = (int)(rect->x * global_scale + 0.5f);
+        int display_y = (int)(rect->y * global_scale + 0.5f);
+        int display_width = (int)(rect->width * global_scale + 0.5f);
+        int display_height = (int)(rect->height * global_scale + 0.5f);
+        
+        ESP_LOGI("MAIN", "--- 矩形%d: (%d,%d) %dx%d, 图标数:%d ---", 
+                i, display_x, display_y, display_width, display_height, rect->icon_count);
+        
+        // 显示该矩形内的所有图标
+        if (rect->icon_count > 0) {
+            for (int j = 0; j < rect->icon_count; j++) {
+                IconPositionInRect* icon = &rect->icons[j];
+                int icon_index = icon->icon_index;
                 
-                ESP_LOGI("DISPLAY_ICON", "显示图标%d: 位置(%d,%d), 尺寸(%dx%d), 图标索引%d",
-                        i, g_icon_positions[i].x, g_icon_positions[i].y,
-                        g_icon_positions[i].width, g_icon_positions[i].height,
-                        g_icon_positions[i].icon_index);
-            }
-            
-            // 如果图标被选中，显示选中标记
-            if (g_icon_positions[i].selected) {
-                // 绘制选中框
-                int border_x = (int)(g_icon_positions[i].x * global_scale);
-                int border_y = (int)(g_icon_positions[i].y * global_scale);
-                int border_width = (int)(g_icon_positions[i].width * global_scale);
-                int border_height = (int)(g_icon_positions[i].height * global_scale);
+                ESP_LOGI("MAIN", "  处理图标%d, index=%d", j, icon_index);
                 
-                EPD_DrawRectangle(border_x, border_y, 
-                                 border_x + border_width - 1, 
-                                 border_y + border_height - 1, 
-                                 BLACK, 0);
+                if (icon_index >= 0 && icon_index < 21) {
+                    IconInfo* icon_info = &g_available_icons[icon_index];
+                    
+                    // 安全检查图标数据
+                    if (icon_info->data == nullptr) {
+                        ESP_LOGW("MAIN", "  图标%d数据为空，跳过", icon_index);
+                        continue;
+                    }
+                    
+                    // 计算图标位置（基于左上角对齐）
+                    // rel_x, rel_y 表示图标左上角在矩形中的相对位置
+                    // 0.0, 0.0 = 图标左上角在矩形左上角
+                    // 使用原始坐标（未缩放），EPD_ShowPictureScaled内部会处理缩放
+                    int icon_x = rect->x + (int)(icon->rel_x * rect->width);
+                    int icon_y = rect->y + (int)(icon->rel_y * rect->height);
+                    
+                    ESP_LOGI("MAIN", "  显示图标%d: 原始位置(%d,%d) 尺寸%dx%d", 
+                            icon_index, icon_x, icon_y, icon_info->width, icon_info->height);
+                    
+                    drawPictureScaled(icon_x, icon_y, 
+                                        icon_info->width, icon_info->height,
+                                        icon_info->data, BLACK);
+                } else {
+                    ESP_LOGW("MAIN", "  图标索引%d超出范围[0-20]，跳过", icon_index);
+                }
             }
         }
     }
@@ -1099,10 +1281,10 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
                 int border_thickness = (i == status_rect_index) ? 2 : 1;
                 
                 // 绘制矩形边框
-                EPD_DrawRectangle(border_display_x, border_display_y, 
-                                 border_display_x + border_display_width - 1, 
-                                 border_display_y + border_display_height - 1, 
-                                 border_color, 0);
+                display.drawRect(border_display_x, border_display_y, 
+                                 border_display_width, 
+                                 border_display_height, 
+                                 border_color);
             }
         }
     }
@@ -1127,25 +1309,31 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
                 underline_display_y < setInkScreenSize.screenHeigt) {
                 
                 // 绘制下划线
-                EPD_DrawLine(underline_display_x, underline_display_y, 
+                display.drawLine(underline_display_x, underline_display_y, 
                             underline_display_x + underline_display_width, underline_display_y, 
                             BLACK);
                 
                 // 加粗下划线（绘制两条线）
-                EPD_DrawLine(underline_display_x, underline_display_y + 1, 
+                display.drawLine(underline_display_x, underline_display_y + 1, 
                             underline_display_x + underline_display_width, underline_display_y + 1, 
                             BLACK);
             }
         }
     }
     
+    // ==================== 绘制焦点光标 ====================
+    if (g_focus_mode_enabled && g_current_focus_rect >= 0 && g_current_focus_rect < rect_count) {
+        drawFocusCursor(rects, g_current_focus_rect, global_scale);
+        ESP_LOGI("FOCUS", "主界面绘制焦点光标在矩形%d", g_current_focus_rect);
+    }
+    
     // 更新显示
-    EPD_Display(ImageBW);
-    EPD_Update();
-    EPD_DeepSleep();
+    display.display();
+    display.display(true);
+    display.powerOff();
     delay_ms(100);
     
-    ESP_LOGI("DISPLAY", "显示完成: 共显示%d个图标", displayed_icon_count);
+    ESP_LOGI("MAIN", "主界面显示完成");
 }
 
 // 原来的主函数，保持兼容性
@@ -1190,30 +1378,8 @@ void updateDisplayWithMain(RectInfo *rects, int rect_count, int status_rect_inde
 }
 #define DEBUG_LAYOUT 1
 
-
-
-// 辅助函数：估算文本显示宽度
-uint16_t calculateTextWidth(const char* text, uint8_t font_size) {
-    if (text == NULL) return 0;
-    
-    uint16_t width = 0;
-    for (int i = 0; text[i] != '\0'; ) {
-        if ((text[i] & 0xE0) == 0xE0) {
-            // 中文字符
-            width += font_size;
-            i += 3;
-        } else if (isprint(text[i])) {
-            // 英文字符
-            width += font_size / 2;
-            i++;
-        } else {
-            i++;
-        }
-    }
-    return width;
-}
 // 判断是否为中文字符串
-bool isChineseText(uint8_t *text) {
+bool isChineseText(const uint8_t *text) {
     if (text == NULL) return false;
     
     for (int i = 0; text[i] != '\0'; i++) {
@@ -1225,603 +1391,7 @@ bool isChineseText(uint8_t *text) {
     return false;
 }
 
-void updateDisplayWithString(uint16_t x, uint16_t y, uint8_t *text, uint8_t size, uint16_t color) {
-   // clearLastDisplay();
-    
-    if (text == NULL || strlen((char*)text) == 0) {
-        ESP_LOGE(TAG, "显示文本为空");
-        return;
-    }
-    
-    // 判断文本类型并调用相应的显示函数
-    if (isChineseText(text)) {
-        // 中文文本使用 EPD_ShowChinese_UTF8
-        ESP_LOGI(TAG, "显示中文文本: %s", text);
-        showChineseString(x, y, text, size, color);
-    } else {
-        ESP_LOGI(TAG, "显示英文文本: %s", text);
-        
-        EPD_ShowString(x, y,text,size,color);
-    }
-    
-    // 记录最后显示的文本信息
-    size_t textLen = strlen((char*)text);
-    size_t copyLen = (textLen < sizeof(lastDisplayedText)) ? textLen : (sizeof(lastDisplayedText) - 1);
-    memcpy(lastDisplayedText, text, copyLen);
-    lastDisplayedText[copyLen] = '\0';
-    lastTextLength = copyLen;
-    
-    lastX = x;
-    lastY = y;
-    lastSize = size;
-    
-    ESP_LOGI(TAG, "更新显示: 文本长度=%d, 内容=%s", lastTextLength, lastDisplayedText);
-}
 
-String formatPhonetic(const String& phonetic) {
-    if (phonetic.length() == 0) {
-        return phonetic;
-    }
-    
-    String result = phonetic;
-    
-    // 移除可能已经存在的方括号
-    if (result.startsWith("[")) {
-        result = result.substring(1);
-    }
-    if (result.endsWith("]")) {
-        result = result.substring(0, result.length() - 1);
-    }
-    
-    // 添加新的方括号
-    return "[" + result + "]";
-}
-
-uint16_t displayEnglishWrapped(uint16_t x, uint16_t y, const char* text, uint8_t fontSize, 
-                              uint16_t color, uint16_t max_width, uint16_t line_height) {
-    if (text == nullptr || strlen(text) == 0) {
-        return y;
-    }
-    
-    uint16_t current_x = x;
-    uint16_t current_y = y;
-    uint16_t char_width = fontSize / 2;
-    
-    ESP_LOGI("WRAP", "开始换行显示英语句子，最大宽度: %d", max_width);
-    
-    for (int i = 0; text[i] != '\0'; i++) {
-        // 检查换行符
-        if (text[i] == '\\' && text[i+1] == 'n') {
-            // 遇到 \n，强制换行
-            current_x = x;
-            current_y += line_height;
-            i++; // 跳过 n，下一次循环会跳过 
-            ESP_LOGD("WRAP", "英语句子 \\n 强制换行到 Y: %d", current_y);
-            continue;
-        }
-        else if (text[i] == '\n') {
-            // 遇到真正的换行符
-            current_x = x;
-            current_y += line_height;
-            ESP_LOGD("WRAP", "英语句子换行符强制换行到 Y: %d", current_y);
-            continue;
-        }
-        else if (text[i] == '\r') {
-            // 跳过回车符
-            continue;
-        }
-        
-        // 检查当前字符是否会超出边界
-        if (current_x + char_width > x + max_width) {
-            // 自动换行
-            current_x = x;
-            current_y += line_height;
-            ESP_LOGD("WRAP", "英语句子自动换行到 Y: %d", current_y);
-        }
-        
-        // 显示当前字符
-        EPD_ShowChar(current_x, current_y, text[i], fontSize, color);
-        current_x += char_width;
-        
-        ESP_LOGD("WRAP", "显示字符 '%c' 在 (%d,%d)", text[i], current_x - char_width, current_y);
-    }
-    
-    // 返回下一行的起始Y坐标
-    return current_y + line_height;
-}
-
-// 检查是否是中文标点符号
-bool isChinesePunctuation(const char* str) {
-    if (strlen(str) < 3) return false;
-    
-    // 常见中文标点符号的UTF-8编码
-    if (str[0] == 0xEF && str[1] == 0xBC) {
-        // EF BC 开头的标点
-        if (str[2] == 0x8C ||  // ，
-            str[2] == 0x9B ||  // ；
-            str[2] == 0x9A ||  // ：
-            str[2] == 0x9F ||  // ？
-            str[2] == 0x81 ||  // ！
-            str[2] == 0x88 ||  // （
-            str[2] == 0x89) {  // ）
-            return true;
-        }
-    } else if (str[0] == 0xE3 && str[1] == 0x80) {
-        // E3 80 开头的标点
-        if (str[2] == 0x82 ||  // 、
-            str[2] == 0x81) {  // 。
-            return true;
-        }
-    }
-    return false;
-}
-
-// 将中文标点转换为英文标点
-char convertChinesePunctuation(const char* chinese_punct) {
-    if (strlen(chinese_punct) < 3) return '\0';
-    
-    if (chinese_punct[0] == 0xEF && chinese_punct[1] == 0xBC) {
-        switch (chinese_punct[2]) {
-            case 0x8C: return ',';  // ， -> ,
-            case 0x9B: return ';';  // ； -> ;
-            case 0x9A: return ':';  // ： -> :
-            case 0x9F: return '?';  // ？ -> ?
-            case 0x81: return '!';  // ！ -> !
-            case 0x88: return '(';  // （ -> (
-            case 0x89: return ')';  // ） -> )
-        }
-    } else if (chinese_punct[0] == 0xE3 && chinese_punct[1] == 0x80) {
-        switch (chinese_punct[2]) {
-            case 0x82: return '/';  // 、 -> /
-            case 0x81: return '.';  // 。 -> .
-        }
-    }
-    
-    return '\0';
-}
-
-
-// 预处理函数：将字符串中的中文标点全部转换为英文标点
-String convertChinesePunctuationsInString(const String& input) {
-    String result = "";
-    
-    for (int i = 0; i < input.length(); ) {
-        if (isChinesePunctuation(input.c_str() + i)) {
-            char english_punct = convertChinesePunctuation(input.c_str() + i);
-            if (english_punct != '\0') {
-                result += english_punct;
-            }
-            i += 3; // 跳过3字节UTF-8编码
-        } else {
-            result += input[i];
-            i++;
-        }
-    }
-    
-    return result;
-}
-uint16_t displayWrappedText(uint16_t x, uint16_t y, const char* text, uint8_t fontSize, 
-                           uint16_t color, uint16_t max_width, uint16_t line_height) {
-    if (text == nullptr || strlen(text) == 0) {
-        return y;
-    }
-    
-    String processedText = convertChinesePunctuationsInString(String(text));
-    const char* processedStr = processedText.c_str();
-    
-    ESP_LOGI("WRAP", "原始文本: %s", text);
-    ESP_LOGI("WRAP", "处理后文本: %s", processedStr);
-    
-    uint16_t current_x = x;
-    uint16_t current_y = y;
-    uint16_t english_width = fontSize / 2;
-    uint16_t chinese_width = fontSize;
-    
-    for (int i = 0; processedStr[i] != '\0'; ) {
-        // 处理换行符
-        if (processedStr[i] == '\\' && processedStr[i+1] == 'n') {
-            // 在 \n 换行的下方画线
-            uint16_t line_y = current_y + line_height - 2;
-            ESP_LOGI("WRAP", "\\n 换行画线 at Y=%d", line_y);
-            EPD_DrawLine(x, line_y, x + max_width, line_y, BLACK);
-            
-            current_x = x;
-            current_y += line_height;
-            i += 2;
-            continue;
-        }
-        else if (processedStr[i] == '\n') {
-            // 在 \n 换行的下方画线
-            uint16_t line_y = current_y + line_height - 2;
-            ESP_LOGI("WRAP", "换行符画线 at Y=%d", line_y);
-            EPD_DrawLine(x, line_y, x + max_width, line_y, BLACK);
-            
-            current_x = x;
-            current_y += line_height;
-            i++;
-            continue;
-        }
-        else if (processedStr[i] == '\r') {
-            i++;
-            continue;
-        }
-        
-        if ((processedStr[i] & 0x80) == 0) {
-            // ASCII字符 - 自动换行不画线
-            if (current_x + english_width > x + max_width) {
-                current_x = x;
-                current_y += line_height;
-            }
-            
-            EPD_ShowChar(current_x, current_y, processedStr[i], fontSize, color);
-            current_x += english_width;
-            i++;
-            
-        } else if ((processedStr[i] & 0xE0) == 0xE0) {
-            // 中文字符 - 自动换行不画线
-            if (current_x + chinese_width > x + max_width) {
-                current_x = x;
-                current_y += line_height;
-            }
-            
-            if (processedStr[i+1] != '\0' && processedStr[i+2] != '\0') {
-                uint8_t chinese_char[4] = {processedStr[i], processedStr[i+1], processedStr[i+2], '\0'};
-                EPD_ShowChinese_UTF8_Single(current_x, current_y, chinese_char, fontSize, color);
-                current_x += chinese_width;
-                i += 3;
-            } else {
-                i++;
-            }
-        } else {
-            i++;
-        }
-    }
-    
-    ESP_LOGI("WRAP", "换行显示完成，最终Y坐标: %d", current_y + line_height);
-    return current_y + line_height;
-}
-
-void safeDisplayWordEntry(const WordEntry& entry, uint16_t x, uint16_t y) {
-    ESP_LOGI("DISPLAY", "开始显示单词条目...");
-    
-    if(entry.word.length() == 0) {
-        ESP_LOGE("DISPLAY", "单词字段为空");
-        return;
-    }
-    
-    uint16_t current_y = y;
-    uint16_t line_height_word = 30;    // 单词和音标行高
-    uint16_t line_height_text = 20;    // 句子和翻译行高
-    uint16_t screen_width = 416;
-    uint16_t right_margin = 10;
-    uint16_t max_word_width = screen_width - x - right_margin;
-
-    // 第一行：单词（支持自动换行）
-    ESP_LOGI("DISPLAY", "显示单词: %s", entry.word.c_str());
-    
-    // 计算单词是否需要换行
-    uint16_t word_width = calculateTextWidth(entry.word.c_str(), 24);
-    esp_task_wdt_reset();
-    
-    if (word_width <= max_word_width) {
-        // 单词可以在一行显示
-        updateDisplayWithString(x, current_y, (uint8_t*)entry.word.c_str(), 24, BLACK);
-        current_y += line_height_word;  // 移动到下一行
-    } else {
-        // 单词需要换行显示
-        current_y = displayEnglishWrapped(x, current_y, entry.word.c_str(), 24, BLACK, 
-                                        max_word_width, line_height_word);
-        // displayEnglishWrapped 返回最后一行文本的底部Y坐标
-        // 不需要再额外增加行高
-    }
-    
-    // 音标处理
-    if(entry.phonetic.length() > 0) {
-        esp_task_wdt_reset();
-        String formattedPhonetic = formatPhonetic(entry.phonetic);
-        uint16_t phonetic_width = calculateTextWidth(formattedPhonetic.c_str(), 24);
-        uint16_t icon_width = 16;
-        uint16_t icon_height = 16;
-        uint16_t icon_offset_y = -16;  // 图标向上偏移16像素
-        
-        // 计算可用空间和动态间距
-        uint16_t available_space = screen_width - right_margin - (x + word_width);
-        uint16_t min_spacing = 15;   // 最小间距
-        uint16_t max_spacing = 80;  // 最大间距
-        uint16_t spacing = min_spacing;
-        
-        // 如果有充足空间，增加间距
-        if (available_space > phonetic_width + icon_width + min_spacing + 20) {
-            // 计算动态间距：可用空间的1/3，但不超出最大间距
-            spacing = (available_space - phonetic_width - icon_width) / 3;
-            if (spacing > max_spacing) {
-                spacing = max_spacing;
-            }
-        }
-        
-        ESP_LOGI("DISPLAY", "单词宽度: %d, 音标宽度: %d, 可用空间: %d, 使用间距: %d", 
-                word_width, phonetic_width, available_space, spacing);
-        
-        // 检查音标是否可以与单词同行显示（仅当单词没有换行时）
-        bool word_fits_one_line = (word_width <= max_word_width);
-        bool canDisplayInline = word_fits_one_line && 
-                               (x + word_width + spacing + phonetic_width + icon_width) <= (screen_width - right_margin);
-        
-        if (canDisplayInline) {
-            // 同行显示音标（在单词右侧，使用动态间距）
-            uint16_t phonetic_x = x + word_width + spacing;
-            
-            // 图标显示在音标正上方偏右
-            uint16_t icon_x = phonetic_x + phonetic_width - icon_width + 2; // 偏右2像素
-            uint16_t icon_y = y + icon_offset_y; // 向上偏移
-            
-            EPD_ShowPicture(icon_x, icon_y, icon_width, icon_height, (uint8_t *)ZHONGJINGYUAN_3_7_HORN, BLACK);
-            updateDisplayWithString(phonetic_x, y, (uint8_t*)formattedPhonetic.c_str(), 24, BLACK);
-            // 音标与单词同行，Y坐标保持不变
-            
-            ESP_LOGI("DISPLAY", "音标同行显示，间距: %d", spacing);
-        } else {
-            // 换行显示音标 - 靠右显示，图标在音标正上方偏右
-            uint16_t phonetic_x = screen_width - right_margin - phonetic_width;
-            
-            // 图标显示在音标正上方偏右
-            uint16_t icon_x = phonetic_x + phonetic_width - icon_width + 2; // 偏右2像素
-            uint16_t icon_y = current_y + icon_offset_y; // 向上偏移
-            
-            EPD_ShowPicture(icon_x, icon_y, icon_width, icon_height, (uint8_t *)ZHONGJINGYUAN_3_7_HORN, BLACK);
-            updateDisplayWithString(phonetic_x, current_y, (uint8_t*)formattedPhonetic.c_str(), 24, BLACK);
-            current_y += line_height_word;  // 移动到音标下方
-            
-            ESP_LOGI("DISPLAY", "音标换行显示");
-        }
-    } else {
-        // 没有音标，确保Y坐标正确推进
-        if (word_width <= max_word_width) {
-            // 单词单行显示，Y坐标已经在上面推进过了
-        } else {
-            // 单词多行显示，current_y 已经在 displayEnglishWrapped 中正确设置
-            // 但可能需要增加一些间距
-            current_y += 5; // 增加小间距
-        }
-    }
-    
-    // 句子和翻译显示 - 确保有足够的间距
-    bool hasDefinition = entry.definition.length() > 0;
-    bool hasTranslation = entry.translation.length() > 0;
-    
-    // 在显示句子和翻译前增加间距
-    if (hasDefinition || hasTranslation) {
-        current_y += 10; // 增加段落间距
-    }
-    
-    esp_task_wdt_reset();
-    
-    if(hasDefinition) {
-        ESP_LOGI("DISPLAY", "显示句子: %s", entry.definition.c_str());
-        
-        // 英语句子按字符自动换行
-        current_y = displayEnglishWrapped(x, current_y, entry.definition.c_str(), 16, BLACK, 
-                                        screen_width - x - right_margin, line_height_text);
-        
-        // 在句子和翻译之间增加间距
-        if(hasTranslation) {
-            current_y += 8;
-            
-            ESP_LOGI("DISPLAY", "显示翻译: %s", entry.translation.c_str());
-            // 预处理翻译文本，转换中文标点
-            String processedTranslation = convertChinesePunctuationsInString(entry.translation);
-            // 翻译也支持自动换行
-            current_y = displayWrappedText(x, current_y, processedTranslation.c_str(), 16, BLACK, 
-                                     screen_width - x - right_margin, line_height_text);
-        }
-    } else if(hasTranslation) {
-        ESP_LOGI("DISPLAY", "显示翻译: %s", entry.translation.c_str());
-        // 预处理翻译文本，转换中文标点
-        String processedTranslation = convertChinesePunctuationsInString(entry.translation);
-        // 翻译支持自动换行
-        current_y = displayWrappedText(x, current_y, processedTranslation.c_str(), 16, BLACK, 
-                                 screen_width - x - right_margin, line_height_text);
-    }
-    
-    esp_task_wdt_reset();
-    ESP_LOGI("DISPLAY", "单词条目显示完成，最终Y坐标: %d", current_y);
-}
-
-int countLines(File &file) {
-  int count = 0;
-  file.seek(0);
-  while (file.available()) {
-    if (file.read() == '\n') count++;
-  }
-  file.seek(0);
-  return count;
-}
-
-WordEntry readLineAtPosition(File &file, int lineNumber) {
-  file.seek(0);
-  int currentLine = 0;
-  WordEntry entry;
-  
-  while (file.available() && currentLine <= lineNumber) {
-    String line = file.readStringUntil('\n');
-    if (currentLine == lineNumber) {
-      parseCSVLine(line, entry);
-      break;
-    }
-    currentLine++;
-  }
-  
-  return entry;
-}
-
-void parseCSVLine(String line, WordEntry &entry) {
-  int fieldCount = 0;
-  String field = "";
-  bool inQuotes = false;
-  char lastChar = 0;
-  
-  for (int i = 0; i < line.length(); i++) {
-    char c = line[i];
-    
-    if (lastChar != '\\' && c == '"') {
-      inQuotes = !inQuotes;
-    } else if (c == ',' && !inQuotes) {
-      // 字段结束
-      assignField(fieldCount, field, entry);
-      field = "";
-      fieldCount++;
-    } else {
-      field += c;
-    }
-    lastChar = c;
-  }
-  
-  // 处理最后一个字段
-  if (fieldCount < 5) {
-    assignField(fieldCount, field, entry);
-  }
-}
-
-void assignField(int fieldCount, String &field, WordEntry &entry) {
-  // 移除字段两端的引号（如果存在）
-  if (field.length() >= 2 && field[0] == '"' && field[field.length()-1] == '"') {
-    field = field.substring(1, field.length()-1);
-  }
-  
-  switch (fieldCount) {
-    case 0: entry.word = field; break;
-    case 1: entry.phonetic = field; break;
-    case 2: entry.definition = field; break;
-    case 3: entry.translation = field; break;
-    case 4: entry.pos = field; break;
-  }
-}
-
-void printWordEntry(WordEntry &entry, int lineNumber) {
-  ESP_LOGI(TAG, "line number: %d", lineNumber);
-  ESP_LOGI(TAG, "word: %s", entry.word.c_str());
-  if (entry.phonetic.length() > 0) {
-    ESP_LOGI(TAG, "symbol: %s", entry.phonetic.c_str());
-  }
-  
-  if (entry.definition.length() > 0) {
-    ESP_LOGI(TAG, "English Definition: %s", entry.definition.c_str());
-  }
-  
-  if (entry.translation.length() > 0) {
-    ESP_LOGI(TAG, "chinese Definition: %s", entry.translation.c_str());
-  }
-  
-  if (entry.pos.length() > 0) {
-    ESP_LOGI(TAG, "part of speech: %s", entry.pos.c_str());
-  }
-  
-  ESP_LOGI(TAG, "----------------------------------------");
-}
-
-void readAndPrintWords() {
-  File file = SD.open("/ecdict.mini.csv");
-  if (!file) {
-    ESP_LOGE(TAG, "无法打开CSV文件");
-    return;
-  }
-  
-  // 读取前几行作为示例
-  ESP_LOGI(TAG, "显示前5个单词");
-  int lineCount = 0;
-  
-  while (file.available() && lineCount < 5) {
-    String line = file.readStringUntil('\n');
-    if (line.length() > 0) {
-      WordEntry entry;
-      parseCSVLine(line, entry);
-      printWordEntry(entry, lineCount);
-      lineCount++;
-    }
-  }
-  
-  file.close();
-  
-  ESP_LOGI(TAG, "开始随机显示单词");
-}
-
-void readAndPrintRandomWord() {
-  File file = SD.open("/ecdict.mini.csv");
-  if (!file) {
-    ESP_LOGE(TAG, "无法打开CSV文件");
-    return;
-  }
-  
-  // 计算总行数
-  int totalLines = countLines(file);
-  if (totalLines <= 1) {
-    ESP_LOGE(TAG, "文件内容不足");
-    file.close();
-    return;
-  }
-  
-  // 随机选择一行（跳过标题行）
-  int randomLine = random(1, totalLines);
-  entry = readLineAtPosition(file, randomLine);
-  file.close();
-  
-  ESP_LOGI(TAG, "随机单词");
-  printWordEntry(entry, randomLine);
-}
-
-void EPD_part_Show(uint16_t Xstart,uint16_t Ystart,uint16_t Xend,uint16_t Yend,uint16_t Color)
-{
-	EPD_PartInit();
-	EPD_DrawLine(Xstart,Ystart,Xend,Yend,BLACK);
-	EPD_Display(ImageBW);
-	ESP_LOGI(TAG,"EPD_DrawLine");
-	EPD_Update();
-	vTaskDelay(100);
-	EPD_DeepSleep();
-}
-
-void showPromptInfor(uint8_t *tempPrompt,bool isAllRefresh) {
-    static uint8_t *lastPrompt = nullptr;
-    static char lastPromptContent[256] = {0};
-    
-    // 检查输入有效性
-    if (tempPrompt == nullptr) {
-     //   ESP_LOGW("PROMPT", "接收到空指针");
-        return;
-    }
-    
-    const char* currentPrompt = (const char*)tempPrompt;
-    if(interfaceIndex !=1) {
-    
-        // 检查内容是否变化（比较字符串内容而不是指针）
-        if (lastPrompt != nullptr && strcmp(currentPrompt, lastPromptContent) == 0) {
-            return;  // 内容相同，无需更新
-        }
-        ESP_LOGI("PROMPT", "更新提示信息: %s", currentPrompt);
-        
-        // 保存当前内容用于下次比较
-        strncpy(lastPromptContent, currentPrompt, sizeof(lastPromptContent) - 1);
-        lastPromptContent[sizeof(lastPromptContent) - 1] = '\0';
-        lastPrompt = tempPrompt;
-
-        if(isAllRefresh) {
-            EPD_FastInit();
-            EPD_Display_Clear();
-            EPD_Update();  //局刷之前先对E-Paper进行清屏操作
-            EPD_PartInit();
-            clearDisplayArea(30,10,340,30);
-            updateDisplayWithString(30,10, tempPrompt,16,BLACK);
-            EPD_Display(ImageBW);
-            EPD_Update();
-            EPD_DeepSleep();
-            vTaskDelay(1000);
-        } else {
-            clearDisplayArea(30,10,340,30);
-            updateDisplayWithString(30,10, tempPrompt,16,BLACK);
-        }
-
-    }
-}
 
 // 定时器回调函数
 void sleep_timer_callback(void* arg) {
@@ -1851,203 +1421,15 @@ void update_activity_time() {
         has_sleep_data = false;
     }
 }
-// 居中显示单行（自动换行）
-uint16_t display_centered_line(uint16_t start_x, uint16_t y, const char* text, 
-                              uint8_t fontSize, uint16_t color, 
-                              uint16_t max_width, uint16_t line_height) {
-    uint16_t current_x = start_x;
-    uint16_t current_y = y;
-    uint16_t english_width = fontSize / 2;
-    uint16_t chinese_width = fontSize;
-    
-    for (int i = 0; text[i] != '\0'; ) {
-        if ((text[i] & 0x80) == 0) {
-            // ASCII字符
-            if (current_x + english_width > start_x + max_width) {
-                current_x = start_x;
-                current_y += line_height;
-            }
-            
-            EPD_ShowChar(current_x, current_y, text[i], fontSize, color);
-            current_x += english_width;
-            i++;
-            
-        } else if ((text[i] & 0xE0) == 0xE0) {
-            // 中文字符
-            if (current_x + chinese_width > start_x + max_width) {
-                current_x = start_x;
-                current_y += line_height;
-            }
-            
-            if (text[i+1] != '\0' && text[i+2] != '\0') {
-                uint8_t chinese_char[4] = {text[i], text[i+1], text[i+2], '\0'};
-                EPD_ShowChinese_UTF8_Single(current_x, current_y, chinese_char, fontSize, color);
-                current_x += chinese_width;
-                i += 3;
-            } else {
-                i++;
-            }
-        } else {
-            i++;
-        }
-    }
-    
-    return current_y + line_height;
-}
-// 居中换行文本显示
-uint16_t display_centered_wrapped_text(uint16_t center_x, uint16_t y, const char* text, 
-                                      uint8_t fontSize, uint16_t color, 
-                                      uint16_t max_width, uint16_t line_height) {
-    if (text == nullptr || strlen(text) == 0) return y;
-    
-    String processedText = convertChinesePunctuationsInString(String(text));
-    const char* processedStr = processedText.c_str();
-    
-    uint16_t current_y = y;
-    uint16_t english_width = fontSize / 2;
-    uint16_t chinese_width = fontSize;
-    
-    // 按行分割文本
-    char* text_copy = strdup(processedStr);
-    char* line = strtok(text_copy, "\n");
-    
-    while (line != NULL) {
-        // 计算当前行的宽度
-        uint16_t line_width = calculateTextWidth(line, fontSize);
-        uint16_t line_x = center_x - line_width / 2;
-        
-        // 显示当前行
-        uint16_t line_end_y = display_centered_line(line_x, current_y, line, fontSize, color, max_width, line_height);
-        current_y = line_end_y;
-        
-        line = strtok(NULL, "\n");
-    }
-    
-    free(text_copy);
-    return current_y;
-}
-// 计算文本在指定宽度内会显示多少行
-uint16_t calculateTextLines(const char* text, uint8_t fontSize, uint16_t max_width) {
-    if (text == nullptr || strlen(text) == 0) return 0;
-    
-    uint16_t lines = 1;
-    uint16_t current_width = 0;
-    uint16_t english_width = fontSize / 2;
-    uint16_t chinese_width = fontSize;
-    
-    for (int i = 0; text[i] != '\0'; ) {
-        if ((text[i] & 0x80) == 0) {
-            // ASCII字符
-            if (text[i] == '\n') {
-                lines++;
-                current_width = 0;
-                i++;
-                continue;
-            }
-            
-            current_width += english_width;
-            if (current_width > max_width) {
-                lines++;
-                current_width = english_width;
-            }
-            i++;
-            
-        } else if ((text[i] & 0xE0) == 0xE0) {
-            // 中文字符
-            current_width += chinese_width;
-            if (current_width > max_width) {
-                lines++;
-                current_width = chinese_width;
-            }
-            i += 3;
-        } else {
-            i++;
-        }
-    }
-    
-    return lines;
-}
-void display_sleep_mode() {
-    if (!has_sleep_data) {
-        ESP_LOGW("SLEEP", "没有数据可显示");
-        return;
-    }
-    
-    EPD_FastInit();
-    EPD_Display_Clear();
-    EPD_Update();
-    EPD_PartInit();
-    clearDisplayArea(10,40,EPD_H,EPD_W);
-    EPD_ShowPicture(380,40,32,32,ZHONGJINGYUAN_3_7_LOCK,BLACK);
-    uint16_t screen_width = 416;
-    uint16_t screen_height = 240;
-    uint16_t center_x = screen_width / 2;
-    
-    // 计算总内容高度并确定起始Y坐标
-    uint16_t total_height = 0;
-    uint16_t line_spacing = 16; // 行间距
-    
-    // 估算各部分高度
-    uint16_t word_height = 24 + line_spacing;
-    uint16_t phonetic_height = 20 + line_spacing;
-    
-    // 计算翻译和句子的行数
-    uint16_t definition_lines = calculateTextLines(sleep_mode_entry.definition.c_str(), 16, screen_width - 40);
-    uint16_t translation_lines = calculateTextLines(sleep_mode_entry.translation.c_str(), 16, screen_width - 40);
-    
-    uint16_t definition_height = definition_lines * (16 + 5) + line_spacing; // 16字体+5行间距
-    uint16_t translation_height = translation_lines * (16 + 5) + line_spacing;
-    
-    total_height = word_height + phonetic_height + definition_height + translation_height;
-    
-    // 计算起始Y坐标（垂直居中）
-    uint16_t start_y = (screen_height - total_height) / 2;
-    uint16_t current_y = start_y;
-    
-    // 1. 居中显示单词
-    if (sleep_mode_entry.word.length() > 0) {
-        uint16_t word_width = calculateTextWidth(sleep_mode_entry.word.c_str(), 24);
-        uint16_t word_x = center_x - word_width / 2;
-        updateDisplayWithString(word_x, current_y, (uint8_t*)sleep_mode_entry.word.c_str(), 24, BLACK);
-        current_y += 24 + line_spacing;
-    }
-    
-    // 2. 居中显示音标
-    if (sleep_mode_entry.phonetic.length() > 0) {
-        String formattedPhonetic = formatPhonetic(sleep_mode_entry.phonetic);
-        uint16_t phonetic_width = calculateTextWidth(formattedPhonetic.c_str(), 24);
-        uint16_t phonetic_x = center_x - phonetic_width / 2;
-        updateDisplayWithString(phonetic_x, current_y, (uint8_t*)formattedPhonetic.c_str(), 24, BLACK);
-        current_y += 20 + line_spacing;
-        ESP_LOGI("SLEEP", "显示音标: x=%d, y=%d, 内容: %s", phonetic_x, current_y, formattedPhonetic.c_str());
-    }
-    
-    // 3. 居中显示翻译（多行）
-    if (sleep_mode_entry.translation.length() > 0) {
-        String processedTranslation = convertChinesePunctuationsInString(sleep_mode_entry.translation);
-        current_y = display_centered_wrapped_text(center_x, current_y, processedTranslation.c_str(), 16, BLACK, 
-                                                screen_width - 40, 21); // 16字体+5行间距
-        current_y += line_spacing;
-    }
-    
-    // 4. 居中显示句子（多行）
-    if (sleep_mode_entry.definition.length() > 0) {
-        String processedDefinition = convertChinesePunctuationsInString(sleep_mode_entry.definition);
-        display_centered_wrapped_text(center_x, current_y, processedDefinition.c_str(), 16, BLACK, 
-                                    screen_width - 40, 21); // 16字体+5行间距
-    }
-    
-    EPD_Display(ImageBW);
-    EPD_Update();
-    EPD_DeepSleep();
-}
+
 
 void init_sleep_timer() {
     esp_timer_create_args_t timer_args = {
         .callback = &sleep_timer_callback,
         .arg = NULL,
         .dispatch_method = ESP_TIMER_TASK,
-        .name = "sleep_timer"
+        .name = "sleep_timer",
+        .skip_unhandled_events = false
     };
     
     esp_timer_create(&timer_args, &sleep_timer);
@@ -2207,7 +1589,7 @@ void displayIconsInRectangle(int rect_x, int rect_y, int rect_width, int rect_he
         }
         
         // 使用缩放函数显示图标
-        EPD_ShowPictureScaled(icon_orig_x, icon_orig_y, 
+        drawPictureScaled(icon_orig_x, icon_orig_y, 
                              icons[i].width, icons[i].height,
                              icons[i].data, BLACK);
         
@@ -2278,15 +1660,15 @@ bool drawSmartRectangle(int x, int y, int width, int height, uint16_t color, int
     if (fill) {
         // 绘制填充矩形
         for (int i = 0; i < display_height; i++) {
-            EPD_DrawLine(display_x, display_y + i, 
+            display.drawLine(display_x, display_y + i, 
                         display_x + display_width - 1, display_y + i, color);
         }
     } else {
         // 绘制空心矩形
-        EPD_DrawRectangle(display_x, display_y, 
-                         display_x + display_width - 1, 
-                         display_y + display_height - 1, 
-                         color, 0);
+        display.drawRect(display_x, display_y, 
+                         display_width, 
+                         display_height, 
+                         color);
     }
     
     // 记录绘制信息
@@ -2352,14 +1734,14 @@ void drawGridRectangles(int grid_cols, int grid_rows,
     // 绘制网格线
     for (int row = 0; row <= grid_rows; row++) {
         int y = display_margin + row * (display_cell_height + display_spacing);
-        EPD_DrawLine(display_margin, y, 
+        display.drawLine(display_margin, y, 
                     display_margin + grid_cols * (display_cell_width + display_spacing), 
                     y, BLACK);
     }
     
     for (int col = 0; col <= grid_cols; col++) {
         int x = display_margin + col * (display_cell_width + display_spacing);
-        EPD_DrawLine(x, display_margin, 
+        display.drawLine(x, display_margin, 
                     x, display_margin + grid_rows * (display_cell_height + display_spacing), 
                     BLACK);
     }
@@ -2371,10 +1753,10 @@ void drawGridRectangles(int grid_cols, int grid_rows,
             int cell_y = display_margin + row * (display_cell_height + display_spacing);
             
             // 绘制空心矩形
-            EPD_DrawRectangle(cell_x, cell_y, 
-                            cell_x + display_cell_width - 1, 
-                            cell_y + display_cell_height - 1, 
-                            BLACK, 1);
+            display.drawRect(cell_x, cell_y, 
+                            display_cell_width, 
+                            display_cell_height, 
+                            BLACK);
         }
     }
     
@@ -2417,19 +1799,19 @@ void drawIconBorder(int icon_index, uint16_t border_color) {
     // 绘制外边框
     for (int i = 0; i < border_thickness; i++) {
         // 上边框
-        EPD_DrawLine(x - border_thickness + i, y - border_thickness, 
+        display.drawLine(x - border_thickness + i, y - border_thickness, 
                     x + width + border_thickness - i, y - border_thickness, 
                     border_color);
         // 下边框
-        EPD_DrawLine(x - border_thickness + i, y + height + border_thickness, 
+        display.drawLine(x - border_thickness + i, y + height + border_thickness, 
                     x + width + border_thickness - i, y + height + border_thickness, 
                     border_color);
         // 左边框
-        EPD_DrawLine(x - border_thickness, y - border_thickness + i, 
+        display.drawLine(x - border_thickness, y - border_thickness + i, 
                     x - border_thickness, y + height + border_thickness - i, 
                     border_color);
         // 右边框
-        EPD_DrawLine(x + width + border_thickness, y - border_thickness + i, 
+        display.drawLine(x + width + border_thickness, y - border_thickness + i, 
                     x + width + border_thickness, y + height + border_thickness - i, 
                     border_color);
     }
@@ -2438,543 +1820,385 @@ void drawIconBorder(int icon_index, uint16_t border_color) {
             icon_index, x, y, width, height, border_thickness);
 }
 
-void showSimplePromptWithNail(uint8_t *tempPrompt, int bg_x, int bg_y) {
-    if (tempPrompt == nullptr) {
+
+/**
+ * @brief 设置可焦点矩形列表
+ * @param rect_indices 矩形索引数组
+ * @param count 数组长度
+ */
+void setFocusableRects(int* rect_indices, int count) {
+    if (!rect_indices || count <= 0 || count > MAX_FOCUSABLE_RECTS) {
+        ESP_LOGW("FOCUS", "无效的焦点矩形列表参数: count=%d", count);
         return;
     }
     
-    const char* promptText = (const char*)tempPrompt;
-    
-    // 固定参数
-    int bg_width = 320;     // 背景框宽度
-    int bg_height = 36;     // 背景框高度
-    int border_margin = 6;  // 边框边距
-    int icon_width = 15;    // 图标宽度
-    int icon_height = 16;   // 图标高度
-    int icon_margin = 10;   // 图标左边距
-    int spacing = 8;        // 图标文字间距
-    int font_size = 16;     // 字体大小
-    
-    // 1. 清空区域
-    clearDisplayArea(bg_x, bg_y, bg_width, bg_height);
-    
-    // 2. 显示背景框
-    EPD_ShowPictureScaled(bg_x, bg_y, bg_width, bg_height,
-                         ZHONGJINGYUAN_3_7_promt, BLACK);
-    
-    // 3. 计算内部区域
-    int inner_x = bg_x + border_margin;
-    int inner_y = bg_y + border_margin;
-    int inner_width = bg_width - 2 * border_margin;
-    int inner_height = bg_height - 2 * border_margin;
-    
-    // 4. 显示图标（左侧固定位置）
-    int icon_x = inner_x + icon_margin;
-    int icon_y = inner_y + (inner_height - icon_height) / 2;
-    
-    EPD_ShowPictureScaled(icon_x, icon_y, icon_width, icon_height,
-                         ZHONGJINGYUAN_3_7_NAIL, BLACK);
-    
-    // 5. 计算文本位置（图标右侧）
-    int text_x = icon_x + icon_width + spacing;
-    int text_y = inner_y + (inner_height - font_size) / 2;
-    
-    // 6. 检查文本宽度
-    int text_width = calculateTextWidth(promptText, font_size);
-    int max_width = inner_x + inner_width - text_x;
-    
-    if (text_width > max_width) {
-        // 文本太长，截断
-        int max_chars = max_width / (font_size / 2);
-        if (max_chars > 3) {
-            char truncated[256];
-            strncpy(truncated, promptText, max_chars - 3);
-            truncated[max_chars - 3] = '\0';
-            strcat(truncated, "...");
-            
-            promptText = truncated;
-            text_width = calculateTextWidth(truncated, font_size);
-        }
+    g_focusable_rect_count = count;
+    for (int i = 0; i < count; i++) {
+        g_focusable_rect_indices[i] = rect_indices[i];
     }
     
-    // 7. 显示文本
-    updateDisplayWithString(text_x, text_y, 
-                          (uint8_t*)promptText, font_size, BLACK);
+    g_current_focus_index = 0;
+    g_current_focus_rect = g_focusable_rect_indices[0];
     
-    ESP_LOGI("PROMPT", "显示提示: 图标(%d,%d) 文本(%d,%d) '%s'",
-            icon_x, icon_y, text_x, text_y, promptText);
+    // 清空所有子数组配置
+    for (int i = 0; i < MAX_FOCUSABLE_RECTS; i++) {
+        g_sub_array_counts[i] = 0;
+    }
+    
+    ESP_LOGI("FOCUS", "已设置可焦点矩形列表，共%d个矩形:", count);
+    for (int i = 0; i < count; i++) {
+        ESP_LOGI("FOCUS", "  [%d] 矩形索引: %d", i, g_focusable_rect_indices[i]);
+    }
 }
-//加单词本显示函数
-// 显示单词屏幕
-void displayVocabularyScreen(RectInfo *rects, int rect_count, 
-                           int status_rect_index, int show_border) {
-    
 
-    // 计算缩放比例
-    float scale_x = (float)setInkScreenSize.screenWidth / 416.0f;
-    float scale_y = (float)setInkScreenSize.screenHeigt / 240.0f;
-    float global_scale = (scale_x < scale_y) ? scale_x : scale_y;
-    
-    ESP_LOGI("VOCAB", "屏幕尺寸: %dx%d, 缩放比例: %.4f", 
-            setInkScreenSize.screenWidth, setInkScreenSize.screenHeigt, global_scale);
-    
-    // 初始化显示
-    EPD_FastInit();
-    EPD_Display_Clear();
-    EPD_Update();
-    delay_ms(50);
-    EPD_PartInit();
-    
-    // ==================== 显示状态栏图标 ====================
-    if (status_rect_index >= 0 && rect_count > 0) {
-        int wifi_x, wifi_y, battery_x, battery_y;
-        getStatusIconPositions(rects, rect_count, status_rect_index,
-                              &wifi_x, &wifi_y, &battery_x, &battery_y);
-        
-        // 计算缩放后的位置
-        int wifi_display_x = (int)(wifi_x * global_scale + 0.5f);
-        int wifi_display_y = (int)(wifi_y * global_scale + 0.5f);
-        int battery_display_x = (int)(battery_x * global_scale + 0.5f);
-        int battery_display_y = (int)(battery_y * global_scale + 0.5f);
-        
-        // 显示WiFi图标
-        EPD_ShowPictureScaled(wifi_display_x, wifi_display_y, 32, 32, 
-                             ZHONGJINGYUAN_3_7_WIFI_DISCONNECT, BLACK);
-        
-        #ifdef BATTERY_LEVEL
-            const uint8_t* battery_icon = NULL;
-            if (BATTERY_LEVEL >= 80) battery_icon = ZHONGJINGYUAN_3_7_BATTERY_1;  // 使用BATTERY_1
-            else if (BATTERY_LEVEL >= 60) battery_icon = ZHONGJINGYUAN_3_7_BATTERY_1;
-            else if (BATTERY_LEVEL >= 40) battery_icon = ZHONGJINGYUAN_3_7_BATTERY_1;
-            else if (BATTERY_LEVEL >= 20) battery_icon = ZHONGJINGYUAN_3_7_BATTERY_1;
-            else battery_icon = ZHONGJINGYUAN_3_7_BATTERY_1;
-            
-            EPD_ShowPictureScaled(battery_display_x, battery_display_y, 36, 24, battery_icon, BLACK);
-        #else
-            EPD_ShowPictureScaled(battery_display_x, battery_display_y, 36, 24, 
-                                 ZHONGJINGYUAN_3_7_BATTERY_1, BLACK);
-        #endif
+/**
+ * @brief 为母数组中的某个元素设置子数组
+ * @param parent_index 母数组中的索引位置（0-based）
+ * @param sub_indices 子数组的矩形索引数组
+ * @param sub_count 子数组长度
+ */
+void setSubArrayForParent(int parent_index, int* sub_indices, int sub_count) {
+    if (parent_index < 0 || parent_index >= g_focusable_rect_count) {
+        ESP_LOGW("FOCUS", "无效的母数组索引: %d (母数组共%d个元素)", parent_index, g_focusable_rect_count);
+        return;
     }
     
-    // ==================== 矩形0：状态栏区域 - 显示提示信息 ====================
-    if (rect_count > 0) {
-        uint8_t *tempPrompt = showPrompt;
-        // 检查输入有效性
-        if (tempPrompt != nullptr) {
-        //   ESP_LOGW("PROMPT", "接收到非空指针");
-        
-            RectInfo* rect = &rects[0];
-            int display_x = (int)(rect->x * global_scale + 0.5f);
-            int display_y = (int)(rect->y * global_scale + 0.5f);
-            int display_width = (int)(rect->width * global_scale + 0.5f);
-            int display_height = (int)(rect->height * global_scale + 0.5f);
-            
-            // 显示提示图标 (图标14) 
-            if (rect->icon_count > 0) {
+    if (!sub_indices || sub_count <= 0 || sub_count > MAX_FOCUSABLE_RECTS) {
+        ESP_LOGW("FOCUS", "无效的子数组参数: count=%d", sub_count);
+        return;
+    }
+    
+    g_sub_array_counts[parent_index] = sub_count;
+    for (int i = 0; i < sub_count; i++) {
+        g_sub_array_indices[parent_index][i] = sub_indices[i];
+    }
+    
+    ESP_LOGI("FOCUS", "已为母数组索引%d（矩形%d）设置子数组，共%d个元素:", 
+             parent_index, g_focusable_rect_indices[parent_index], sub_count);
+    for (int i = 0; i < sub_count; i++) {
+        ESP_LOGI("FOCUS", "  [%d] 子数组矩形索引: %d", i, sub_indices[i]);
+    }
+}
 
-                showSimplePromptWithNail(tempPrompt, display_x, display_y);
-            }
+/**
+ * @brief 为指定矩形索引设置子数组（自动查找该矩形在母数组中的位置）
+ * @param rect_index 矩形的实际索引（例如：矩形0, 矩形1）
+ * @param sub_indices 子数组的矩形索引数组
+ * @param sub_count 子数组长度
+ */
+void setSubArrayForRect(int rect_index, int* sub_indices, int sub_count) {
+    // 查找rect_index在母数组g_focusable_rect_indices中的位置
+    int parent_pos = -1;
+    for (int i = 0; i < g_focusable_rect_count; i++) {
+        if (g_focusable_rect_indices[i] == rect_index) {
+            parent_pos = i;
+            break;
         }
     }
     
-    // ==================== 矩形1：右上区域 - 显示WiFi电池组合图标 ====================
-    if (rect_count > 1) {
-        RectInfo* rect = &rects[1];
-        int display_x = (int)(rect->x * global_scale + 0.5f);
-        int display_y = (int)(rect->y * global_scale + 0.5f);
-        
-        // 显示WiFi电池组合图标 (图标15)
-        if (rect->icon_count > 0) {
-            EPD_ShowPictureScaled(display_x, display_y, 80, 36, 
-                                 ZHONGJINGYUAN_3_7_wifi_battry, BLACK);
+    if (parent_pos == -1) {
+        ESP_LOGW("FOCUS", "矩形%d不在母数组中，无法设置子数组", rect_index);
+        ESP_LOGI("FOCUS", "当前母数组包含的矩形:");
+        for (int i = 0; i < g_focusable_rect_count; i++) {
+            ESP_LOGI("FOCUS", "  [%d] 矩形%d", i, g_focusable_rect_indices[i]);
         }
+        return;
     }
+    
+    ESP_LOGI("FOCUS", "矩形%d在母数组中的位置: %d", rect_index, parent_pos);
+    setSubArrayForParent(parent_pos, sub_indices, sub_count);
+}
 
-    readAndPrintRandomWord();
-    if(entry.word.length() > 0) {
-        safeDisplayWordEntry(entry, 20, 60);
-        ESP_LOGI("VOCAB", "显示单词: %s", entry.word.c_str());
-     } else {
-     	ESP_LOGW("DISPLAY", "跳过空单词显示");
-     }
+/**
+ * @brief 初始化焦点系统（默认所有矩形都可焦点）
+ * @param total_rects 总矩形数量
+ */
+void initFocusSystem(int total_rects) {
+    g_total_focusable_rects = total_rects;
+    
+    // 默认情况：所有矩形都可焦点
+    g_focusable_rect_count = (total_rects < MAX_FOCUSABLE_RECTS) ? total_rects : MAX_FOCUSABLE_RECTS;
+    for (int i = 0; i < g_focusable_rect_count; i++) {
+        g_focusable_rect_indices[i] = i;
+    }
+    
+    g_current_focus_index = 0;
+    g_current_focus_rect = 0;
+    g_focus_mode_enabled = true;
+    
+    ESP_LOGI("FOCUS", "焦点系统已初始化，共%d个矩形，默认全部可焦点", total_rects);
+}
 
-    // ==================== 矩形2：中左区域 - 显示英文单词 ====================
-    if (rect_count > 2) {
-        RectInfo* rect = &rects[2];
-        int display_x = (int)(rect->x * global_scale + 0.5f);
-        int display_y = (int)(rect->y * global_scale + 0.5f);
-        int display_width = (int)(rect->width * global_scale + 0.5f);
-        int display_height = (int)(rect->height * global_scale + 0.5f);
-        
-        // 1. 显示背景图标并清空区域
-        if (rect->icon_count > 0) {
-            EPD_ShowPictureScaled(display_x, display_y, 336, 48, 
-                                ZHONGJINGYUAN_3_7_word, BLACK);
-            
-            // 注意：clearDisplayArea的参数顺序通常是(x, y, width, height)
-            clearDisplayArea(display_x, display_y, 336, 48);
+/**
+ * @brief 移动焦点到下一个矩形（在可焦点列表中）
+ */
+void moveFocusNext() {
+    if (g_in_sub_array) {
+        // 子数组模式：在子数组中移动
+        int sub_count = g_sub_array_counts[g_parent_focus_index_backup];
+        if (sub_count <= 0) {
+            ESP_LOGW("FOCUS", "子数组为空");
+            return;
         }
         
-        // 2. 准备要显示的单词
-        String word_to_display = entry.word;
-        if (word_to_display.length() == 0) {
-            word_to_display = "No Word";
+        g_current_sub_focus_index = (g_current_sub_focus_index + 1) % sub_count;
+        g_current_focus_rect = g_sub_array_indices[g_parent_focus_index_backup][g_current_sub_focus_index];
+        
+        ESP_LOGI("FOCUS", "【子数组】焦点向下移动: 子索引%d -> 矩形%d", g_current_sub_focus_index, g_current_focus_rect);
+    } else {
+        // 母数组模式：在母数组中移动
+        if (g_focusable_rect_count <= 0) {
+            ESP_LOGW("FOCUS", "没有可焦点矩形");
+            return;
         }
         
-        // 3. 尝试不同的显示方案
-        bool word_displayed = false;
-        uint8_t font_sizes[] = {24, 20, 16, 14, 12}; // 尝试的字体大小
-        int text_x = 0, text_y = 0;
+        g_current_focus_index = (g_current_focus_index + 1) % g_focusable_rect_count;
+        g_current_focus_rect = g_focusable_rect_indices[g_current_focus_index];
         
-        for (int i = 0; i < sizeof(font_sizes)/sizeof(font_sizes[0]) && !word_displayed; i++) {
-            uint8_t font_size = font_sizes[i];
-            
-            // 计算字体高度和垂直位置
-            int font_height = font_size;
-            text_y = display_y + (display_height - font_height) / 2;
-            
-            // 计算单词宽度
-            uint16_t word_width = calculateTextWidth(word_to_display.c_str(), font_size);
-            
-            // 如果宽度合适，居中显示
-            if (word_width <= display_width - 10) { // 留10像素边距
-                text_x = display_x + (display_width - word_width) / 2;
-                updateDisplayWithString(text_x, text_y, (uint8_t*)word_to_display.c_str(), font_size, BLACK);
-                word_displayed = true;
-                
-                ESP_LOGI("VOCAB", "使用字体大小%d显示单词: %s", font_size, word_to_display.c_str());
-                break;
-            }
-        }
-        
-        // 4. 如果所有字体都太大，截断显示
-        if (!word_displayed) {
-            uint8_t font_size = 12;
-            int font_height = font_size;
-            text_y = display_y + (display_height - font_height) / 2;
-            
-            // 计算可以显示的字符数
-            int avg_char_width = 6; // 12px字体下平均字符宽度
-            int max_chars = (display_width - 10) / avg_char_width;
-            
-            if (max_chars > 3) {
-                // 保留末尾3个字符用于"..."
-                int keep_chars = max_chars - 3;
-                String truncated_word = word_to_display.substring(0, keep_chars) + "...";
-                
-                uint16_t truncated_width = calculateTextWidth(truncated_word.c_str(), font_size);
-                text_x = display_x + (display_width - truncated_width) / 2;
-                
-                updateDisplayWithString(text_x, text_y, (uint8_t*)truncated_word.c_str(), font_size, BLACK);
-                
-                ESP_LOGI("VOCAB", "截断显示单词: %s", truncated_word.c_str());
-            } else {
-                // 空间太小，只显示省略号
-                text_x = display_x + (display_width - 20) / 2; // 省略号宽度大约20像素
-                updateDisplayWithString(text_x, text_y, (uint8_t*)"...", font_size, BLACK);
-                ESP_LOGW("VOCAB", "空间不足，只显示省略号");
-            }
-            word_displayed = true;
-        }
-        
-        // 5. 记录显示位置（用于调试）
-        ESP_LOGI("VOCAB", "显示英文单词: %s 在位置(%d,%d)", 
-                word_to_display.c_str(), text_x, text_y);
+        ESP_LOGI("FOCUS", "【母数组】焦点向下移动: 列表索引%d -> 矩形%d", g_current_focus_index, g_current_focus_rect);
     }
-    
-    // ==================== 矩形4：左下区域 - 显示音标 ====================
-    if (rect_count > 4) {
-        RectInfo* rect = &rects[4];
-        int display_x = (int)(rect->x * global_scale + 0.5f);
-        int display_y = (int)(rect->y * global_scale + 0.5f);
-        
-        // 先清空音标显示区域
-        clearDisplayArea(display_x, display_y, 80, 32);
-        
-        // 显示音标背景图标 (图标20)
-        if (rect->icon_count > 0) {
-            EPD_ShowPictureScaled(display_x, display_y, 80, 32, 
-                                ZHONGJINGYUAN_3_7_pon, BLACK);
-        }
-        
-        // 音标文字的位置变量
-        int phonetic_text_x = 0;
-        int phonetic_text_y = 0;
-        uint8_t phonetic_font_size = 0;
-        
-        if(entry.phonetic.length() > 0) {
-            String formattedPhonetic = formatPhonetic(entry.phonetic);
-            
-            // 先尝试24px字体
-            uint16_t phonetic_width_24 = calculateTextWidth(formattedPhonetic.c_str(), 24);
-            if(phonetic_width_24 < 80 - 10) { // 留10像素边距
-                phonetic_font_size = 24;
-                phonetic_text_x = display_x + (80 - phonetic_width_24) / 2;
-                phonetic_text_y = display_y + 4; // 24px字体位置
-            } 
-            // 再尝试16px字体
-            else {
-                uint16_t phonetic_width_16 = calculateTextWidth(formattedPhonetic.c_str(), 16);
-                if(phonetic_width_16 < 80 - 10) {
-                    phonetic_font_size = 16;
-                    phonetic_text_x = display_x + (80 - phonetic_width_16) / 2;
-                    phonetic_text_y = display_y + 8; // 16px字体位置
-                } 
-                // 最后尝试12px字体
-                else {
-                    uint16_t phonetic_width_12 = calculateTextWidth(formattedPhonetic.c_str(), 12);
-                    if(phonetic_width_12 < 80 - 10) {
-                        phonetic_font_size = 12;
-                        phonetic_text_x = display_x + (80 - phonetic_width_12) / 2;
-                        phonetic_text_y = display_y + 10; // 12px字体位置
-                    } 
-                    else {
-                        // 音标太长，截断显示
-                        int max_chars = 8; // 12px字体下大约显示8个字符
-                        if (formattedPhonetic.length() > max_chars) {
-                            formattedPhonetic = formattedPhonetic.substring(0, max_chars) + "...";
-                        }
-                        phonetic_font_size = 12;
-                        uint16_t truncated_width = calculateTextWidth(formattedPhonetic.c_str(), 12);
-                        phonetic_text_x = display_x + (80 - truncated_width) / 2;
-                        phonetic_text_y = display_y + 10;
-                    }
-                }
-            }
-            
-            // 显示音标文字
-            if (phonetic_font_size > 0) {
-                updateDisplayWithString(phonetic_text_x, phonetic_text_y, 
-                                    (uint8_t*)formattedPhonetic.c_str(), 
-                                    phonetic_font_size, BLACK);
-                ESP_LOGI("VOCAB", "显示音标: %s 在位置(%d,%d) 字体大小:%d", 
-                        formattedPhonetic.c_str(), phonetic_text_x, phonetic_text_y, phonetic_font_size);
-                
-                // ==================== 显示喇叭图标在音标正上方偏右 ====================
-                // 计算喇叭图标位置
-                int horn_width = 15;
-                int horn_height = 16;
-                
-                // 喇叭位置在音标文字上方偏右
-                // 1. 计算音标文字的右边界
-                uint16_t phonetic_width = calculateTextWidth(formattedPhonetic.c_str(), phonetic_font_size);
-                int phonetic_right_x = phonetic_text_x + phonetic_width;
-                
-                // 2. 喇叭位置：音标文字右侧 - 喇叭宽度的一半（偏右对齐）
-                int horn_x = phonetic_right_x - horn_width;
-                
-                // 3. 喇叭Y位置：音标文字上方 - 喇叭高度
-                int horn_y = phonetic_text_y - horn_height - 2; // 上方2像素间距
-                
-                // 4. 确保喇叭图标不会超出背景边界
-                if (horn_x < display_x) {
-                    horn_x = display_x; // 不超过左边界
-                }
-                if (horn_x + horn_width > display_x + 80) {
-                    horn_x = display_x + 80 - horn_width; // 不超过右边界
-                }
-                if (horn_y < display_y - horn_height) {
-                    horn_y = display_y; // 如果上方空间不足，放在音标同一行
-                }
-                
-                // 5. 显示喇叭图标
-                EPD_ShowPictureScaled(horn_x, horn_y, horn_width, horn_height,
-                                    ZHONGJINGYUAN_3_7_horn, BLACK);
-                
-                ESP_LOGI("VOCAB", "喇叭图标位置: (%d,%d) 音标文字区域: [%d-%d]", 
-                        horn_x, horn_y, phonetic_text_x, phonetic_right_x);
-            }
-        }
-    }
+}
 
-            // 检查是否有释义和翻译
-    bool hasDefinition = entry.definition.length() > 0;      // 有英文句子
-    bool hasTranslation = entry.translation.length() > 0;    // 英文句子有翻译
-    // ==================== 矩形5：中下区域 - 显示英文释义 ====================
-    if (rect_count > 5) {
-        RectInfo* rect = &rects[5];
-        int display_x = (int)(rect->x * global_scale + 0.5f);
-        int display_y = (int)(rect->y * global_scale + 0.5f);
-        int display_width = (int)(rect->width * global_scale + 0.5f);
-        int display_height = (int)(rect->height * global_scale + 0.5f);
-        
-        // 清空显示区域
-        clearDisplayArea(display_x, display_y, display_width, display_height);
-        
-        // 显示翻译背景 (图标5)
-        if (rect->icon_count > 0) {
-            int icon_x = display_x + (display_width - 416) / 2;
-            int icon_y = display_y + (display_height - 72) / 2;
-            EPD_ShowPictureScaled(icon_x, icon_y, 416, 72, 
-                                ZHONGJINGYUAN_3_7_definition, BLACK);
+/**
+ * @brief 移动焦点到前一个矩形（在可焦点列表中）
+ */
+void moveFocusPrev() {
+    if (g_in_sub_array) {
+        // 子数组模式：在子数组中移动
+        int sub_count = g_sub_array_counts[g_parent_focus_index_backup];
+        if (sub_count <= 0) {
+            ESP_LOGW("FOCUS", "子数组为空");
+            return;
         }
         
-        // 计算显示区域
-        int content_x = display_x + 8;      // 左右边距8像素
-        int content_y = display_y + 8;      // 上边距8像素
-        int content_width = display_width - 16;  // 总宽度减去边距
-        int line_height = 20;               // 行高20像素
+        g_current_sub_focus_index = (g_current_sub_focus_index - 1 + sub_count) % sub_count;
+        g_current_focus_rect = g_sub_array_indices[g_parent_focus_index_backup][g_current_sub_focus_index];
         
-        if (hasDefinition) {
-            ESP_LOGI("DISPLAY", "显示英文句子: %s", entry.definition.c_str());
-            
-            // 英语句子自动换行显示
-            content_y = displayEnglishWrapped(content_x, content_y, 
-                                            entry.definition.c_str(), 16, BLACK, 
-                                            content_width, line_height);
-            
-            // 如果有翻译，在句子和翻译之间增加间距
-            if (hasTranslation) {
-                content_y += 8;  // 增加间距
-                
-                ESP_LOGI("DISPLAY", "显示中文翻译: %s", entry.translation.c_str());
-                
-                // 预处理翻译文本，转换中文标点
-                String processedTranslation = convertChinesePunctuationsInString(entry.translation);
-                
-                // 翻译自动换行显示
-                content_y = displayWrappedText(content_x, content_y, 
-                                            processedTranslation.c_str(), 16, BLACK, 
-                                            content_width, line_height);
-                ESP_LOGI("VOCAB", "释义显示完成，区域(%d,%d)-%dx%d", 
-                display_x, display_y, display_width, display_height);
-            }
-        } 
-    }
-    
-    // ==================== 矩形6：右下区域 - 显示单词翻译 ====================
-    if (rect_count > 6) {
-        RectInfo* rect = &rects[6];
-        int display_x = (int)(rect->x * global_scale + 0.5f);
-        int display_y = (int)(rect->y * global_scale + 0.5f);
-        int display_width = (int)(rect->width * global_scale + 0.5f);
-        int display_height = (int)(rect->height * global_scale + 0.5f);
-        
-        clearDisplayArea(display_x, display_y, display_width, display_height);
-        
-        // 显示矩形框图标
-        if (rect->icon_count > 0) {
-            int icon_x = display_x + (display_width - 416) / 2;
-            int icon_y = display_y;
-            EPD_ShowPictureScaled(icon_x, icon_y, 416, 24, 
-                                ZHONGJINGYUAN_3_7_Translation1, BLACK);
+        ESP_LOGI("FOCUS", "【子数组】焦点向上移动: 子索引%d -> 矩形%d", g_current_sub_focus_index, g_current_focus_rect);
+    } else {
+        // 母数组模式：在母数组中移动
+        if (g_focusable_rect_count <= 0) {
+            ESP_LOGW("FOCUS", "没有可焦点矩形");
+            return;
         }
         
-        // 情况1：如果没有英文例句，显示完整的单词翻译
-        if (!hasDefinition && hasTranslation) {
-            ESP_LOGI("VOCAB", "矩形6显示完整单词翻译（无例句情况）");
-            
-            String processedTranslation = convertChinesePunctuationsInString(entry.translation);
-            
-            int content_x = display_x + 15;
-            int content_y = display_y + 30;
-            int content_width = display_width - 30;
-            int line_height = 22;
-            
-            displayWrappedText(content_x, content_y, 
-                            processedTranslation.c_str(), 18, BLACK, 
-                            content_width, line_height);
+        g_current_focus_index = (g_current_focus_index - 1 + g_focusable_rect_count) % g_focusable_rect_count;
+        g_current_focus_rect = g_focusable_rect_indices[g_current_focus_index];
+        
+        ESP_LOGI("FOCUS", "【母数组】焦点向上移动: 列表索引%d -> 矩形%d", g_current_focus_index, g_current_focus_rect);
+    }
+}
+
+/**
+ * @brief 获取当前焦点矩形索引
+ */
+int getCurrentFocusRect() {
+    return g_current_focus_rect;
+}
+
+/**
+ * @brief 进入子数组模式
+ * @return 是否成功进入（如果当前母数组元素没有子数组则返回false）
+ */
+bool enterSubArray() {
+    if (g_in_sub_array) {
+        ESP_LOGW("FOCUS", "已经在子数组模式中");
+        return false;
+    }
+    
+    // 检查当前母数组焦点位置是否有子数组
+    if (g_sub_array_counts[g_current_focus_index] <= 0) {
+        ESP_LOGI("FOCUS", "当前矩形%d没有配置子数组", g_current_focus_rect);
+        return false;
+    }
+    
+    // 备份母数组焦点位置
+    g_parent_focus_index_backup = g_current_focus_index;
+    
+    // 进入子数组模式
+    g_in_sub_array = true;
+    g_current_sub_focus_index = 0;
+    g_current_focus_rect = g_sub_array_indices[g_parent_focus_index_backup][0];
+    
+    ESP_LOGI("FOCUS", "✓ 进入子数组模式：母数组索引%d -> 子数组（共%d个元素），初始焦点在矩形%d",
+             g_parent_focus_index_backup, 
+             g_sub_array_counts[g_parent_focus_index_backup],
+             g_current_focus_rect);
+    
+    return true;
+}
+
+/**
+ * @brief 退出子数组模式，返回母数组
+ */
+void exitSubArray() {
+    if (!g_in_sub_array) {
+        ESP_LOGW("FOCUS", "当前不在子数组模式中");
+        return;
+    }
+    
+    // 恢复母数组焦点位置
+    g_current_focus_index = g_parent_focus_index_backup;
+    g_current_focus_rect = g_focusable_rect_indices[g_current_focus_index];
+    
+    // 退出子数组模式
+    g_in_sub_array = false;
+    g_current_sub_focus_index = 0;
+    
+    ESP_LOGI("FOCUS", "✓ 退出子数组模式，返回母数组索引%d，焦点在矩形%d",
+             g_current_focus_index, g_current_focus_rect);
+}
+
+/**
+ * @brief 处理焦点确认动作
+ */
+void handleFocusConfirm() {
+    if (g_in_sub_array) {
+        // 在子数组中：按确认键返回母数组
+        ESP_LOGI("FOCUS", "【子数组】确认操作：退出子数组，返回母数组");
+        exitSubArray();
+    } else {
+        // 在母数组中：尝试进入子数组
+        ESP_LOGI("FOCUS", "【母数组】确认操作：尝试进入子数组（当前焦点在矩形%d）", g_current_focus_rect);
+        if (!enterSubArray()) {
+            ESP_LOGI("FOCUS", "当前矩形没有子数组，执行默认确认操作");
+            // 这里可以添加其他确认逻辑
         }
     }
-    // ==================== 矩形7：显示分隔线====================
-    // 矩形7：显示分隔线
-    if (rect_count > 7) {
-        RectInfo* rect = &rects[7];
-        int display_x = (int)(rect->x * global_scale + 0.5f);
-        int display_y = (int)(rect->y * global_scale + 0.5f);
-        
-        int text_x = display_x + 10;
-        int text_y = display_y + 8;
-        //如果有单词翻译,显示分割线
-        if(hasTranslation) {
-            EPD_ShowPictureScaled(display_x, display_y, 416, 16, 
-                                 ZHONGJINGYUAN_3_7_separate, BLACK);
+}
+
+/**
+ * @brief 绘制焦点光标
+ * @param rects 矩形数组
+ * @param focus_index 焦点矩形索引
+ * @param global_scale 全局缩放比例
+ */
+void drawFocusCursor(RectInfo *rects, int focus_index, float global_scale) {
+    if (!rects || focus_index < 0 || focus_index >= g_total_focusable_rects) {
+        ESP_LOGW("FOCUS", "无效的焦点索引: %d (总数: %d)", focus_index, g_total_focusable_rects);
+        return;
+    }
+    
+    RectInfo* rect = &rects[focus_index];
+    
+    // 检查矩形是否有效
+    if (rect->width <= 0 || rect->height <= 0) {
+        ESP_LOGW("FOCUS", "焦点矩形%d无效: (%d,%d) %dx%d", focus_index, 
+                rect->x, rect->y, rect->width, rect->height);
+        return;
+    }
+    
+    // 计算缩放后的位置和尺寸
+    int display_x = (int)(rect->x * global_scale + 0.5f);
+    int display_y = (int)(rect->y * global_scale + 0.5f);
+    int display_width = (int)(rect->width * global_scale + 0.5f);
+    int display_height = (int)(rect->height * global_scale + 0.5f);
+    
+    // 绘制焦点光标（在矩形四角绘制小三角形或方块）
+    int cursor_size = 6;  // 光标大小
+    
+    // 左上角
+    display.drawRect(display_x, display_y, 
+                     cursor_size, cursor_size, BLACK);
+    
+    // 右上角
+    display.drawRect(display_x + display_width - cursor_size, display_y, 
+                     cursor_size, cursor_size, BLACK);
+    
+    // 左下角
+    display.drawRect(display_x, display_y + display_height - cursor_size, 
+                     cursor_size, cursor_size, BLACK);
+    
+    // 右下角
+    display.drawRect(display_x + display_width - cursor_size, display_y + display_height - cursor_size, 
+                     cursor_size, cursor_size, BLACK);
+    
+    ESP_LOGI("FOCUS", "已绘制焦点光标，位置：(%d,%d) 尺寸：%dx%d", 
+            display_x, display_y, display_width, display_height);
+}
+
+/**
+ * @brief 启动焦点测试模式
+ * 直接进入单词界面并启用焦点功能，用于调试
+ */
+void startFocusTestMode() {
+    ESP_LOGI("FOCUS", "========== 启动焦点测试模式 ==========");
+    
+    // 清屏
+    clearDisplayArea(0, 0, setInkScreenSize.screenWidth, setInkScreenSize.screenHeigt);
+    
+    // 重新加载单词界面配置
+    if (loadVocabLayoutFromConfig()) {
+        ESP_LOGI("FOCUS", "单词界面布局已重新加载");
+    }
+    
+    // 直接从矩形数据计算有效矩形数量，不依赖配置值
+    extern RectInfo vocab_rects[MAX_VOCAB_RECTS];
+    int valid_rect_count = 0;
+    for (int i = 0; i < MAX_VOCAB_RECTS; i++) {
+        if (vocab_rects[i].width > 0 && vocab_rects[i].height > 0) {
+            valid_rect_count++;
+        } else {
+            break; // 遇到第一个无效矩形就停止计数
         }
     }
     
-    // 矩形8：显示单词翻译
-    if (rect_count > 8) {
-        RectInfo* rect = &rects[8];
-        int display_x = (int)(rect->x * global_scale + 0.5f);
-        int display_y = (int)(rect->y * global_scale + 0.5f);
-        
-        EPD_ShowPictureScaled(display_x, display_y, 416, 24, 
-                             ZHONGJINGYUAN_3_7_Translation1, BLACK);
-    }
+    initFocusSystem(valid_rect_count);
+    ESP_LOGI("FOCUS", "焦点系统已初始化，共%d个有效矩形", valid_rect_count);
     
-    // 矩形9：显示分隔线
-    if (rect_count > 9) {
-        RectInfo* rect = &rects[9];
-        int display_x = (int)(rect->x * global_scale + 0.5f);
-        int display_y = (int)(rect->y * global_scale + 0.5f);
-        
-        // 显示分隔线 (图标18)
-        EPD_ShowPictureScaled(display_x, display_y, 416, 16, 
-                             ZHONGJINGYUAN_3_7_separate, BLACK);
-    }
+    // 显示单词界面
+    displayScreen(SCREEN_VOCABULARY);
     
+    // 设置为界面2（单词界面）
+    interfaceIndex = 2;
+    inkScreenTestFlag = 0;
+    inkScreenTestFlagTwo = 0;
     
-    // ==================== 显示矩形边框 ====================
-    if (show_border) {
-        ESP_LOGI("BORDER", "开始绘制矩形边框，共%d个矩形", rect_count);
-        
-        for (int i = 0; i < rect_count; i++) {
-            RectInfo* rect = &rects[i];
-            
-            int border_display_x = (int)(rect->x * global_scale + 0.5f);
-            int border_display_y = (int)(rect->y * global_scale + 0.5f);
-            int border_display_width = (int)(rect->width * global_scale + 0.5f);
-            int border_display_height = (int)(rect->height * global_scale + 0.5f);
-            
-            // 边界检查
-            if (border_display_x < 0) border_display_x = 0;
-            if (border_display_y < 0) border_display_y = 0;
-            if (border_display_x + border_display_width > setInkScreenSize.screenWidth) {
-                border_display_width = setInkScreenSize.screenWidth - border_display_x;
-            }
-            if (border_display_y + border_display_height > setInkScreenSize.screenHeigt) {
-                border_display_height = setInkScreenSize.screenHeigt - border_display_y;
-            }
-            
-            if (border_display_width > 0 && border_display_height > 0) {
-                uint16_t border_color = BLACK;
-                int border_thickness = (i == status_rect_index) ? 2 : 1;
-                
-                // 绘制矩形边框
-                EPD_DrawRectangle(border_display_x, border_display_y, 
-                                 border_display_x + border_display_width - 1, 
-                                 border_display_y + border_display_height - 1, 
-                                 border_color, 0);
-            }
-        }
-    }
-    
-    // 更新显示
-    EPD_Display(ImageBW);
-    EPD_Update();
-    EPD_DeepSleep();
-    delay_ms(100);
-    
-    ESP_LOGI("VOCAB", "单词显示完成");
+    ESP_LOGI("FOCUS", "========== 焦点测试模式已启动 ==========");
+    ESP_LOGI("FOCUS", "使用按键控制：");
+    ESP_LOGI("FOCUS", "  按键1 - 向上选择（前一个矩形）");
+    ESP_LOGI("FOCUS", "  按键2 - 确认选择");
+    ESP_LOGI("FOCUS", "  按键3 - 向下选择（下一个矩形）");
 }
 
 
-// 添加休眠界面显示函数
+
+/**
+ * @brief 显示休眠界面
+ */
 void displaySleepScreen(RectInfo *rects, int rect_count,
                        int status_rect_index, int show_border) {
-    // 类似上面的显示逻辑，但更简洁
-    // 主要显示时间和唤醒提示
+    // 简单的休眠界面显示
+    display.init(0, true, 2, true);
+    display.clearScreen();
+    display.display(true);
+    delay_ms(50);
+    display.setPartialWindow(0, 0, display.width(), display.height());
+    
+    // 显示时间和提示信息
+    // TODO: 实现休眠界面的具体显示逻辑
+    
+    display.display();
+    display.display(true);
+    display.powerOff();
+    delay_ms(100);
 }
 // 休眠界面矩形定义（3个矩形）
 static RectInfo sleep_rects[3] = {
     // 矩形0：时间显示（居中大字体）
-    {100, 60, 216, 80, {{0.5,0.5,0},{0,0,0},{0,0,0},{0,0,0}}, 1},
+    {100, 60, 216, 80, CONTENT_CUSTOM, 24, ALIGN_CENTER, ALIGN_MIDDLE, 0, 0, 0, 0, 0,
+     {{0.5f, 0.5f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}}, 1,
+     {{0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}}, 0, false},
     
     // 矩形1：日期显示
-    {150, 150, 116, 30, {{0.5,0.5,1},{0,0,0},{0,0,0},{0,0,0}}, 1},
+    {150, 150, 116, 30, CONTENT_CUSTOM, 16, ALIGN_CENTER, ALIGN_MIDDLE, 0, 0, 0, 0, 0,
+     {{0.5f, 0.5f, 1}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}}, 1,
+     {{0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}}, 0, false},
     
     // 矩形2：唤醒提示
-    {130, 190, 156, 40, {{0.5,0.5,2},{0,0,0},{0,0,0},{0,0,0}}, 1}
+    {130, 190, 156, 40, CONTENT_CUSTOM, 16, ALIGN_CENTER, ALIGN_MIDDLE, 0, 0, 0, 0, 0,
+     {{0.5f, 0.5f, 2}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}, {0.0f, 0.0f, 0}}, 1,
+     {{0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}, {0.0f, 0.0f, CONTENT_NONE, 0, ALIGN_LEFT, ALIGN_TOP, 0, 0}}, 0, false}
 };
 // 修改主显示函数，支持不同的界面
 void displayScreen(ScreenType screen_type) {
@@ -2987,6 +2211,7 @@ void displayScreen(ScreenType screen_type) {
             break;
             
         case SCREEN_VOCABULARY:
+            ESP_LOGI(TAG, "准备显示单词界面，矩形数量: %d", g_screen_manager.screens[screen_type].rect_count);
             displayVocabularyScreen(g_screen_manager.screens[screen_type].rects,
                             g_screen_manager.screens[screen_type].rect_count,
                             g_screen_manager.screens[screen_type].status_rect_index,
@@ -3001,149 +2226,6 @@ void displayScreen(ScreenType screen_type) {
             ESP_LOGE("DISPLAY", "未知的界面类型: %d", screen_type);
             break;
     }
-}
-
-// 单词本界面初始化函数
-void initVocabularyScreen() {
-    // 初始化单词本界面特定的图标
-    // initIconPositions();
-    
-    // // 定义10个矩形，每个矩形可以显示多个图标
-    // RectInfo vocab_rects[10] = {
-    //     // ==================== 矩形0：状态栏 ====================
-    //     // 位于屏幕顶部左侧，显示提示信息
-    //     {
-    //         0, 0, 336, 36,  // x, y, width, height - 占据屏幕整个顶部4/5区域
-    //         {                // icons数组
-    //             {0.0f, 0.0f, 7}, // 左上方，图标7
-    //             {0.1f, 0.1f, 14},
-    //             {0.0f, 0.0f, 0},
-    //             {0.0f, 0.0f, 0}
-    //         },
-    //         2               // icon_count - 状态栏不显示应用图标
-    //     },
-        
-    //     // ==================== 矩形1：右上区域 ====================
-    //     // 占据右上角，显示1个图标
-    //     {
-    //         336, 0, 416, 36,  // x, y, width, height
-    //         {
-    //             {0.2f, 0.2f, 15},  // 左上方，图标15
-    //             {0.0f, 0.0f, 0},  // 填充
-    //             {0.0f, 0.0f, 0},  // 填充
-    //             {0.0f, 0.0f, 0}     // 填充
-    //         },
-    //         1
-    //     },
-        
-    //     // ==================== 矩形2：中左区域 ====================
-    //     // 位于矩形2中左侧
-    //     {
-    //         0, 40, 336, 90,  // x, y, width, height
-    //         {
-    //             {0.1f, 0.1f, 16},  // 图标16
-    //             {0.0f, 0.0f, 0},  
-    //             {0.0f, 0.0f, 0},  // 填充
-    //             {0.0f, 0.0f, 0}   // 填充
-    //         },
-    //         1
-    //     },
-        
-    //     // ==================== 矩形3：中右区域 ====================
-    //     // 位于矩形2右侧
-    //     {
-    //         336, 40, 416, 56,  // x, y, width, height
-    //         {
-    //             {0.1f, 0.2f, 19},  // 左侧居中，图标5
-    //             {0.0f, 0.0f, 0},  //
-    //             {0.0f, 0.0f, 0},   // 填充
-    //             {0.0f, 0.0f, 0}    // 填充
-    //         },
-    //         1
-    //     },
-        
-    //     // ==================== 矩形4：左下区域 ====================
-    //     // 位于屏幕左下角
-    //     {
-    //         336, 56, 416, 90,  // x, y, width, height
-    //         {
-    //             {0.1f, 0.1f, 20},  // 图标20
-    //             {0.0f, 0.0f, 0},  
-    //             {00.0f, 0.0f, 0},  
-    //             {0.0f, 0.0f, 0}   
-    //         },
-    //         1
-    //     },
-        
-    //     // ==================== 矩形5：中下区域 ====================
-    //     // 位于矩形4右侧
-    //     {
-    //         0, 90, 416, 140,  // x, y, width, height
-    //         {
-    //             {0.1f, 0.1f, 5},  // 16
-    //             {0.0f, 0.0f, 0},  // 左下，图标0
-    //             {0.0f, 0.0f, 0},  // 右下，图标1
-    //             {0.0f, 0.0f, 0}    // 填充
-    //         },
-    //         1
-    //     },
-        
-    //     // ==================== 矩形6：右下区域 ====================
-    //     // 位于屏幕右下角
-    //     {
-    //         0, 140, 416, 166,  // x, y, width, height
-    //         {
-    //             {0.2f, 0.2f, 2},  // 17
-    //             {0.0f, 0.0f, 0},  // 填充
-    //             {0.0f, 0.0f, 0},  // 填充
-    //             {0.0f, 0.0f, 0}   // 填充
-    //         },
-    //         1
-    //     },
-
-    //     {
-    //         0, 184, 416, 200,  // x, y, width, height
-    //         {
-    //             {0.2f, 0.2f, 2},  // 18
-    //             {0.0f, 0.0f, 0},  // 填充
-    //             {0.0f, 0.0f, 0},  // 填充
-    //             {0.0f, 0.0f, 0}   // 填充
-    //         },
-    //         1
-    //     },
-        
-    //     {
-    //         0, 200, 416, 224,  // x, y, width, height
-    //         {
-    //             {0.2f, 0.2f, 2},  // 17
-    //             {0.0f, 0.0f, 0},  // 填充
-    //             {0.0f, 0.0f, 0},  // 填充
-    //             {0.0f, 0.0f, 0}   // 填充
-    //         },
-    //         1
-    //     },
-    //     {
-    //         0, 224, 416, 240,  // x, y, width, height
-    //         {
-    //             {0.2f, 0.2f, 2},  // 18
-    //             {0.0f, 0.0f, 0},  // 填充
-    //             {0.0f, 0.0f, 0},  // 填充
-    //             {0.0f, 0.0f, 0}   // 填充
-    //         },
-    //         1
-    //     }
-    // };
-    
-    // populateRectsWithCustomIcons(vocabulary_rects, 10, vocab_icons, 9);
-}
-// 单词本界面更新函数
-void updateVocabularyScreen() {
-    // 获取当前单词数据
-    WordEntry current_word;
-    // 这里从文件或内存获取当前单词
-    
-    // 更新显示
-   // displayVocabularyScreen(vocabulary_rects, 10, 0, 1);
 }
 
 // 休眠界面初始化函数
@@ -3182,6 +2264,7 @@ void initScreenManager() {
         .status_rect_index = 1,
         .show_border = 1,
         .init_func = NULL,
+        .setup_icons_func = NULL,
         .update_func = NULL
     };
 }
@@ -3352,7 +2435,7 @@ void initAllScreens() {
         .type = SCREEN_HOME,
         .name = "主界面",
         .rects = rects,  // 使用全局的rects数组
-        .rect_count = sizeof(rects) / sizeof(rects[0]),
+        .rect_count = 0,  // 初始化为0，稍后从配置文件设置
         .status_rect_index = 1,
         .show_border = 1,
         .init_func = NULL,
@@ -3365,12 +2448,12 @@ void initAllScreens() {
         .type = SCREEN_VOCABULARY,
         .name = "单词本",
         .rects = vocab_rects,
-        .rect_count = sizeof(vocab_rects) / sizeof(vocab_rects[0]),
+        .rect_count = 0,  // 初始化为0，稍后从配置文件设置
         .status_rect_index = 1,
         .show_border = 1,
         .init_func = NULL,
-        .setup_icons_func = setupVocabularyScreenIcons,
-        .update_func = updateVocabularyScreen
+        .setup_icons_func = NULL,  // 新系统不需要单独的图标设置函数
+        .update_func = NULL  // 使用通用的displayVocabularyScreen
     };
     
     // 配置休眠界面
@@ -3387,6 +2470,47 @@ void initAllScreens() {
     };
 }
 
+/**
+ * @brief 更新主界面的矩形数量
+ * @param new_rect_count 新的矩形数量
+ */
+void updateMainScreenRectCount(int new_rect_count) {
+    if (new_rect_count >= 0 && new_rect_count <= MAX_MAIN_RECTS) {
+        g_screen_manager.screens[SCREEN_HOME].rect_count = new_rect_count;
+        ESP_LOGI(TAG, "已更新主界面矩形数量为: %d", new_rect_count);
+    } else {
+        ESP_LOGW(TAG, "无效的主界面矩形数量: %d，保持原值", new_rect_count);
+    }
+}
+
+/**
+ * @brief 更新单词界面的矩形数量
+ * @param new_rect_count 新的矩形数量
+ */
+void updateVocabScreenRectCount(int new_rect_count) {
+    if (new_rect_count >= 0 && new_rect_count <= MAX_VOCAB_RECTS) {
+        g_screen_manager.screens[SCREEN_VOCABULARY].rect_count = new_rect_count;
+        ESP_LOGI(TAG, "已更新单词界面矩形数量为: %d", new_rect_count);
+    } else {
+        ESP_LOGW(TAG, "无效的矩形数量: %d，保持原值", new_rect_count);
+    }
+}
+
+/**
+ * @brief 获取主界面的矩形数量
+ * @return 主界面的矩形数量
+ */
+int getMainScreenRectCount() {
+    return g_screen_manager.screens[SCREEN_HOME].rect_count;
+}
+
+/**
+ * @brief 获取单词界面的矩形数量
+ * @return 单词界面的矩形数量
+ */
+int getVocabScreenRectCount() {
+    return g_screen_manager.screens[SCREEN_VOCABULARY].rect_count;
+}
 
 void ink_screen_show(void *args)
 {
@@ -3412,28 +2536,8 @@ void ink_screen_show(void *args)
 					case 0:
 					break;
 					case 11:
-                        ESP_LOGI(TAG,"############inkScreenTestFlagTwo\r\n");
-                        // update_activity_time(); // 更新活动时间 
-						// EPD_FastInit();
-						// EPD_Display_Clear();
-						// EPD_Update();  //局刷之前先对E-Paper进行清屏操作
-						// vTaskDelay(100);
-                        // EPD_PartInit();
-						// readAndPrintRandomWord();
-                        // showPromptInfor(showPrompt,false);
-						// if(entry.word.length() > 0) {
-						// 	clearDisplayArea(10,40,EPD_H,EPD_W);
-						// 	safeDisplayWordEntry(entry, 20, 60);
-						// } else {
-						// 	ESP_LOGW("DISPLAY", "跳过空单词显示");
-						// }
-
-						// EPD_Display(ImageBW);
-						// EPD_Update();
-						// EPD_DeepSleep();
-                        // vTaskDelay(1000);
-                        switchScreen(SCREEN_VOCABULARY);
-						inkScreenTestFlagTwo = 0;
+                        enterVocabularyScreen(); // 进入单词界面
+                        inkScreenTestFlagTwo = 0;
                         inkScreenTestFlag = 0;
                         interfaceIndex =2;
 					break;
@@ -3445,20 +2549,20 @@ void ink_screen_show(void *args)
 					break;
 					case 55:
                         update_activity_time(); // 更新活动时间
-					 	EPD_FastInit();
-						EPD_Display_Clear();
-						EPD_Update();  //局刷之前先对E-Paper进行清屏操作
-						EPD_PartInit();
+					 	display.init(0, true, 2, true);
+						display.clearScreen();
+						display.display(true);  //局刷之前先对E-Paper进行清屏操作
+						display.setPartialWindow(0, 0, display.width(), display.height());
 						ESP_LOGI(TAG,"inkScreenTestFlagTwo\r\n");
 						// 遍历所有图像
 						// for(int i = 0; i < GAME_PEOPLE_COUNT; i++) {
 						// 	EPD_ShowPicture(60,40,128,128,gamePeople[i],BLACK);
-						// 	EPD_Display(ImageBW);
-						// 	EPD_Update();
+						// 	display.display();
+						// 	display.display(true);
 						// 	vTaskDelay(1000);
 						// 	ESP_LOGI(TAG,"gamePeople[%d]\r\n",i);
 						// }
-						EPD_DeepSleep();
+						display.powerOff();
 						inkScreenTestFlagTwo = 0;
                         inkScreenTestFlag = 0;
                         interfaceIndex =2;
@@ -3470,19 +2574,61 @@ void ink_screen_show(void *args)
 
 				}
 			break;
-			case 1:
+			case 1:  // 按键1：上一个焦点/向上选择
                 update_activity_time(); 
-                drawUnderlineForIconEx(0);
+                
+                if (g_focus_mode_enabled) {
+                    // 焦点模式：向上移动焦点
+                    moveFocusPrev();
+                    ESP_LOGI("FOCUS", "按键1：焦点向上移动到矩形%d", g_current_focus_rect);
+                    
+                    clearDisplayArea(0, 0, setInkScreenSize.screenWidth, setInkScreenSize.screenHeigt);
+
+                    // 根据当前界面类型重新显示
+                    displayScreen(g_screen_manager.current_screen);
+                } else {
+                    // 原有逻辑：绘制下划线
+                    drawUnderlineForIconEx(0);
+                }
+                
 				inkScreenTestFlag = 0;
 			break;
-			case 2:
+			case 2:  // 按键2：确认/选择
                 update_activity_time(); 
-                drawUnderlineForIconEx(1);
+                
+                if (g_focus_mode_enabled) {
+                    // 焦点模式：确认操作
+                    handleFocusConfirm();
+                    ESP_LOGI("FOCUS", "按键2：确认操作，当前焦点在矩形%d", g_current_focus_rect);
+
+                    clearDisplayArea(0, 0, setInkScreenSize.screenWidth, setInkScreenSize.screenHeigt);
+
+                    // 根据当前界面类型重新显示
+                    displayScreen(g_screen_manager.current_screen);
+                } else {
+                    // 原有逻辑：绘制下划线
+                    drawUnderlineForIconEx(1);
+                }
+                
 				inkScreenTestFlag = 0;
 			break;
-			case 3:
+			case 3:  // 按键3：下一个焦点/向下选择
                 update_activity_time(); 
-				drawUnderlineForIconEx(2);
+                
+                if (g_focus_mode_enabled) {
+                    // 焦点模式：向下移动焦点
+                    moveFocusNext();
+                    ESP_LOGI("FOCUS", "按键3：焦点向下移动到矩形%d", g_current_focus_rect);
+                        
+                    clearDisplayArea(0, 0, setInkScreenSize.screenWidth, setInkScreenSize.screenHeigt);
+                    
+                    // 根据当前界面类型重新显示
+                    displayScreen(g_screen_manager.current_screen);
+                } else {
+                    // 原有逻辑：绘制下划线
+                    drawUnderlineForIconEx(2);
+                }
+                
 				inkScreenTestFlag = 0;
 			break;
 			case 4:
@@ -3502,12 +2648,63 @@ void ink_screen_show(void *args)
 				inkScreenTestFlag = 0;
 			break;
 			case 7:
+            {
+                clearDisplayArea(0, 0, setInkScreenSize.screenWidth, setInkScreenSize.screenHeigt);
+
+                ESP_LOGI(TAG,"############显示主界面（使用新图标布局系统）\r\n");
                 update_activity_time(); 
-				//updateDisplayWithMain();
-                	updateDisplayWithMain(rects,rect_count, 0, 1);
-                interfaceIndex =1;
+                
+                // 直接从矩形数据计算有效矩形数量
+                extern RectInfo rects[MAX_MAIN_RECTS];
+                int valid_rect_count = 0;
+                for (int i = 0; i < MAX_MAIN_RECTS; i++) {
+                    if (rects[i].width > 0 && rects[i].height > 0) {
+                        valid_rect_count++;
+                        ESP_LOGI("FOCUS", "有效矩形%d: (%d,%d) %dx%d", i, 
+                                rects[i].x, rects[i].y, 
+                                rects[i].width, rects[i].height);
+                    } else {
+                        ESP_LOGI("FOCUS", "无效矩形%d: (%d,%d) %dx%d", i, 
+                                rects[i].x, rects[i].y, 
+                                rects[i].width, rects[i].height);
+                        break; // 遇到第一个无效矩形就停止计数
+                    }
+                }
+                
+                ESP_LOGI("FOCUS", "检测到有效矩形数量: %d", valid_rect_count);
+                
+                // 使用实际检测到的有效矩形数量初始化焦点系统
+                initFocusSystem(valid_rect_count);
+                
+                // 尝试从配置文件加载自定义的可焦点矩形列表（母数组）
+                if (loadFocusableRectsFromConfig("main")) {
+                    ESP_LOGI("FOCUS", "已从配置文件加载主界面焦点矩形列表");
+                } else {
+                    ESP_LOGI("FOCUS", "使用默认焦点配置（所有矩形都可焦点）");
+                }
+                
+                // 加载子数组配置
+                if (loadAndApplySubArrayConfig("main")) {
+                    ESP_LOGI("FOCUS", "已从配置文件加载并应用主界面子数组配置");
+                } else {
+                    ESP_LOGI("FOCUS", "未加载主界面子数组配置或配置为空");
+                }
+                
+                // 设置当前界面为主界面
+                g_screen_manager.current_screen = SCREEN_HOME;
+                
+                // 显示主界面
+                displayScreen(SCREEN_HOME);
+                
+                interfaceIndex = 1;
 				inkScreenTestFlag = 0;
+            }
 			break;
+			case 8:  // 新增：启动焦点测试模式
+                ESP_LOGI("FOCUS", "========== 按键8：启动焦点测试模式 ==========");
+                startFocusTestMode();
+                inkScreenTestFlag = 0;
+            break;
             default:
                 break;
 		}
@@ -3517,6 +2714,375 @@ void ink_screen_show(void *args)
        // ESP_LOGI(TAG,"ink_screen_show\r\n");
         vTaskDelay(100);
 	}
+}
+
+// ================= GXEPD2 中景园 3.7" 测试函数 =================
+/**
+ * @brief 使用 GXEPD2 库在中景园 3.7" 墨水屏上显示文字和图片
+ * 
+ * 屏幕参数:
+ * - 分辨率: 240x416 (宽x高)
+ * - 控制器: UC8253 (GDEY037T03)
+ */
+void ink_screen_test_gxepd2_370()
+{
+    ESP_LOGI(TAG, "=== 开始 GXEPD2 中景园 3.7\" 测试（UC8253）===");
+    
+    // ===== 关键修复：延迟启动，避免与 WiFi 初始化冲突 =====
+    ESP_LOGI(TAG, "等待 WiFi 稳定后再初始化墨水屏...");
+    vTaskDelay(3000 / portTICK_PERIOD_MS);  // 延迟 3 秒，等待 WiFi 和系统稳定
+    
+    // 更新全局屏幕尺寸（供其他函数使用）
+    setInkScreenSize.screenWidth = GxEPD2_370_GDEY037T03::WIDTH;   // 240
+    setInkScreenSize.screenHeigt = GxEPD2_370_GDEY037T03::HEIGHT;  // 416
+    
+    ESP_LOGI(TAG, "屏幕尺寸: %dx%d (UC8253 控制器)", setInkScreenSize.screenWidth, setInkScreenSize.screenHeigt);
+    
+    // ===== 步骤 0: 初始化墨水屏专用的 SPI3 (VSPI) =====
+    ESP_LOGI(TAG, "初始化墨水屏专用 SPI3 (SCK=48, MOSI=47)...");
+    EPD_SPI.begin(EPD_SPI_SCK, EPD_SPI_MISO, EPD_SPI_MOSI, EPD_CS_PIN);
+    ESP_LOGI(TAG, "墨水屏 SPI3 初始化完成");
+    ESP_LOGI(TAG, "注意: SD 卡使用 SPI2 (默认 SPI), 墨水屏使用 SPI3 (EPD_SPI), 两者独立工作");
+    
+    // ===== 步骤 1: 初始化显示 (使用 EPD_SPI) =====
+    ESP_LOGI(TAG, "初始化 GXEPD2 显示驱动...");
+    display.epd2.selectSPI(EPD_SPI, SPISettings(4000000, MSBFIRST, SPI_MODE0));  // 设置使用 EPD_SPI
+    display.init(0);  // 初始化（0=不启用调试输出）
+    vTaskDelay(200 / portTICK_PERIOD_MS);
+    ESP_LOGI(TAG, "GXEPD2 初始化完成");
+    
+    // ===== 步骤 2: 设置旋转（可选）=====
+    display.setRotation(1);  // 竖屏模式
+    ESP_LOGI(TAG, "设置旋转: 竖屏模式 (rotation=1)");
+    
+    // ===== 步骤 3: 设置文本颜色 =====
+    display.setTextColor(GxEPD_BLACK);
+    
+    // ===== 步骤 4: 首次全屏刷新（清白）=====
+    ESP_LOGI(TAG, "准备首次全屏刷新（清白）...");
+    display.setFullWindow();
+    ESP_LOGI(TAG, "setFullWindow() 完成");
+    
+    ESP_LOGI(TAG, "调用 firstPage()...");
+    display.firstPage();
+    ESP_LOGI(TAG, "firstPage() 返回");
+    // do
+    // {
+    //     display.fillScreen(GxEPD_WHITE);
+    // }
+    // while (display.nextPage());
+     display.fillScreen(GxEPD_WHITE);
+    ESP_LOGI(TAG, "屏幕已清白");
+    vTaskDelay(500 / portTICK_PERIOD_MS);
+    
+    // ===== 步骤 5: 显示内容 =====
+    ESP_LOGI(TAG, "开始测试 GXEPD2 文字显示（3.7寸屏）...");
+    
+    // ===== 初始化SD卡字库 =====
+    ESP_LOGI(TAG, "初始化SD卡字库...");
+    // SD 卡使用 SPI2 (默认 SPI 对象), 与墨水屏的 SPI3 独立，无需切换
+    if (initChineseFontFromSD("/sd/fangsong_gb2312_16x16.bin", 16)) {
+        ESP_LOGI(TAG, "SD卡字库初始化成功!");
+    } else {
+        ESP_LOGW(TAG, "SD卡字库初始化失败,将使用内置字体");
+    }
+    
+    display.setFullWindow();
+    display.firstPage();
+    do
+    {
+        display.fillScreen(GxEPD_WHITE);
+        display.setTextColor(GxEPD_BLACK);
+        
+        // // ===== 使用SD卡字库显示中文文本 =====
+        // ESP_LOGI(TAG, "使用SD卡字库显示中文...");
+        
+        // // 示例1: 在指定位置显示中文
+         drawChineseText(display, 10, 10, "你好世界!", GxEPD_BLACK);
+        
+        // // 示例2: 显示多行中文
+        // drawChineseText(display, 10, 40, "这是一段测试文本", GxEPD_BLACK);
+        // drawChineseText(display, 10, 70, "使用SD卡字库文件", GxEPD_BLACK);
+        
+        // // 示例3: 居中显示
+        // drawChineseTextCentered(display, 120, "居中显示的文字", GxEPD_BLACK);
+        
+        // // 示例4: 混合中英文
+        // drawChineseText(display, 10, 150, "混合ABC测试123", GxEPD_BLACK);
+        
+        // ===== 以下是原有代码(已注释) =====
+        // 绘制边框
+    //     display.drawRect(0, 0, 240, 416, GxEPD_BLACK);
+    //     display.drawRect(2, 2, 236, 412, GxEPD_BLACK);
+    //     ESP_LOGI(TAG, "绘制测试边框完成");
+        
+    //     ESP_LOGI(TAG, "绘制中文位图和文字...");
+        
+    //     // ===== 显示三种字号的中文位图 =====
+    //     // 16pt 仿宋 "测试文字"
+    //     drawFangsongBitmaps(display, 10, 50, 1);
+    //     ESP_LOGI(TAG, "16pt 中文位图完成");
+        
+    //     // 英文
+    //     display.setFont(NULL);
+    //     display.setTextSize(2);
+    //     display.setCursor(100, 50);
+    //     display.print("ABC");
+    //     ESP_LOGI(TAG, "英文 ABC 完成");
+        
+    //     // 20pt 仿宋 "字文测试"
+    //    // drawFangsong20ptBitmaps(display, 10, 100, 1);
+    //     ESP_LOGI(TAG, "20pt 中文位图完成");
+        
+    //     // 24pt 仿宋 "这是一个测试"
+    //     drawFangsong24ptString(display, 10, 80, "这是一个测试");
+    //     ESP_LOGI(TAG, "24pt 中文字符串完成");
+        
+    //     // 16pt 仿宋 "生成字库" - Python高质量版本
+    //     drawFangsongShengchengString(display, 10, 120, "生成字库");
+    //     ESP_LOGI(TAG, "16pt 高质量中文字符串完成 (生成字库)");
+        
+    //     // 16pt 仿宋 "美式咖啡" - Python高质量版本
+    //     drawFangsongGb2312String(display, 10, 180, "下班");
+    //     ESP_LOGI(TAG, "16pt 高质量中文字符串完成 (美式咖啡)");
+        
+        // ===== 废弃: 显示用户上传的图片位图 (.h 文件) =====
+        // 现已改用 SD 卡 .bin 图片系统
+        // display.drawBitmap(0, 0, IMAGE_BITMAP, IMAGE_WIDTH, IMAGE_HEIGHT, GxEPD_BLACK);
+        
+        // 从SD卡显示图片 (路径相对于SD卡根目录)
+        //displayImageFromSD("/test2_400x216.bin", 0, 0, display);
+        
+        // 状态文本
+        // display.setFont(NULL);
+        // display.setTextSize(2);
+        // display.setCursor(10, 200);
+        // display.print("Status: OK");
+        // ESP_LOGI(TAG, "状态文本完成");
+        
+        // display.setFont(NULL);
+        // display.setTextSize(1);
+    }
+    while (display.nextPage());
+    
+    ESP_LOGI(TAG, "等待 5 秒后进入休眠...");
+    vTaskDelay(5000 / portTICK_PERIOD_MS);
+    
+    // ===== 步骤 6: 进入休眠模式 =====
+    display.hibernate();
+    ESP_LOGI(TAG, "=== GXEPD2 测试完成，显示已进入休眠 ===");
+}
+
+// ================= GXEPD2 微雪 2.13" V4 测试函数 =================
+/**
+ * @brief 使用 GXEPD2 库在微雪 2.13" V4 墨水屏上显示文字和图片
+ * 
+ * 功能说明:
+ * 1. 初始化 GXEPD2 显示对象
+ * 2. 清屏并绘制文字（使用 Adafruit GFX 字体）
+ * 3. 绘制简单图形（矩形、圆形、线条）
+ * 4. 显示位图图像（如果有图片数据）
+ * 5. 刷新显示并进入休眠模式
+ * 
+ * 屏幕参数:
+ * - 分辨率: 122x250 (宽x高，可视区域)
+ * - 完整宽度: 128 (实际控制器宽度)
+ * - 控制器: SSD1675B (GDEH0213B73)
+ */
+void ink_screen_test_gxepd2_microsnow_213()
+{
+    ESP_LOGI(TAG, "=== 开始 GXEPD2 微雪 2.13\" V4 测试（SSD1680）===");
+    
+    // ===== 关键修复：延迟启动，避免与 WiFi 初始化冲突 =====
+    ESP_LOGI(TAG, "等待 WiFi 稳定后再初始化墨水屏...");
+    vTaskDelay(3000 / portTICK_PERIOD_MS);  // 延迟 3 秒，等待 WiFi 和系统稳定
+    
+    // 更新全局屏幕尺寸（供其他函数使用）
+    setInkScreenSize.screenWidth = GxEPD2_213_BN::WIDTH_VISIBLE;  // 122 (可见宽度)
+    setInkScreenSize.screenHeigt = GxEPD2_213_BN::HEIGHT;         // 250
+    
+    ESP_LOGI(TAG, "屏幕尺寸: %dx%d (SSD1680 控制器)", setInkScreenSize.screenWidth, setInkScreenSize.screenHeigt);
+    
+    // ===== 步骤 0: 初始化 Arduino SPI（使用默认 SPI 对象）=====
+    // 指定引脚：SCK=48, MISO=-1（不需要）, MOSI=47
+    ESP_LOGI(TAG, "初始化 Arduino SPI (SCK=48, MOSI=47)...");
+    SPI.begin(48, -1, 47, -1);
+    ESP_LOGI(TAG, "Arduino SPI 初始化完成");
+    
+    // ===== 步骤 1: 初始化显示 =====
+    ESP_LOGI(TAG, "初始化 GXEPD2 显示驱动...");
+    display.init(0);  // 初始化（0=不启用调试输出）
+    // 如果需要调试输出，使用: display.init(115200);
+    
+    vTaskDelay(200 / portTICK_PERIOD_MS);  // 增加延迟，确保初始化稳定
+    
+    ESP_LOGI(TAG, "GXEPD2 初始化完成");
+    
+    // ===== 步骤 2: 设置旋转（可选）=====
+    // 2.13寸屏（122x250）横屏模式：rotation=1 或 3
+    // 如果显示方向不对，可尝试 0, 1, 2, 3 四个值
+    display.setRotation(1);  // 横屏模式，如果不对请改为 0, 2 或 3
+    ESP_LOGI(TAG, "设置旋转: 横屏模式 (rotation=1)");
+    
+    // ===== 步骤 3: 设置文本颜色 =====
+    display.setTextColor(GxEPD_BLACK);  // 黑色文字
+    
+    // ===== 步骤 4: 首次全屏刷新（清白）=====
+    ESP_LOGI(TAG, "准备首次全屏刷新（清白）...");
+    display.setFullWindow();
+    ESP_LOGI(TAG, "setFullWindow() 完成");
+    
+    ESP_LOGI(TAG, "调用 firstPage()...");
+    display.firstPage();
+    ESP_LOGI(TAG, "firstPage() 返回");
+    do
+    {
+        display.fillScreen(GxEPD_WHITE);  // 填充白色背景
+    }
+    while (display.nextPage());
+    
+    ESP_LOGI(TAG, "屏幕已清白");
+    vTaskDelay(500 / portTICK_PERIOD_MS);  // 延长等待时间
+    
+    // ===== 步骤 5: 使用 GXEPD2 实现文字缩放（纯英文/数字）=====
+    ESP_LOGI(TAG, "开始测试 GXEPD2 文字缩放功能（2.13寸屏）...");
+    
+    // 使用 GXEPD2 绘制不同缩放倍数的文字
+    display.setFullWindow();
+    display.firstPage();
+    do
+    {
+        display.fillScreen(GxEPD_WHITE);  // 清白屏
+        display.setTextColor(GxEPD_BLACK);
+        
+        // 先画一个测试边框,确认屏幕在工作
+        display.drawRect(0, 0, 122, 250, GxEPD_BLACK);  // 外边框
+        display.drawRect(2, 2, 118, 246, GxEPD_BLACK);  // 内边框
+        ESP_LOGI(TAG, "绘制测试边框完成");
+        
+        ESP_LOGI(TAG, "绘制中文位图和文字...");
+        
+        // ===== 废弃: 使用 .h 字体文件的代码 =====
+        // 现已改用 SD 卡 .bin 字库系统
+        /*
+        // ===== 混合显示：英文字体 + 中文位图（调整布局适应2.13寸屏幕）=====
+        
+        // 标题区域 - 使用位图方式显示中文（避免GFX字体Unicode问题）
+        drawFangsongBitmaps(display, 5, 30, 1);  // "测试文字" 16pt 1x大小
+        ESP_LOGI(TAG, "16pt 中文位图完成");
+        
+        // 英文使用默认字体测试
+        display.setFont(NULL);
+        display.setTextSize(2);
+        display.setCursor(70, 30);
+        display.print("AB");
+        ESP_LOGI(TAG, "英文 AB 完成");
+        
+        // ===== 使用仿宋20pt位图显示中文 (避免GFX字体花屏问题) =====
+        drawFangsong20ptBitmaps(display, 5, 70, 1);  // "字文测试" 20pt 1x大小
+        ESP_LOGI(TAG, "20pt 中文位图完成");
+        
+        // ===== 使用仿宋24pt位图显示中文字符串 (缩短以适应屏幕宽度) =====
+        drawFangsong24ptString(display, 5, 120, "这是测试");  // 24pt UTF-8字符串（4个字）
+        ESP_LOGI(TAG, "24pt 中文字符串完成");
+        */
+        
+        // 显示英文和数字 (使用默认字体)
+        display.setFont(NULL);
+        display.setTextSize(3);
+        display.setCursor(5, 180);
+        display.print("OK!");
+        ESP_LOGI(TAG, "状态文本完成");
+        
+        // 恢复默认字体
+        display.setFont(NULL);
+        display.setTextSize(1);
+        
+        // // 温度 (用 T: 表示温度)
+        // display.setCursor(10, 60);
+        // display.print("Temp: 25");
+        // display.print((char)247);  // ° 符号
+        // display.print("C");
+        
+        // // 湿度 (用 H: 表示湿度)
+        // display.setCursor(10, 100);
+        // display.print("Humi: 60%");
+        
+        // // 电量 (用 Bat: 表示电池)
+        // display.setCursor(10, 140);
+        // display.print("Bat: 85%");
+        
+        // // WiFi 状态
+        // display.setCursor(10, 180);
+        // display.print("WiFi: OK");
+        
+        // // ===== 显示中文 "爆裂" - 使用位图方式 =====
+        // drawBaiLie(display, 10, 200, 2);  // 在 (10, 230) 显示，放大 2 倍
+        
+        // 底部提示
+        // display.setFont(NULL);
+        // display.setTextSize(1);
+        // display.setCursor(10, 300);
+        // display.print("Last update: 12:34:56");
+        
+        // // 4. 缩放 4x
+        // display.setTextSize(4);
+        // display.setCursor(20, 180);
+        // display.print("TEST");
+        // display.setTextSize(1);
+        // display.setCursor(180, 210);
+        // display.print(" x4.0");
+        
+        // // 5. 缩放 5x（3.7寸屏幕更大，可以显示更多内容）
+        // display.setTextSize(5);
+        // display.setCursor(20, 260);
+        // display.print("BIG");
+        // display.setTextSize(1);
+        // display.setCursor(180, 290);
+        // display.print(" x5.0");
+        // display.setTextSize(1);
+        // display.setCursor(5, 0);
+        // display.print("Font Size Test:");
+    }
+    while (display.nextPage());
+    
+    // ESP_LOGI(TAG, "文字缩放测试完成（3.7寸屏）！");
+    // ESP_LOGI(TAG, "屏幕显示文字的 5 种缩放:");
+    // ESP_LOGI(TAG, "  - 1x (默认)");
+    // ESP_LOGI(TAG, "  - 2x (双倍)");
+    // ESP_LOGI(TAG, "  - 3x (三倍)");
+    // ESP_LOGI(TAG, "  - 4x (四倍)");
+    // ESP_LOGI(TAG, "  - 5x (五倍 - BIG)");
+    
+    // ===== 步骤 6: 等待观察 =====
+    ESP_LOGI(TAG, "等待 5 秒后进入休眠...");
+    vTaskDelay(5000 / portTICK_PERIOD_MS);
+    
+    /* 局部刷新测试（暂时禁用，先确认全屏刷新工作正常）
+    // 定义局部更新区域（左上角坐标 + 宽高）
+    uint16_t partial_x = 5;
+    uint16_t partial_y = 200;
+    uint16_t partial_w = 100;
+    uint16_t partial_h = 30;
+    
+    display.setPartialWindow(partial_x, partial_y, partial_w, partial_h);
+    display.firstPage();
+    do
+    {
+        display.fillRect(partial_x, partial_y, partial_w, partial_h, GxEPD_WHITE);
+        display.setCursor(partial_x + 5, partial_y + 10);
+        display.setTextSize(1);
+        display.print("Partial OK");
+    }
+    while (display.nextPage());
+    
+    ESP_LOGI(TAG, "局部刷新完成");
+    */
+    
+    // ===== 步骤 7: 进入休眠模式 =====
+    display.hibernate();
+    
+    ESP_LOGI(TAG, "=== GXEPD2 测试完成，显示已进入休眠 ===");
 }
 
 void ink_screen_init()
@@ -3539,14 +3105,103 @@ void ink_screen_init()
 			ESP_LOGI(TAG,"SD Card Busy\r\n");
 		}
 	}
-    initAllScreens();
-   initLayoutFromConfig();
-   setupHomeScreenIcons();
-   displayScreen(SCREEN_HOME);
-	//updateDisplayWithMain(rects,rect_count, 0, 1);  // 最后一个参数为1表示显示边框
-	Uart0.printf("fast refresh\r\n");
+        // ===== 步骤 0: 初始化墨水屏专用的 SPI3 (VSPI) =====
+    ESP_LOGI(TAG, "初始化墨水屏专用 SPI3 (SCK=48, MOSI=47)...");
+    EPD_SPI.begin(EPD_SPI_SCK, EPD_SPI_MISO, EPD_SPI_MOSI, EPD_CS_PIN);
+    ESP_LOGI(TAG, "墨水屏 SPI3 初始化完成");
+    ESP_LOGI(TAG, "注意: SD 卡使用 SPI2 (默认 SPI), 墨水屏使用 SPI3 (EPD_SPI), 两者独立工作");
+    
+    // ===== 步骤 1: 初始化显示 (使用 EPD_SPI) =====
+    ESP_LOGI(TAG, "初始化 GXEPD2 显示驱动...");
+    display.epd2.selectSPI(EPD_SPI, SPISettings(4000000, MSBFIRST, SPI_MODE0));  // 设置使用 EPD_SPI
+    display.init(0);  // 初始化（0=不启用调试输出）
+    vTaskDelay(200 / portTICK_PERIOD_MS);
+    ESP_LOGI(TAG, "GXEPD2 初始化完成");
+    
+    // ===== 步骤 2: 设置旋转（可选）=====
+    display.setRotation(1);  // 竖屏模式
+    ESP_LOGI(TAG, "设置旋转: 竖屏模式 (rotation=1)");
 
-	
+    // ===== 步骤 3: 设置文本颜色 =====
+    display.setTextColor(GxEPD_BLACK);
+    
+    // ===== 步骤 4: 首次全屏刷新（清白）=====
+    ESP_LOGI(TAG, "准备首次全屏刷新（清白）...");
+    display.setFullWindow();
+    ESP_LOGI(TAG, "setFullWindow() 完成");
+    ESP_LOGI(TAG, "调用 firstPage()...");
+    display.firstPage();
+    ESP_LOGI(TAG, "firstPage() 返回");
+       // ===== 初始化SD卡字库 =====
+    ESP_LOGI(TAG, "初始化SD卡字库...");
+    // SD 卡使用 SPI2 (默认 SPI 对象), 与墨水屏的 SPI3 独立，无需切换
+    if (initChineseFontFromSD("/sd/fangsong_gb2312_16x16.bin", 16)) {
+        ESP_LOGI(TAG, "SD卡字库初始化成功!");
+    } else {
+        ESP_LOGW(TAG, "SD卡字库初始化失败,将使用内置字体");
+    }
+    
+    // ===== 初始化英文字体系统 =====
+    ESP_LOGI(TAG, "正在初始化英文字体系统...");
+    if (initEnglishFontSystem()) {
+        ESP_LOGI(TAG, "✅ 英文字体系统初始化成功");
+    } else {
+        ESP_LOGW(TAG, "❌ 英文字体系统初始化失败，请检查SD卡文件 /sd/comic_sans_ms_bold_*.bin");
+    }
+   // drawChineseText(display, 10, 10, "沉默的时光", GxEPD_BLACK);
+
+    // 初始化图标布局
+    initMainScreenIcons();   // 主界面图标
+    // 注意：不要在加载配置前初始化单词界面图标，避免覆盖配置文件
+    
+    // 初始化文本布局
+    // initVocabScreenTexts();  // 单词界面文本位置
+    
+    initAllScreens();  // 先初始化屏幕配置（rect_count为0）
+    initLayoutFromConfig();  // 加载配置文件并更新rect_count
+    
+    // 强制更新矩形数量，确保从配置文件读取的值生效
+    int main_count = getMainScreenRectCount();
+    int vocab_count = getVocabScreenRectCount();
+    
+    ESP_LOGI(TAG, "配置加载后 - 主界面矩形数量: %d, 单词界面矩形数量: %d", main_count, vocab_count);
+    
+    // 如果配置文件没有正确设置，使用默认值并重新设置
+    if (main_count <= 0) {
+        // updateMainScreenRectCount(sizeof(rects) / sizeof(rects[0]));
+        // main_count = getMainScreenRectCount();
+        // ESP_LOGI(TAG, "使用默认主界面矩形数量: %d", main_count);
+        ESP_LOGW(TAG, "主界面配置文件未加载或矩形数量为0，请通过web端配置主界面布局");
+        ESP_LOGW(TAG, "注意：不要使用数组大小作为默认值，避免覆盖用户配置");
+    }
+    
+    // 单词界面矩形数量：不再使用数组大小作为默认值
+    // 如果配置文件加载失败或矩形数量为0，保持为0，等待用户通过web端配置
+    if (vocab_count <= 0) {
+        ESP_LOGW(TAG, "单词界面配置文件未加载或矩形数量为0，请通过web端配置单词界面布局");
+        ESP_LOGW(TAG, "注意：不要使用数组大小作为默认值，避免覆盖用户配置");
+        // 不再调用 updateVocabScreenRectCount(sizeof(vocab_rects) / sizeof(vocab_rects[0]));
+        // 保持 vocab_count 为 0，等待用户配置
+    }
+    
+    // 设置主界面的rect_count为从配置加载的实际值
+    rect_count = main_count;
+    ESP_LOGI(TAG, "全局rect_count已设置为: %d", rect_count);
+    
+    // 由于initLayoutFromConfig()已经加载了单词界面配置，这里不需要重复调用
+    // 直接初始化默认图标（如果配置文件中没有图标信息）
+    ESP_LOGI(TAG, "单词界面配置已通过initLayoutFromConfig()加载，当前矩形数量: %d", getVocabScreenRectCount());
+    // initVocabScreenIcons();  // 单词界面图标（如果配置文件中没有则使用默认）
+    // setupHomeScreenIcons();
+    displayScreen(SCREEN_HOME);
+	//updateDisplayWithMain(rects,rect_count, 0, 1);  // 最后一个参数为1表示显示边框
+	Uart0.printf("ink_screen_test_gxepd2_370fast refresh\r\n");
+
+	    // 1. 中景园 3.7" UC8253 (240x416) - 当前使用
+     //();
+    
+    // 2. 微雪 2.13" V4 SSD1680 (122x250)
+    // ink_screen_test_gxepd2_microsnow_213();
 
     BaseType_t task_created = xTaskCreatePinnedToCore(ink_screen_show, 
                                                         "ink_screen_show", 
@@ -3556,3 +3211,4 @@ void ink_screen_init()
                                                         &_eventTaskHandle, 
                                                         0);
 }
+

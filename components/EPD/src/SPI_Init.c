@@ -7,8 +7,14 @@ void EPD_WR_Bus(spi_device_handle_t handle, uint8_t dat)
     spi_transaction_t t = {0};
     t.length = 8;                                  /* Ҫ�����λ�� һ���ֽ� 8λ */
     t.tx_buffer = &dat;                            /* ����������ȥ */
+    if (handle == NULL) {
+        ESP_LOGW("SPI_Init", "EPD_WR_Bus called with NULL handle, skipping transmit");
+        return;
+    }
     ret = spi_device_polling_transmit(handle, &t); /* ��ʼ���� */
-    ESP_ERROR_CHECK(ret);
+    if (ret != ESP_OK) {
+        ESP_LOGE("SPI_Init", "spi_device_polling_transmit failed: %d", ret);
+    }
 }
 
 void EPD_WR_REG(uint8_t reg)
@@ -27,8 +33,14 @@ void EPD_WR_DATA8(spi_device_handle_t handle, const uint8_t dat, int len)
     }
     t.length = len * 8;                            /* Ҫ�����λ�� һ���ֽ� 8λ */
     t.tx_buffer = &dat;                             /* ����������ȥ */
+    if (handle == NULL) {
+        ESP_LOGW("SPI_Init", "EPD_WR_DATA8 called with NULL handle, skipping transmit");
+        return;
+    }
     ret = spi_device_polling_transmit(handle, &t); /* ��ʼ���� */
-    ESP_ERROR_CHECK(ret);                          /* һ�㲻�������� */
+    if (ret != ESP_OK) {
+        ESP_LOGE("SPI_Init", "spi_device_polling_transmit failed: %d", ret);
+    }
 }
 
 

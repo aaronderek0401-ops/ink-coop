@@ -2,8 +2,8 @@
 #define _EPD_H_
 
 #include "SPI_Init.h"
-#define EPD_W	240 
-#define EPD_H	416
+#define EPD_W	152 
+#define EPD_H	152
 
 #define WHITE 0xFF
 #define BLACK 0x00
@@ -17,6 +17,11 @@
 
 #define EPD_ReadBUSY gpio_get_level(EPD_BUSY_GPIO_PIN)
 extern spi_device_handle_t EPD_Handle;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 void EPD_READBUSY(void);
 void EPD_HW_RESET(void);
 void EPD_Update(void);
@@ -27,6 +32,11 @@ void EPD_Init(void);
 void EPD_Display_Clear(void);
 void EPD_Display(const uint8_t *image);
 void EPD_GPIOInit(void);
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif
 
 

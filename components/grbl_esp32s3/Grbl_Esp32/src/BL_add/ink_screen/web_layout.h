@@ -20,6 +20,22 @@ typedef struct {
 } WebIconInfo;
 
 bool parseAndApplyLayout(const char* layout_json);
+bool parseAndApplyVocabLayout(const char* layout_json);
 bool getCurrentLayoutInfo(char *output, int output_size);
+bool getVocabLayoutInfo(char *output, int output_size);
 void initLayoutFromConfig();
-String getCurrentLayoutJson() ;
+bool loadVocabLayoutFromConfig();
+void saveVocabLayoutToConfig();
+String getCurrentLayoutJson();
+
+// 焦点矩形配置相关（添加界面类型参数以区分主界面和单词界面）
+void saveFocusableRectsToConfig(int* rect_indices, int count, const char* screen_type = "vocab");
+bool loadFocusableRectsFromConfig(const char* screen_type = "vocab");
+// 子数组配置（添加界面类型参数）
+void saveSubArrayConfigToSD(const char* json_data, const char* screen_type = "vocab");
+bool loadSubArrayConfigFromSD(char* output, int output_size, const char* screen_type = "vocab");
+bool loadAndApplySubArrayConfig(const char* screen_type = "vocab");  // 加载并应用子数组配置到焦点系统
+
+// 导出可用图标列表（包括索引和来自components/resource/icon/文件夹的文件名）
+char* exportAvailableIcons();
+
