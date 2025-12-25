@@ -30,7 +30,6 @@ Some features should not be changed. See notes below.
 */
 
 #include <Arduino.h>
-#include "NutsBolts.h"
 
 // It is no longer necessary to edit this file to choose
 // a machine configuration; edit machine.h instead

@@ -36,9 +36,6 @@ const char* const GRBL_VERSION_BUILD = "20211103";
 
 // Define the Grbl system include files. NOTE: Do not alter organization.
 #include "Config.h"
-#include "NutsBolts.h"
-
-#include "Defaults.h"
 #include "Error.h"
 #include "WebUI/Authentication.h"
 #include "WebUI/Commands.h"

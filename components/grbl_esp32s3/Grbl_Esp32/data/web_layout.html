@@ -6,7 +6,6 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="version" content="20241215-v2">
     <title>墨水屏布局编辑器</title>
     <style>
         * {
@@ -166,6 +165,50 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
             transform: translateX(-50%) scale(1.2);
         }
 
+
+        /* 新的空心矩形样式 */
+        .icon-hollow-rect {
+            position: absolute;
+            border: 2px solid #FF5722;
+            background: rgba(255, 255, 255, 0.01);
+            /* 增加点击区域 */
+            box-sizing: border-box;
+            cursor: grab;
+            transition: transform 0.1s, box-shadow 0.1s, border-color 0.1s;
+            z-index: 50;
+            border-radius: 4px;
+        }
+
+        .icon-hollow-rect:active {
+            cursor: grabbing;
+        }
+
+        .icon-hollow-rect:hover {
+            border-color: #E91E63;
+            background: rgba(233, 30, 99, 0.1);
+            transform: scale(1.02);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            z-index: 60;
+        }
+
+        .icon-hollow-rect.selected {
+            border-color: #2196F3;
+            border-width: 3px;
+            background: rgba(33, 150, 243, 0.2);
+            box-shadow: 0 0 0 2px white, 0 0 10px #2196F3;
+            z-index: 55;
+        }
+
+        .icon-hollow-rect.dragging {
+            border-color: #9C27B0;
+            background: rgba(156, 39, 176, 0.3);
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.4);
+            transform: scale(1.1);
+            opacity: 0.9;
+            z-index: 100;
+            /* 拖拽时最高 */
+        }
+
         /* 删除按钮样式 */
         .delete-btn {
             background-color: #f44336;
@@ -183,28 +226,30 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
             background-color: #d32f2f;
         }
 
-        /* Canvas 图标样式 */
-        .icon-canvas {
-            transition: all 0.2s ease;
-            z-index: 50;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-            display: block;
+        /* 图标标签样式 */
+        .icon-label {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 10px;
+            font-weight: bold;
+            color: #FF5722;
+            text-align: center;
+            pointer-events: none;
+            text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.8);
         }
 
-        .icon-canvas:hover {
-            box-shadow: 0 4px 12px rgba(233, 30, 99, 0.4);
-            z-index: 60;
+        .icon-hollow-rect:hover .icon-label {
+            color: #E91E63;
         }
 
-        .icon-canvas.selected {
-            box-shadow: 0 0 0 2px #2196F3, 0 0 12px #2196F3;
-            z-index: 55;
+        .icon-hollow-rect.selected .icon-label {
+            color: #2196F3;
         }
 
-        .icon-canvas.dragging {
-            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
-            z-index: 100;
-            opacity: 0.95;
+        .icon-hollow-rect.dragging .icon-label {
+            color: #9C27B0;
         }
 
         /* 文本元素样式 */
@@ -436,11 +481,6 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                 height: 240px;
             }
         }
-
-        .bitmap-canvas {
-            image-rendering: pixelated;
-            image-rendering: crisp-edges;
-        }
     </style>
 </head>
 
@@ -448,12 +488,6 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
     <div class="loading-overlay" id="loadingOverlay">
         <div class="spinner"></div>
         <div id="loadingText">处理中...</div>
-    </div>
-
-    <!-- 环境状态条 -->
-    <div id="envStatusBar" style="background: #f5f5f5; padding: 10px 20px; border-bottom: 2px solid #ddd; font-size: 0.9em; color: #666; display: flex; justify-content: space-between; align-items: center;">
-        <span id="envStatusText">正在检测运行环境...</span>
-        <span id="envIndicator" style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #ffb300; margin-left: 10px;"></span>
     </div>
 
     <div class="container">
@@ -526,13 +560,31 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                 <div class="control-group">
                     <h3>🎯 图标操作</h3>
                     <div class="form-group">
-                        <label>选择图标文件 (.bin)</label>
-                        <div style="display: flex; gap: 10px;">
-                            <input type="file" id="iconFileInput" accept=".bin" style="display: none;">
-                            <input type="text" id="iconFileName" placeholder="未选择文件" readonly style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 5px; background: #f5f5f5;">
-                            <button class="btn" onclick="document.getElementById('iconFileInput').click()">📁 浏览文件</button>
-                        </div>
-                        <small style="color: #666; margin-top: 5px; display: block;">从 resource/icon/ 文件夹中选择 .bin 格式图标</small>
+                        <label>图标索引 (0-20)</label>
+                        <select id="iconIndex"
+                            style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 5px;">
+                            <option value="0">0 - ICON_1 (62x64)</option>
+                            <option value="1">1 - ICON_2 (64x64)</option>
+                            <option value="2">2 - ICON_3 (86x64)</option>
+                            <option value="3">3 - ICON_4 (71x56)</option>
+                            <option value="4">4 - ICON_5 (76x56)</option>
+                            <option value="5">5 - ICON_6 (94x64)</option>
+                            <option value="6">6 - （未使用）</option>
+                            <option value="7">7 - 钉子 (15x16)</option>
+                            <option value="8">8 - 锁 (32x32)</option>
+                            <option value="9">9 - 喇叭 (16x16)</option>
+                            <option value="10">10 - 电池 (36x24)</option>
+                            <option value="11">11 - WiFi断开 (32x32)</option>
+                            <option value="12">12 - WiFi连接 (32x32)</option>
+                            <option value="13">13 - 下划线 (60x16)</option>
+                            <option value="14">14 - 提示框 (320x36)</option>
+                            <option value="15">15 - WiFi/电池 (80x36)</option>
+                            <option value="16">16 - 单词框 (336x48)</option>
+                            <option value="17">17 - 翻译标题 (416x24)</option>
+                            <option value="18">18 - 分隔线 (416x16)</option>
+                            <option value="19">19 - 喇叭 (80x16)</option>
+                            <option value="20">20 - 音标框 (80x32)</option>
+                        </select>
                     </div>
                     <div class="form-group">
                         <label>相对X位置 (0.0-1.0)</label>
@@ -552,12 +604,10 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                         style="margin-top: 10px; padding: 10px; background: #e8f5e9; border-radius: 5px; font-size: 12px;">
                         <strong>提示：</strong>
                         <ul style="margin: 5px 0; padding-left: 20px;">
-                            <li>点击"浏览文件"从 resource/icon/ 文件夹选择 .bin 格式图标</li>
-                            <li>文件名格式：{index}_{name}.bin (例如：0_icon1_62x64.bin)</li>
                             <li>相对位置基于图标<strong>中心点</strong>：(0.5, 0.5)表示图标中心在矩形中心</li>
                             <li>点击图标可查看当前位置并手动调整</li>
                             <li>拖动图标可实时调整位置，相对坐标自动更新</li>
-                            <li>共13个图标可用：0-12</li>
+                            <li>共21个图标可用：0-20</li>
                         </ul>
                     </div>
                 </div>
@@ -708,731 +758,11 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                     <button class="btn" onclick="loadLayoutFromFile()">从文件加载</button>
                     <button class="btn btn-warning" onclick="resetToDefault()">重置为默认布局</button>
                 </div>
-
-                <div class="control-group">
-                    <h3>🔤 TTF 字体管理 
-                        <span style="font-size: 12px; color: #666; font-weight: normal;">
-                            (.bin 字库生成系统)
-                        </span>
-                    </h3>
-                    <div style="background: #e8f5e9; padding: 8px; margin-bottom: 10px; border-radius: 4px; font-size: 12px;">
-                        ✅ 混合缓存系统 - 从 TTF 生成 .bin 字库文件
-                    </div>
-                    <div class="form-group">
-                        <label>选择 TTF 字体文件</label>
-                        <input type="file" id="ttfFileInput" accept=".ttf,.otf" onchange="handleTTFUpload(event)">
-                    </div>
-                    <div class="form-group">
-                        <label>预览文字</label>
-                        <input type="text" id="previewText" value="测试文字ABC123" placeholder="输入要预览的文字">
-                    </div>
-                    
-                    <!-- .bin 字库生成区域 -->
-                    <div style="background: #e3f2fd; padding: 12px; margin: 15px 0; border-radius: 6px; border-left: 4px solid #2196F3;">
-                        <h4 style="margin: 0 0 10px 0; color: #1976D2; font-size: 14px;">
-                            📦 混合缓存系统 - .bin字库生成
-                        </h4>
-                        <p style="font-size: 12px; color: #666; margin: 5px 0;">
-                            生成用于ChineseFontCache混合缓存系统的二进制字库文件 (GB2312汉字, 0x4E00-0x9FA5)
-                        </p>
-                        <div class="form-group" style="margin: 10px 0;">
-                            <label>字库尺寸 (预览和生成都使用此尺寸)</label>
-                            <select id="binFontSize" onchange="previewTTFFont()">
-                                <option value="16" selected>16x16 (32字节/字, ~650KB)</option>
-                                <option value="24">24x24 (72字节/字, ~1.5MB)</option>
-                                <option value="32">32x32 (128字节/字, ~2.6MB)</option>
-                            </select>
-                        </div>
-                        <div class="form-group" style="margin: 10px 0;">
-                            <label>字符集选择</label>
-                            <select id="charsetRange" onchange="updateCharsetInfo()">
-                                <option value="english">英文 ASCII (0x0020-0x007E, 95个字符, ~3-12KB)</option>
-                                <option value="gb2312" selected>中文 GB2312 (0x4E00-0x9FA5, ~20000字符, ~650KB)</option>
-                            </select>
-                            <div id="charsetInfo" style="font-size: 11px; color: #666; margin-top: 5px;"></div>
-                        </div>
-                        <button class="btn btn-primary" style="background: #2196F3;" onclick="convertTTFtoBin()">
-                            🔄 生成 .bin 字库文件
-                        </button>
-                        <button class="btn btn-success" onclick="downloadBinFile()" id="downloadBinBtn" style="display: none;">
-                            💾 下载 .bin 文件
-                        </button>
-                        <button class="btn btn-success" onclick="uploadBinToSD()" id="uploadBinBtn" style="display: none;">
-                            📤 上传到 SD 卡
-                        </button>
-                        <div id="binGenerationStatus" style="margin-top: 10px; font-size: 12px;"></div>
-                    </div>
-                    
-                    <div id="fontPreviewCanvas" style="background: white; border: 1px solid #ccc; margin: 10px 0; min-height: 80px; padding: 10px;">
-                        <!-- Canvas 预览区域 -->
-                    </div>
-                    <button class="btn" onclick="previewTTFFont()">预览字体</button>
-                    
-                    <div class="status-message" id="fontStatusMessage" style="margin-top: 10px;"></div>
-                    
-                    <!-- 字体库搜索 -->
-                    <div style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 15px;">
-                        <h4 style="margin-bottom: 10px;">📚 字体库管理</h4>
-                        <button class="btn" onclick="searchFontLibrary()">🔍 查询字体库</button>
-                        <div id="fontLibraryList" style="margin-top: 10px; max-height: 300px; overflow-y: auto;"></div>
-                    </div>
-                    
-                    <details style="margin-top: 10px;">
-                        <summary style="cursor: pointer; font-weight: bold;">📖 使用说明</summary>
-                        <div style="font-size: 12px; margin-top: 10px; line-height: 1.6;">
-                            <p><strong>步骤：</strong></p>
-                            <ol>
-                                <li>上传 TTF/OTF 字体文件</li>
-                                <li>输入预览文字并点击"预览字体"</li>
-                                <li>选择字库尺寸 (16x16/24x24/32x32)</li>
-                                <li>点击"生成 .bin 字库文件"</li>
-                                <li>下载 .bin 文件或直接上传到 SD 卡</li>
-                                <li>在 ESP32 代码中使用 SDFontLoader 加载</li>
-                            </ol>
-                            <p><strong>注意：</strong></p>
-                            <ul>
-                                <li>生成包含全部 GB2312 汉字 (0x4E00-0x9FA5)</li>
-                                <li>文件较大，生成需要 10-30 秒</li>
-                                <li>字号越大，文件越大</li>
-                            </ul>
-                        </div>
-                    </details>
-                </div>
-                
-                <!-- 图片转换功能 -->
-                <div class="control-panel">
-                    <h3>
-                        📷 图片转换
-                        <span style="font-size: 12px; color: #666; font-weight: normal;">
-                            (支持 JPG/PNG/BMP)
-                        </span>
-                    </h3>
-                    <div style="background: #fff3cd; padding: 8px; margin-bottom: 10px; border-radius: 4px; font-size: 12px;">
-                        💡 将图片转换为墨水屏可用的 .bin 二进制文件
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>选择图片文件</label>
-                        <input type="file" id="imageFileInput" accept="image/*" onchange="handleImageUpload(event)">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>图片宽度 (像素)</label>
-                        <input type="number" id="imageWidth" value="200" min="1" max="800">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>图片高度 (像素)</label>
-                        <input type="number" id="imageHeight" value="200" min="1" max="600">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>处理模式</label>
-                        <select id="imageMode">
-                            <option value="threshold">阈值二值化</option>
-                            <option value="dithering" selected>抖动算法 (推荐)</option>
-                        </select>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>阈值 (0-255)</label>
-                        <input type="number" id="imageThreshold" value="128" min="0" max="255">
-                        <small>仅在二值化模式下有效</small>
-                    </div>
-                    
-                    <div id="imagePreviewCanvas" style="background: white; border: 1px solid #ccc; margin: 10px 0; min-height: 200px; padding: 10px; text-align: center;">
-                        <canvas id="srcImageCanvas" style="max-width: 100%; border: 1px solid #ddd;"></canvas>
-                        <canvas id="dstImageCanvas" style="max-width: 100%; border: 1px solid #ddd; margin-left: 10px;"></canvas>
-                    </div>
-                    
-                    <button class="btn" onclick="previewImage()">预览处理效果</button>
-                    
-                    <!-- .bin 文件转换区域 -->
-                    <div style="background: #e3f2fd; padding: 12px; margin: 15px 0; border-radius: 6px; border-left: 4px solid #2196F3;">
-                        <h4 style="margin: 0 0 10px 0; color: #1976D2; font-size: 14px;">
-                            📦 图片转 .bin 文件
-                        </h4>
-                        <p style="font-size: 12px; color: #666; margin: 5px 0;">
-                            生成用于墨水屏动态加载的二进制图片文件 (包含8字节文件头: 宽度+高度)
-                        </p>
-                        <button class="btn btn-primary" style="background: #2196F3;" onclick="convertImageToBin()">
-                            🔄 转换为 .bin 文件
-                        </button>
-                        <button class="btn btn-info" onclick="addBitmapToSelectedRect()" id="addBitmapBtn" style="display: none;">
-                            ➕ 添加图片到选中矩形
-                        </button>
-                        <!-- 隐藏的文件输入 -->
-                        <input type="file" id="bitmapFileInput" accept=".bin" style="display: none;">
-                        <button class="btn" onclick="document.getElementById('bitmapFileInput').click()" id="browseBitmapBtn" style="display: none;">
-                            📁 浏览位图文件
-                        </button>
-                        <div id="imageBinStatus" style="margin-top: 10px; font-size: 12px;"></div>
-                    </div>
-                    
-                    <!-- 图片库搜索 -->
-                    <div style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 15px;">
-                        <h4 style="margin-bottom: 10px;">🖼️ 图片库管理</h4>
-                        <button class="btn" onclick="searchBitmapLibrary()">🔍 查询图片库</button>
-                        <div id="bitmapLibraryList" style="margin-top: 10px; max-height: 400px; overflow-y: auto;"></div>
-                        <div id="bitmapPreviewArea" style="margin-top: 10px; padding: 10px; background: white; border: 1px solid #ddd; display: none;">
-                            <h5>预览:</h5>
-                            <canvas id="bitmapPreviewCanvas" style="border: 1px solid #ccc; max-width: 100%;"></canvas>
-                            <div id="bitmapPreviewInfo" style="margin-top: 10px; font-size: 12px;"></div>
-                        </div>
-                    </div>
-
-                    <!-- SD卡文件管理 -->
-                    <div style="margin-top: 20px; border-top: 1px solid #ddd; padding-top: 15px;">
-                        <h4 style="margin-bottom: 10px;">💾 SD 卡文件管理</h4>
-                        <div style="margin-bottom: 10px;">
-                            <button class="btn" onclick="refreshSDFiles()">🔄 刷新文件列表</button>
-                            <button class="btn btn-danger" onclick="deleteSelectedFiles()" style="margin-left: 5px;">🗑️ 批量删除</button>
-                            <button class="btn btn-danger" onclick="deleteAllFiles()" style="margin-left: 5px;">⚠️ 全部删除</button>
-                        </div>
-                        <div id="sdCardInfo" style="margin: 10px 0; padding: 10px; background: #f9f9f9; border-radius: 4px; font-size: 12px;"></div>
-                        <div style="margin-bottom: 10px;">
-                            <label style="cursor: pointer;">
-                                <input type="checkbox" id="selectAllCheckbox" onclick="toggleSelectAll()"> 全选
-                            </label>
-                        </div>
-                        <div id="sdFilesList" style="max-height: 500px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px;"></div>
-                    </div>
-                    
-                    <details style="margin-top: 10px;">
-                        <summary style="cursor: pointer; font-weight: bold;">📖 使用说明</summary>
-                        <div style="font-size: 12px; margin-top: 10px; line-height: 1.6;">
-                            <p><strong>步骤：</strong></p>
-                            <ol>
-                                <li>上传图片文件 (JPG/PNG/BMP)</li>
-                                <li>设置目标宽高 (建议不超过墨水屏分辨率)</li>
-                                <li>选择处理模式 (抖动算法效果更好)</li>
-                                <li>点击"预览处理效果"查看效果</li>
-                                <li>点击"转换为 .bin 文件"</li>
-                                <li>下载 .bin 文件或直接上传到 SD 卡</li>
-                                <li>在 ESP32 代码中使用 displayImageFromSD() 显示</li>
-                            </ol>
-                            
-                            <p><strong>注意：</strong></p>
-                            <ul>
-                                <li>.bin 文件包含 8 字节文件头 (宽度+高度)</li>
-                                <li>使用抖动算法可获得更好的图片质量</li>
-                                <li>建议图片尺寸不要超过墨水屏分辨率</li>
-                            </ul>
-                        </div>
-                    </details>
-                </div>
             </div>
         </div>
     </div>
 
     <script>
-        // ===== 全局配置：自动检测服务地址，优先 PC 端，降级到 ESP32 =====
-        const CONFIG = {
-            // PC 端 Flask 服务地址
-            PC_SERVICE_URL: 'http://localhost:5001',
-            
-            // Python 后端服务地址 (用于字体/图片转换)
-            PYTHON_SERVICE_URL: 'http://localhost:5000',
-            
-            // ESP32 服务地址 (自动检测)
-            get ESP32_BASE_URL() {
-                if (window.location.protocol === 'file:') {
-                    // 本地文件打开时使用默认地址
-                    return 'http://192.168.0.2:8848';
-                } else {
-                    // 从 ESP32 网页打开时使用当前地址
-                    return `${window.location.protocol}//${window.location.host}`;
-                }
-            },
-            
-            // 辅助函数：获取 Python 服务URL
-            pythonUrl: function(path) {
-                return this.PYTHON_SERVICE_URL + path;
-            },
-            
-            // 辅助函数：获取 ESP32 服务URL
-            esp32Url: function(path) {
-                return this.ESP32_BASE_URL + path;
-            },
-            
-            // 辅助函数：获取 PC 端服务URL
-            pcUrl: function(path) {
-                return this.PC_SERVICE_URL + path;
-            },
-            
-            // 辅助函数：带回退的 Python 服务 URL
-            pythonUrlWithFallback: function(path) {
-                // PC 端优先返回 PC 服务 URL
-                return this.PC_SERVICE_URL + path;
-            }
-        };
-        
-        /**
-         * 带回退的 fetch 函数：优先尝试 PC 端接口，失败则降级到 ESP32 接口
-         * @param {string} pcPath - PC 端接口路径 (相对 localhost:5001)
-         * @param {string} esp32Path - ESP32 接口路径 (相对 ESP32 主机)
-         * @param {object} options - fetch 选项
-         * @returns {Promise} fetch 响应
-         */
-        async function fetchWithFallback(pcPath, esp32Path, options = {}) {
-            try {
-                // 优先尝试 PC 端接口
-                const pcUrl = CONFIG.pcUrl(pcPath);
-                const response = await Promise.race([
-                    fetch(pcUrl, options),
-                    new Promise((_, reject) => 
-                        setTimeout(() => reject(new Error('PC endpoint timeout')), 5000)
-                    )
-                ]);
-                
-                if (response.ok) {
-                    console.log(`✓ PC endpoint success: ${pcPath}`);
-                    return response;
-                } else {
-                    throw new Error(`PC endpoint returned ${response.status}`);
-                }
-            } catch (pcError) {
-                console.warn(`⚠ PC endpoint failed (${pcPath}):`, pcError.message);
-                
-                try {
-                    // 降级到 ESP32 接口
-                    const esp32Url = CONFIG.esp32Url(esp32Path);
-                    const response = await fetch(esp32Url, options);
-                    
-                    if (response.ok) {
-                        console.log(`✓ ESP32 endpoint success: ${esp32Path}`);
-                        return response;
-                    } else {
-                        throw new Error(`ESP32 endpoint returned ${response.status}`);
-                    }
-                } catch (esp32Error) {
-                    console.error(`✗ Both endpoints failed. PC: ${pcError.message}, ESP32: ${esp32Error.message}`);
-                    throw new Error(`All endpoints failed: ${esp32Error.message}`);
-                }
-            }
-        }
-        
-        /**
-         * 为 Python 服务 API 的带回退 fetch：PC 优先，Python 备用
-         * @param {string} path - API 路径
-         * @param {object} options - fetch 选项
-         * @returns {Promise} fetch 响应
-         */
-        async function fetchWithFallbackForPython(path, options = {}) {
-            try {
-                // 优先尝试 PC 端服务
-                const pcPath = CONFIG.PC_SERVICE_URL + path;
-                const response = await Promise.race([
-                    fetch(pcPath, options),
-                    new Promise((_, reject) => 
-                        setTimeout(() => reject(new Error('PC endpoint timeout')), 5000)
-                    )
-                ]);
-                
-                if (response.ok) {
-                    console.log(`✓ PC endpoint success for Python API: ${path}`);
-                    return response;
-                } else {
-                    throw new Error(`PC endpoint returned ${response.status}`);
-                }
-            } catch (pcError) {
-                console.warn(`⚠ PC endpoint failed for Python API (${path}):`, pcError.message);
-                
-                try {
-                    // 降级到 Python 后端服务
-                    const pythonPath = CONFIG.PYTHON_SERVICE_URL + path;
-                    const response = await fetch(pythonPath, options);
-                    
-                    if (response.ok) {
-                        console.log(`✓ Python endpoint success: ${path}`);
-                        return response;
-                    } else {
-                        throw new Error(`Python endpoint returned ${response.status}`);
-                    }
-                } catch (pythonError) {
-                    console.error(`✗ Both endpoints failed. PC: ${pcError.message}, Python: ${pythonError.message}`);
-                    throw new Error(`All endpoints failed: ${pythonError.message}`);
-                }
-            }
-        }
-        
-        // 环境检测：判断是在电脑还是在ESP32上运行
-        let g_env = {
-            isPC: false,           // 是否在电脑上运行
-            isESP32: false,        // 是否在ESP32上运行
-            esp32Host: '',         // ESP32主机地址
-            pcHost: 'localhost',   // 电脑服务器地址
-            pcPort: 5001           // 电脑服务器端口
-        };
-
-        // 检测运行环境
-        async function detectEnvironment() {
-            console.log('[detectEnvironment] 开始检测运行环境...');
-            
-            // 首先尝试连接本地PC服务器 (localhost:5001)
-            try {
-                const response = await Promise.race([
-                    fetch(`http://${g_env.pcHost}:${g_env.pcPort}/api/health`, {
-                        method: 'GET'
-                    }),
-                    new Promise((_, reject) => 
-                        setTimeout(() => reject(new Error('timeout')), 3000)
-                    )
-                ]);
-                
-                if (response && response.ok) {
-                    g_env.isPC = true;
-                    console.log('[detectEnvironment] ✓ 检测到在电脑上运行，PC服务器可用');
-                    
-                    // 更新环境状态条
-                    const statusBar = document.getElementById('envStatusBar');
-                    const statusText = document.getElementById('envStatusText');
-                    const indicator = document.getElementById('envIndicator');
-                    
-                    if (statusBar) statusBar.style.background = '#e8f5e9';
-                    if (statusText) statusText.textContent = '✓ 在电脑上运行 (PC Mode) - 使用本地服务器 (localhost:5001)';
-                    if (indicator) indicator.style.background = '#4CAF50';
-                    
-                    return;
-                }
-            } catch (error) {
-                console.warn('[detectEnvironment] 本地PC服务器不可用:', error.message);
-            }
-            
-            // 如果PC服务器不可用，则在ESP32上运行
-            g_env.isESP32 = true;
-            g_env.esp32Host = window.location.hostname || '192.168.1.100';
-            console.log('[detectEnvironment] ✓ 检测到在ESP32上运行，主机:', g_env.esp32Host);
-            
-            // 更新环境状态条
-            const statusBar = document.getElementById('envStatusBar');
-            const statusText = document.getElementById('envStatusText');
-            const indicator = document.getElementById('envIndicator');
-            
-            if (statusBar) statusBar.style.background = '#e3f2fd';
-            if (statusText) statusText.textContent = `✓ 在ESP32上运行 (ESP32 Mode) - 主机: ${g_env.esp32Host}`;
-            if (indicator) indicator.style.background = '#2196F3';
-        }
-        
-        // ===== 图标位图数据（来自 Pic.h）=====
-        // 每个图标的基本信息
-        const ICON_METADATA = [
-            {index: 0, name: 'ICON_1', width: 62, height: 64, dataSize: 512},
-            {index: 1, name: 'ICON_2', width: 64, height: 64, dataSize: 512},
-            {index: 2, name: 'ICON_3', width: 86, height: 64, dataSize: 704},
-            {index: 3, name: 'ICON_4', width: 71, height: 56, dataSize: 504},
-            {index: 4, name: 'ICON_5', width: 76, height: 56, dataSize: 560},
-            {index: 5, name: 'ICON_6', width: 94, height: 64, dataSize: 768},
-            {index: 6, name: 'separate', width: 120, height: 8, dataSize: 120},
-            {index: 7, name: 'WIFI_CONNECT', width: 32, height: 32, dataSize: 128},
-            {index: 8, name: 'WIFI_DISCONNECT', width: 32, height: 32, dataSize: 128},
-            {index: 9, name: 'BATTERY_1', width: 36, height: 24, dataSize: 120},
-            {index: 10, name: 'HORN', width: 16, height: 16, dataSize: 32},
-            {index: 11, name: 'NAIL', width: 15, height: 16, dataSize: 32},
-            {index: 12, name: 'LOCK', width: 32, height: 32, dataSize: 128},
-        ];
-        
-        // 图标位图数据缓存
-        const ICON_BITMAP_DATA = {};
-        
-        // 获取图标的位图数据（1位黑白位图）
-        async function getIconBitmapData(iconIndex) {
-            if (iconIndex in ICON_BITMAP_DATA) {
-                console.log(`Icon ${iconIndex} loaded from cache, size: ${ICON_BITMAP_DATA[iconIndex].length} bytes`);
-                return ICON_BITMAP_DATA[iconIndex];
-            }
-            
-            try {
-                console.log(`[getIconBitmapData] 开始获取图标 ${iconIndex}`);
-                const response = await fetchWithFallback(
-                    `/api/icon/binary/${iconIndex}`,
-                    `/api/icon/data/${iconIndex}`
-                );
-                console.log(`[getIconBitmapData] 收到响应: ${response.status} ${response.statusText}`);
-                
-                if (!response.ok) {
-                    console.error(`Failed to fetch icon ${iconIndex}: HTTP ${response.status}`);
-                    return null;
-                }
-                
-                // 检查是否是二进制数据（ArrayBuffer）或文本数据（Base64）
-                const contentType = response.headers.get('content-type');
-                console.log(`[getIconBitmapData] Content-Type: ${contentType}`);
-                
-                let binaryData;
-                const isESP32Mode = g_env && g_env.isESP32;
-                
-                if (contentType && contentType.includes('octet-stream')) {
-                    // PC 端返回的是二进制
-                    const arrayBuffer = await response.arrayBuffer();
-                    binaryData = new Uint8Array(arrayBuffer);
-                    console.log(`[getIconBitmapData] PC模式：接收二进制数据（icon ${iconIndex}）: 长度=${binaryData.length} 字节`);
-                } else {
-                    // ESP32 端返回 Base64
-                    const base64Data = await response.text();
-                    console.log(`[getIconBitmapData] 接收 Base64 数据（icon ${iconIndex}）: 长度=${base64Data.length} 字符`);
-                    
-                    const binaryString = atob(base64Data);
-                    binaryData = new Uint8Array(binaryString.length);
-                    for (let i = 0; i < binaryString.length; i++) {
-                        binaryData[i] = binaryString.charCodeAt(i);
-                    }
-                    console.log(`[getIconBitmapData] 解码后二进制数据（icon ${iconIndex}）: 长度=${binaryData.length} 字节，直接使用`);
-                    
-                    // ESP32 模式：接收到的数据已经是纯位图，无需处理头部
-                }
-                
-                ICON_BITMAP_DATA[iconIndex] = binaryData;
-                return binaryData;
-            } catch (error) {
-                console.error(`[getIconBitmapData] 获取图标 ${iconIndex} 出错:`, error);
-                return null;
-            }
-        }
-        
-        // 为用户上传的位图绘制到Canvas（带颜色反转、水平镜像和顺时针旋转90度）
-        function drawBitmapToCanvasForUser(ctx, bitmapData, origWidth, origHeight, displayWidth, displayHeight) {
-            if (!bitmapData) {
-                console.error(`[drawBitmapToCanvasForUser] 错误: bitmapData为null或undefined`);
-                return;
-            }
-            
-            console.log(`[drawBitmapToCanvasForUser] 开始绘制用户位图: origSize=${origWidth}x${origHeight}, displaySize=${displayWidth}x${displayHeight}, dataSize=${bitmapData.length}`);
-            
-            // 计算缩放比例（顺时针旋转90度后，宽高互换）
-            const scaleX = displayWidth / origHeight;   // 原高度变成新宽度
-            const scaleY = displayHeight / origWidth;   // 原宽度变成新高度
-            
-            // 计算每行的字节数（8像素对齐）
-            const bytesPerRow = Math.ceil(origWidth / 8);
-            const expectedDataSize = bytesPerRow * origHeight;
-            
-            console.log(`[drawBitmapToCanvasForUser] 计算参数: bytesPerRow=${bytesPerRow}, expectedDataSize=${expectedDataSize}, scaleX=${scaleX}, scaleY=${scaleY}`);
-            
-            if (bitmapData.length < expectedDataSize) {
-                console.warn(`[drawBitmapToCanvasForUser] 警告: 位图数据不完整。期望 ${expectedDataSize} 字节，实际 ${bitmapData.length} 字节`);
-            }
-            
-            // 创建ImageData用于更高效的绘制
-            const imageData = ctx.createImageData(displayWidth, displayHeight);
-            const data = imageData.data;
-            
-            console.log(`[drawBitmapToCanvasForUser] ImageData已创建: ${displayWidth}x${displayHeight}, 总像素: ${displayWidth * displayHeight}`);
-            
-            // 逐像素处理（颜色反转 + 水平镜像 + 顺时针旋转90度）
-            for (let y = 0; y < origHeight; y++) {
-                for (let x = 0; x < origWidth; x++) {
-                    // 计算字节索引和位位置
-                    const byteIndex = y * bytesPerRow + Math.floor(x / 8);
-                    const bitPosition = 7 - (x % 8);
-                    
-                    // 获取该像素的位值
-                    let pixelColor = [255, 255, 255, 255]; // 默认白色
-                    
-                    if (byteIndex < bitmapData.length) {
-                        const pixelValue = (bitmapData[byteIndex] >> bitPosition) & 1;
-                        
-                        // 颜色反转：1→黑色，0→白色
-                        if (pixelValue) {  // 原始位值为1
-                            pixelColor = [0, 0, 0, 255];      // 黑色
-                        } else {  // 原始位值为0
-                            pixelColor = [255, 255, 255, 255]; // 白色
-                        }
-                    }
-                    
-                    // 不水平镜像，直接进行顺时针旋转180度
-                    // 第一次顺时针旋转90度：(x, y) → (y, origWidth - 1 - x)
-                    let rotated1X = y;
-                    let rotated1Y = origWidth - 1 - x;
-                    
-                    // 第二次顺时针旋转90度（总共旋转180度）
-                    // 在rotated1的尺寸中（rotated1Height=origWidth, rotated1Width=origHeight）
-                    // (rotated1X, rotated1Y) → (origWidth - 1 - rotated1Y, rotated1X)
-                    const rotatedX = origWidth - 1 - rotated1Y;  // 新的x坐标
-                    const rotatedY = rotated1X;                  // 新的y坐标
-                    
-                    // 放大像素到显示分辨率
-                    const displayX = Math.floor(rotatedX * scaleX);
-                    const displayY = Math.floor(rotatedY * scaleY);
-                    const pixelWidth = Math.ceil(scaleX);
-                    const pixelHeight = Math.ceil(scaleY);
-                    
-                    for (let dy = 0; dy < pixelHeight && displayY + dy < displayHeight; dy++) {
-                        for (let dx = 0; dx < pixelWidth && displayX + dx < displayWidth; dx++) {
-                            const imgIdx = ((displayY + dy) * displayWidth + (displayX + dx)) * 4;
-                            data[imgIdx] = pixelColor[0];     // R
-                            data[imgIdx + 1] = pixelColor[1]; // G
-                            data[imgIdx + 2] = pixelColor[2]; // B
-                            data[imgIdx + 3] = pixelColor[3]; // A
-                        }
-                    }
-                }
-            }
-            
-            // 将处理好的图像数据绘制到Canvas上
-            ctx.putImageData(imageData, 0, 0);
-            console.log(`✓ [drawBitmapToCanvasForUser] 用户位图已绘制到Canvas，大小: ${displayWidth}x${displayHeight}`);
-        }
-        
-        // 将 1 位黑白位图渲染到 Canvas
-        // PC 模式：直接映射，不旋转
-        function drawBitmapToCanvasPC(ctx, bitmapData, origWidth, origHeight, displayWidth, displayHeight) {
-            if (!bitmapData) {
-                console.error(`[drawBitmapToCanvasPC] 错误: bitmapData为null或undefined`);
-                return;
-            }
-            
-            console.log(`[drawBitmapToCanvasPC] 开始绘制: origSize=${origWidth}x${origHeight}, displaySize=${displayWidth}x${displayHeight}, dataSize=${bitmapData.length}`);
-            const scaleX = displayWidth / origWidth;
-            const scaleY = displayHeight / origHeight;
-            const bytesPerRow = Math.ceil(origWidth / 8);
-            const expectedDataSize = bytesPerRow * origHeight;
-            
-            console.log(`[drawBitmapToCanvasPC] 计算参数: bytesPerRow=${bytesPerRow}, expectedDataSize=${expectedDataSize}, scaleX=${scaleX}, scaleY=${scaleY}`);
-            
-            if (bitmapData.length < expectedDataSize) {
-                console.warn(`[drawBitmapToCanvasPC] 警告: 位图数据不完整。期望 ${expectedDataSize} 字节，实际 ${bitmapData.length} 字节`);
-            }
-            
-            const imageData = ctx.createImageData(displayWidth, displayHeight);
-            const data = imageData.data;
-            
-            console.log(`[drawBitmapToCanvasPC] ImageData已创建: ${displayWidth}x${displayHeight}, 总像素: ${displayWidth * displayHeight}`);
-            
-            for (let y = 0; y < origHeight; y++) {
-                for (let x = 0; x < origWidth; x++) {
-                    const byteIndex = y * bytesPerRow + Math.floor(x / 8);
-                    const bitPosition = 7 - (x % 8);
-                    let pixelColor = [255, 255, 255, 255];
-                    
-                    if (byteIndex < bitmapData.length) {
-                        const pixelValue = (bitmapData[byteIndex] >> bitPosition) & 1;
-                        if (pixelValue) {
-                            pixelColor = [0, 0, 0, 255];       // 黑色
-                        } else {
-                            pixelColor = [255, 255, 255, 255]; // 白色
-                        }
-                    }
-                    
-                    const displayX = Math.floor(x * scaleX);
-                    const displayY = Math.floor(y * scaleY);
-                    const pixelWidth = Math.ceil(scaleX);
-                    const pixelHeight = Math.ceil(scaleY);
-                    
-                    for (let dy = 0; dy < pixelHeight && displayY + dy < displayHeight; dy++) {
-                        for (let dx = 0; dx < pixelWidth && displayX + dx < displayWidth; dx++) {
-                            const imgIdx = ((displayY + dy) * displayWidth + (displayX + dx)) * 4;
-                            data[imgIdx] = pixelColor[0];
-                            data[imgIdx + 1] = pixelColor[1];
-                            data[imgIdx + 2] = pixelColor[2];
-                            data[imgIdx + 3] = pixelColor[3];
-                        }
-                    }
-                }
-            }
-            
-            ctx.putImageData(imageData, 0, 0);
-            console.log(`✓ [drawBitmapToCanvasPC] 位图已绘制到Canvas，大小: ${displayWidth}x${displayHeight}`);
-        }
-        
-        // ESP32 模式：应用旋转和镜像变换
-        function drawBitmapToCanvasESP32(ctx, bitmapData, origWidth, origHeight, displayWidth, displayHeight) {
-            if (!bitmapData) {
-                console.error(`[drawBitmapToCanvasESP32] 错误: bitmapData为null或undefined`);
-                return;
-            }
-            
-            console.log(`[drawBitmapToCanvasESP32] 开始绘制: origSize=${origWidth}x${origHeight}, displaySize=${displayWidth}x${displayHeight}, dataSize=${bitmapData.length}`);
-            const scaleX = displayWidth / origHeight;   
-            const scaleY = displayHeight / origWidth;   
-            const bytesPerRow = Math.ceil(origWidth / 8);
-            const expectedDataSize = bytesPerRow * origHeight;
-            
-            console.log(`[drawBitmapToCanvasESP32] 计算参数: bytesPerRow=${bytesPerRow}, expectedDataSize=${expectedDataSize}, scaleX=${scaleX}, scaleY=${scaleY}`);
-            
-            if (bitmapData.length < expectedDataSize) {
-                console.warn(`[drawBitmapToCanvasESP32] 警告: 位图数据不完整。期望 ${expectedDataSize} 字节，实际 ${bitmapData.length} 字节`);
-            }
-            
-            const imageData = ctx.createImageData(displayWidth, displayHeight);
-            const data = imageData.data;
-            
-            console.log(`[drawBitmapToCanvasESP32] ImageData已创建: ${displayWidth}x${displayHeight}, 总像素: ${displayWidth * displayHeight}`);
-            
-            for (let y = 0; y < origHeight; y++) {
-                for (let x = 0; x < origWidth; x++) {
-                    const byteIndex = y * bytesPerRow + Math.floor(x / 8);
-                    const bitPosition = 7 - (x % 8);
-                    let pixelColor = [255, 255, 255, 255]; 
-                    
-                    if (byteIndex < bitmapData.length) {
-                        const pixelValue = (bitmapData[byteIndex] >> bitPosition) & 1;
-                        if (pixelValue) {  
-                            pixelColor = [255, 255, 255, 255]; 
-                        } else {  
-                            pixelColor = [0, 0, 0, 255];       
-                        }
-                    }
-                    
-                    // ESP32 模式：应用水平镜像和旋转90度
-                    const mirroredX = origWidth - 1 - x;
-                    const rotatedX = y;                        
-                    const rotatedY = origWidth - 1 - mirroredX; 
-                    const displayX = Math.floor(rotatedX * scaleX);
-                    const displayY = Math.floor(rotatedY * scaleY);
-                    const pixelWidth = Math.ceil(scaleX);
-                    const pixelHeight = Math.ceil(scaleY);
-                    
-                    for (let dy = 0; dy < pixelHeight && displayY + dy < displayHeight; dy++) {
-                        for (let dx = 0; dx < pixelWidth && displayX + dx < displayWidth; dx++) {
-                            const imgIdx = ((displayY + dy) * displayWidth + (displayX + dx)) * 4;
-                            data[imgIdx] = pixelColor[0];     // R
-                            data[imgIdx + 1] = pixelColor[1]; // G
-                            data[imgIdx + 2] = pixelColor[2]; // B
-                            data[imgIdx + 3] = pixelColor[3]; // A
-                        }
-                    }
-                }
-            }
-            
-            ctx.putImageData(imageData, 0, 0);
-            console.log(`✓ [drawBitmapToCanvasESP32] 位图已绘制到Canvas，大小: ${displayWidth}x${displayHeight}`);
-        }
-        
-        function drawBitmapToCanvas(ctx, bitmapData, origWidth, origHeight, displayWidth, displayHeight) {
-            if (!bitmapData) {
-                console.error(`[drawBitmapToCanvas] 错误: bitmapData为null或undefined`);
-                return;
-            }
-            
-            console.log(`[drawBitmapToCanvas] 开始绘制: origSize=${origWidth}x${origHeight}, displaySize=${displayWidth}x${displayHeight}, dataSize=${bitmapData.length}`);
-            
-            // 检查运行环境
-            const isESP32Mode = g_env && g_env.isESP32;
-            console.log(`[drawBitmapToCanvas] 环境: ${isESP32Mode ? 'ESP32模式' : 'PC模式'}`);
-            
-            if (isESP32Mode) {
-                drawBitmapToCanvasESP32(ctx, bitmapData, origWidth, origHeight, displayWidth, displayHeight);
-            } else {
-                drawBitmapToCanvasPC(ctx, bitmapData, origWidth, origHeight, displayWidth, displayHeight);
-            }
-        }
-        
-        
-        
-        let currentTTFFont = null;  // 存储上传的TTF字体的 Data URL
-        let currentTTFFile = null;  // 存储上传的TTF文件对象
-        let currentFontName = '';   // 字体名称
-        let fontCanvas = null;      // 预览用的 Canvas
-        let fontContext = null;     // Canvas 上下文
-        
-        // ===== 图片相关全局变量 =====
-        let currentImageFile = null;     // 存储上传的图片文件
-        let currentImageData = null;     // 存储图片的 Data URL
-        let srcImageCanvas = null;       // 源图片 Canvas
-        let dstImageCanvas = null;       // 处理后的图片 Canvas
-        let processedBitmapData = null;  // 处理后的位图数据
-        
         let currentScreenMode = 'main'; // 'main' 或 'vocab'
         let currentLayout = {
             screen: { width: 416, height: 240 },
@@ -1499,9 +829,6 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
 
         // 初始化
         function init() {
-            // 检测运行环境
-            detectEnvironment();
-            
             // 初始化文本管理面板可见性
             const textManagementGroup = document.getElementById('textManagementGroup');
             if (textManagementGroup) {
@@ -1515,12 +842,6 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                 focusConfigGroup.style.display = 'block';
             }
 
-            // 初始化图标文件选择
-            initIconFileSelector();
-
-            // 初始化位图文件选择
-            initBitmapFileSelector();
-
             drawGridLines();
             // 设置默认布局但不立即渲染
             //setDefaultLayout();
@@ -1532,96 +853,6 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                 loadSubArrayConfig();
             }, 500);
         }
-
-        // 初始化图标文件选择器
-        function initIconFileSelector() {
-            const fileInput = document.getElementById('iconFileInput');
-            if (!fileInput) return;
-
-            fileInput.addEventListener('change', function(event) {
-                const file = event.target.files[0];
-                if (!file) return;
-
-                // 获取文件名（不含路径）
-                const fileName = file.name;
-                
-                // 更新显示的文件名
-                document.getElementById('iconFileName').value = fileName;
-                
-                // 从文件名解析图标索引
-                const iconIndex = extractIconIndexFromFileName(fileName);
-                
-                if (iconIndex < 0 || iconIndex > 12) {
-                    showStatus(`无效的图标文件：${fileName}。文件名格式应为：{index}_{name}.bin`, 'error');
-                    document.getElementById('iconFileInput').value = '';
-                    document.getElementById('iconFileName').value = '';
-                    return;
-                }
-                
-                showStatus(`已选择图标文件：${fileName} (索引: ${iconIndex})`, 'success');
-                
-                // 存储选中的索引供 addIconToSelectedRect 使用
-                window.selectedIconIndex = iconIndex;
-            });
-        }
-
-        // 从文件名中提取图标索引
-        // 文件名格式: {index}_{name}.bin 例如: 0_icon1_62x64.bin
-        function extractIconIndexFromFileName(fileName) {
-            // 移除 .bin 扩展名
-            const nameWithoutExt = fileName.replace(/\.bin$/i, '');
-            
-            // 提取第一个数字或数字组
-            const match = nameWithoutExt.match(/^(\d+)/);
-            if (match) {
-                return parseInt(match[1], 10);
-            }
-            
-            return -1;  // 无效的格式
-        }
-
-        /**
-         * 初始化位图文件选择器
-         */
-        function initBitmapFileSelector() {
-            const fileInput = document.getElementById('bitmapFileInput');
-            if (!fileInput) return;
-
-            fileInput.addEventListener('change', function(event) {
-                const file = event.target.files[0];
-                if (!file) return;
-
-                // 获取文件名（不含路径）
-                const fileName = file.name;
-                
-                // 读取文件内容作为数据
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    // 存储位图文件数据供后续使用
-                    generatedImageBinData = new Blob([e.target.result], { type: 'application/octet-stream' });
-                    generatedImageBinFilename = fileName;
-
-                    // 从文件名提取尺寸信息
-                    extractBitmapIndexFromFileName(fileName);
-
-                    const width = window.generatedBitmapWidth || 0;
-                    const height = window.generatedBitmapHeight || 0;
-
-                    showStatus(`✅ 已选择位图文件：${fileName} (尺寸: ${width}x${height})`, 'success');
-
-                    // 显示添加按钮
-                    document.getElementById('addBitmapBtn').style.display = 'inline-block';
-                };
-
-                reader.onerror = function() {
-                    showStatus(`❌ 读取位图文件失败: ${fileName}`, 'error');
-                    document.getElementById('bitmapFileInput').value = '';
-                };
-
-                reader.readAsArrayBuffer(file);
-            });
-        }
-
 
         // 添加一个设置默认布局但不渲染的函数
         function setDefaultLayout() {
@@ -1752,7 +983,7 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
             showLoading('正在获取' + screenName + '布局...');
 
             try {
-                const response = await fetchWithFallback(endpoints.get, endpoints.get);
+                const response = await fetch(endpoints.get);
                 console.log('HTTP响应状态:', response.status, response.statusText);
 
                 if (!response.ok) {
@@ -1791,6 +1022,8 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                     });
                 }
 
+                // 保存可用动作到全局，供UI使用
+                window.availableActions = data.available_actions || [];
                 // 调用 renderLayout 并传递数据
                 renderLayout(data);
                 return data;
@@ -1819,13 +1052,11 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
 
                 // 清空容器内容（除了网格线和对齐辅助线）
                 const children = Array.from(container.children);
-                console.log(`[renderLayout] 准备清空容器，当前子元素数: ${children.length}`);
                 children.forEach(child => {
                     if (child.id !== 'gridLines' && child.id !== 'alignmentGuides') {
                         container.removeChild(child);
                     }
                 });
-                console.log(`[renderLayout] 容器已清空`);
 
                 // 验证屏幕尺寸
                 const screenWidth = layout.screen_width || 416;
@@ -1871,31 +1102,25 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                             text_count: rect.text_count || (rect.texts ? rect.texts.length : 0),
                             icons: rect.icons || [],
                             texts: rect.texts || [], // 添加文本数组支持
-                            is_status_bar: rect.is_status_bar || index === 0,
-                            bitmap: rect.bitmap || null  // 保留位图数据！
+                            is_status_bar: rect.is_status_bar || index === 0
+                            ,
+                            // 保留焦点模式（如果服务器返回）
+                            focus_mode: (rect.focus_mode !== undefined) ? rect.focus_mode : 0,
+                            // 保留当前绑定的动作ID（如果有）
+                            on_confirm_action: rect.on_confirm_action || ''
                         };
 
                         // 确保每个图标都有完整的数据
                         if (newRect.icons && Array.isArray(newRect.icons)) {
                             newRect.icons.forEach((icon, iconIndex) => {
                                 if (icon) {
-                                    // 获取该图标的真实尺寸（从ICON_METADATA中）
-                                    const iconIndex_actual = icon.icon_index !== undefined ? icon.icon_index : iconIndex;
-                                    const iconMeta = ICON_METADATA[iconIndex_actual];
-                                    const trueWidth = iconMeta ? iconMeta.width : 30;
-                                    const trueHeight = iconMeta ? iconMeta.height : 30;
-                                    
-                                    // 设置显示尺寸：如果是默认的30x30，就用真实尺寸；否则使用从数据中读取的值
-                                    const displayW = (icon.display_width === 30 && trueWidth !== 30) ? trueWidth : (icon.display_width || trueWidth);
-                                    const displayH = (icon.display_height === 30 && trueHeight !== 30) ? trueHeight : (icon.display_height || trueHeight);
-                                    
                                     // 确保有显示位置和尺寸
-                                    icon.display_x = icon.display_x || newRect.x + (newRect.width - displayW) * (icon.rel_x || 0.5);
-                                    icon.display_y = icon.display_y || newRect.y + (newRect.height - displayH) * (icon.rel_y || 0.5);
-                                    icon.display_width = displayW;
-                                    icon.display_height = displayH;
+                                    icon.display_x = icon.display_x || newRect.x + (newRect.width - (icon.display_width || 30)) * (icon.rel_x || 0.5);
+                                    icon.display_y = icon.display_y || newRect.y + (newRect.height - (icon.display_height || 30)) * (icon.rel_y || 0.5);
+                                    icon.display_width = icon.display_width || 30;
+                                    icon.display_height = icon.display_height || 30;
 
-                                    console.log(`矩形 ${index} 图标 ${iconIndex}: 位置(${icon.display_x},${icon.display_y}), 尺寸(${icon.display_width}x${icon.display_height}), 真实尺寸(${trueWidth}x${trueHeight})`);
+                                    console.log(`矩形 ${index} 图标 ${iconIndex}: 位置(${icon.display_x},${icon.display_y}), 尺寸(${icon.display_width}x${icon.display_height})`);
                                 }
                             });
                         }
@@ -1995,7 +1220,7 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
 
                             container.appendChild(rectDiv);
 
-                            // 渲染图标 - 使用Canvas显示位图图标
+                            // 渲染图标 - 改为使用空心矩形
                             if (rect.icons && Array.isArray(rect.icons)) {
                                 rect.icons.forEach((icon, iconIndex) => {
                                     try {
@@ -2004,13 +1229,9 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                                             return;
                                         }
 
-                                        // 获取图标的真实尺寸（从ICON_METADATA中获取）
-                                        const actualIconIndex = icon.icon_index !== undefined ? icon.icon_index : iconIndex;
-                                        const iconMetadata = ICON_METADATA[actualIconIndex];
-                                        
-                                        // 优先使用ICON_METADATA中的尺寸，否则使用display_width/display_height，最后才用默认值30x30
-                                        const iconWidth = icon.display_width || (iconMetadata ? iconMetadata.width : 30);
-                                        const iconHeight = icon.display_height || (iconMetadata ? iconMetadata.height : 30);
+                                        // 使用原始尺寸（来自图标定义）
+                                        const iconWidth = icon.original_width || 30;
+                                        const iconHeight = icon.original_height || 30;
 
                                         // 使用相对坐标计算显示位置
                                         const relX = icon.rel_x !== undefined ? icon.rel_x : 0.5;
@@ -2022,225 +1243,70 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
 
                                         console.log(`渲染图标 ${iconIndex} (索引=${icon.icon_index}): 相对(${relX.toFixed(2)},${relY.toFixed(2)}), 绝对位置(${iconX.toFixed(1)},${iconY.toFixed(1)}), 尺寸(${iconWidth}x${iconHeight})`);
 
-                                        // 创建 Canvas 来显示位图图标
-                                        const iconCanvas = document.createElement('canvas');
-                                        iconCanvas.className = 'icon-canvas';
-                                        iconCanvas.width = iconWidth;
-                                        iconCanvas.height = iconHeight;
-                                        iconCanvas.dataset.rectIndex = index;
-                                        iconCanvas.dataset.iconIndex = iconIndex;
-                                        iconCanvas.style.position = 'absolute';
-                                        iconCanvas.style.left = iconX + 'px';
-                                        iconCanvas.style.top = iconY + 'px';
-                                        iconCanvas.style.borderRadius = '3px';
-                                        iconCanvas.style.cursor = 'move';
-                                        iconCanvas.style.boxSizing = 'border-box';
-                                        iconCanvas.style.backgroundColor = '#FFFFFF';
+                                        // 创建空心矩形图标
+                                        const iconDiv = document.createElement('div');
+                                        iconDiv.className = 'icon-hollow-rect';
+                                        iconDiv.dataset.rectIndex = index;
+                                        iconDiv.dataset.iconIndex = iconIndex;
+                                        iconDiv.style.position = 'absolute';
+                                        iconDiv.style.left = iconX + 'px';
+                                        iconDiv.style.top = iconY + 'px';
+                                        iconDiv.style.width = iconWidth + 'px';
+                                        iconDiv.style.height = iconHeight + 'px';
+                                        iconDiv.style.border = '2px solid #FF5722';
+                                        iconDiv.style.borderRadius = '3px';
+                                        iconDiv.style.backgroundColor = 'transparent';
+                                        iconDiv.style.boxSizing = 'border-box';
+                                        iconDiv.style.cursor = 'move';
 
-                                        const ctx = iconCanvas.getContext('2d');
-                                        
-                                        // 异步加载图标位图数据并绘制
-                                        (async () => {
-                                            try {
-                                                const bitmapData = await getIconBitmapData(actualIconIndex);
-                                                
-                                                if (bitmapData && ICON_METADATA[actualIconIndex]) {
-                                                    const meta = ICON_METADATA[actualIconIndex];
-                                                    const isESP32Mode = g_env && g_env.isESP32;
-                                                    // ESP32 模式下互换宽高
-                                                    const origWidth = isESP32Mode ? meta.height : meta.width;
-                                                    const origHeight = isESP32Mode ? meta.width : meta.height;
-                                                    drawBitmapToCanvas(ctx, bitmapData, origWidth, origHeight, iconWidth, iconHeight);
-                                                    console.log(`✓ 图标 ${actualIconIndex} 渲染成功`);
-                                                } else {
-                                                    // 失败时显示占位符
-                                                    ctx.fillStyle = '#F0F0F0';
-                                                    ctx.fillRect(0, 0, iconWidth, iconHeight);
-                                                    ctx.fillStyle = '#FF5722';
-                                                    ctx.font = 'bold 12px Arial';
-                                                    ctx.textAlign = 'center';
-                                                    ctx.textBaseline = 'middle';
-                                                    ctx.fillText(`${actualIconIndex}`, iconWidth/2, iconHeight/2);
-                                                    ctx.strokeStyle = '#FF5722';
-                                                    ctx.lineWidth = 1;
-                                                    ctx.strokeRect(0, 0, iconWidth, iconHeight);
-                                                    console.log(`⚠ 图标 ${actualIconIndex} 加载失败，显示占位符`);
-                                                }
-                                            } catch (error) {
-                                                console.error(`图标渲染出错:`, error);
-                                                // 显示错误占位符
-                                                ctx.fillStyle = '#FFE0E0';
-                                                ctx.fillRect(0, 0, iconWidth, iconHeight);
-                                                ctx.fillStyle = '#FF0000';
-                                                ctx.font = '10px Arial';
-                                                ctx.textAlign = 'center';
-                                                ctx.textBaseline = 'middle';
-                                                ctx.fillText('ERROR', iconWidth/2, iconHeight/2);
+                                        // 点击事件将由 makeDraggable 处理
+
+                                        // 添加图标序号和相对位置标签
+                                        const iconLabel = document.createElement('div');
+                                        iconLabel.className = 'icon-label';
+                                        iconLabel.innerHTML = `${icon.icon_index !== undefined ? icon.icon_index : iconIndex}<br><span style="font-size:8px;">(${relX.toFixed(2)},${relY.toFixed(2)})</span>`;
+                                        iconDiv.appendChild(iconLabel);
+
+                                        // 添加尺寸标签
+                                        const sizeLabel = document.createElement('div');
+                                        sizeLabel.style.position = 'absolute';
+                                        sizeLabel.style.bottom = '-15px';
+                                        sizeLabel.style.left = '50%';
+                                        sizeLabel.style.transform = 'translateX(-50%)';
+                                        sizeLabel.style.fontSize = '8px';
+                                        sizeLabel.style.color = '#666';
+                                        sizeLabel.style.backgroundColor = 'rgba(255,255,255,0.8)';
+                                        sizeLabel.style.padding = '1px 3px';
+                                        sizeLabel.style.borderRadius = '2px';
+                                        sizeLabel.style.display = 'none';
+                                        sizeLabel.textContent = `${iconWidth}×${iconHeight}`;
+                                        iconDiv.appendChild(sizeLabel);
+
+                                        // 鼠标悬停时显示尺寸
+                                        iconDiv.onmouseenter = () => {
+                                            if (!iconDiv.classList.contains('dragging')) {
+                                                iconDiv.style.borderColor = '#E91E63';
+                                                iconDiv.style.backgroundColor = 'rgba(233, 30, 99, 0.1)';
+                                                sizeLabel.style.display = 'block';
                                             }
-                                        })();
+                                        };
+                                        iconDiv.onmouseleave = () => {
+                                            if (!iconDiv.classList.contains('dragging')) {
+                                                iconDiv.style.borderColor = '#FF5722';
+                                                iconDiv.style.backgroundColor = 'transparent';
+                                                sizeLabel.style.display = 'none';
+                                            }
+                                        };
 
-                                        // 将Canvas元素添加到主容器中（全局坐标）
-                                        container.appendChild(iconCanvas);
+                                        // 使图标可拖拽
+                                        makeDraggable(iconDiv, iconIndex, 'icon', index);
 
-                                        // 为图标Canvas添加可拖动功能
-                                        makeDraggable(iconCanvas, iconIndex, 'icon', index);
+                                        container.appendChild(iconDiv);
 
                                     } catch (iconError) {
                                         console.error(`渲染图标 ${iconIndex} 失败:`, iconError);
                                     }
                                 });
-                            }
-
-                            // 渲染位图 - 显示转换的图片
-                            if (rect.bitmap) {
-                                try {
-                                    const bitmap = rect.bitmap;
-                                    
-                                    console.log(`[renderLayout] 检测到位图在矩形 ${index}:`, bitmap.filename);
-                                    console.log(`[renderLayout] 矩形信息: x=${rect.x}, y=${rect.y}, w=${rect.width}, h=${rect.height}`);
-                                    
-                                    // 位图尺寸
-                                    const bitmapDisplayWidth = bitmap.display_width || Math.min(bitmap.width, rect.width * 0.8);
-                                    const bitmapDisplayHeight = bitmap.display_height || Math.min(bitmap.height, rect.height * 0.8);
-                                    
-                                    // 位图相对位置（默认居中）
-                                    const relX = bitmap.rel_x !== undefined ? bitmap.rel_x : 0.5;
-                                    const relY = bitmap.rel_y !== undefined ? bitmap.rel_y : 0.5;
-                                    
-                                    // 计算绝对位置 - 简化逻辑：直接在矩形内部放置
-                                    const bitmapX = rect.x + (rect.width - bitmapDisplayWidth) / 2;   // 水平居中
-                                    const bitmapY = rect.y + (rect.height - bitmapDisplayHeight) / 2; // 竖直居中
-                                    
-                                    // 保存位图的display位置（用于拖动矩形时移动位图）
-                                    bitmap.display_x = bitmapX;
-                                    bitmap.display_y = bitmapY;
-                                    
-                                    console.log(`[renderLayout] 渲染位图: 相对(${relX.toFixed(2)},${relY.toFixed(2)}), 矩形范围(${rect.x},${rect.y}~${rect.x+rect.width},${rect.y+rect.height}), 位图位置(${bitmapX.toFixed(1)},${bitmapY.toFixed(1)}), 显示尺寸(${bitmapDisplayWidth}x${bitmapDisplayHeight})`);
-                                    
-                                    // 创建位图 Canvas
-                                    const bitmapCanvas = document.createElement('canvas');
-                                    bitmapCanvas.className = 'bitmap-canvas';
-                                    bitmapCanvas.width = bitmapDisplayWidth;
-                                    bitmapCanvas.height = bitmapDisplayHeight;
-                                    bitmapCanvas.dataset.rectIndex = index;
-                                    bitmapCanvas.style.position = 'absolute';
-                                    bitmapCanvas.style.left = bitmapX + 'px';
-                                    bitmapCanvas.style.top = bitmapY + 'px';
-                                    bitmapCanvas.style.cursor = 'move';
-                                    bitmapCanvas.style.boxSizing = 'border-box';
-                                    bitmapCanvas.style.zIndex = '1000';  // 确保在最前面
-                                    bitmapCanvas.style.display = 'block';  // 显式设置为block
-                                    
-                                    console.log(`[renderLayout] 创建位图Canvas: ${bitmapDisplayWidth}x${bitmapDisplayHeight}, 位置(${bitmapX}, ${bitmapY}), 样式已设置`);
-                                    
-                                    const ctx = bitmapCanvas.getContext('2d');
-                                    
-                                    // 异步加载并绘制位图数据
-                                    (async () => {
-                                        try {
-                                            console.log(`[renderLayout] 开始异步渲染位图数据...`);
-                                            
-                                            // 从保存的位图数据中获取数据
-                                            if (bitmap.bitmapData) {
-                                                console.log(`[renderLayout] bitmap.bitmapData存在，类型: ${bitmap.bitmapData.constructor.name}`);
-                                                
-                                                // 转换 Blob 为 UInt8Array
-                                                let bitmapDataArray;
-                                                if (bitmap.bitmapData instanceof Blob) {
-                                                    // 从 Blob 读取数据
-                                                    const arrayBuffer = await bitmap.bitmapData.arrayBuffer();
-                                                    const fullArray = new Uint8Array(arrayBuffer);
-                                                    
-                                                    console.log(`[renderLayout] Blob转换完成，总大小: ${fullArray.length} 字节`);
-                                                    
-                                                    // .bin 文件格式: 4字节宽度 + 4字节高度 + 位图数据
-                                                    // 跳过前8字节的文件头
-                                                    if (fullArray.length > 8) {
-                                                        bitmapDataArray = fullArray.slice(8);
-                                                        console.log(`[renderLayout] 文件头已移除，位图数据大小: ${bitmapDataArray.length} 字节 (原始: ${fullArray.length})`);
-                                                    } else {
-                                                        bitmapDataArray = fullArray;
-                                                        console.warn(`[renderLayout] 文件小于8字节，可能不是标准.bin格式`);
-                                                    }
-                                                } else if (bitmap.bitmapData instanceof ArrayBuffer) {
-                                                    const fullArray = new Uint8Array(bitmap.bitmapData);
-                                                    if (fullArray.length > 8) {
-                                                        bitmapDataArray = fullArray.slice(8);
-                                                    } else {
-                                                        bitmapDataArray = fullArray;
-                                                    }
-                                                } else if (bitmap.bitmapData instanceof Uint8Array) {
-                                                    if (bitmap.bitmapData.length > 8) {
-                                                        bitmapDataArray = bitmap.bitmapData.slice(8);
-                                                    } else {
-                                                        bitmapDataArray = bitmap.bitmapData;
-                                                    }
-                                                } else {
-                                                    console.warn(`[renderLayout] 位图数据类型未知: ${typeof bitmap.bitmapData}`);
-                                                    bitmapDataArray = null;
-                                                }
-
-                                                if (bitmapDataArray && bitmapDataArray.length > 0) {
-                                                    console.log(`[renderLayout] 开始绘制位图Canvas，数据大小: ${bitmapDataArray.length}`);
-                                                    // 判断是否为用户上传的位图（有.bin扩展名）
-                                                    if (bitmap.filename && bitmap.filename.endsWith('.bin')) {
-                                                        // 用户位图：应用颜色反转、水平镜像和顺时针旋转90度
-                                                        drawBitmapToCanvasForUser(ctx, bitmapDataArray, bitmap.width, bitmap.height, bitmapDisplayWidth, bitmapDisplayHeight);
-                                                    } else {
-                                                        // 图标位图：保持原始逻辑
-                                                        drawBitmapToCanvas(ctx, bitmapDataArray, bitmap.width, bitmap.height, bitmapDisplayWidth, bitmapDisplayHeight);
-                                                    }
-                                                    console.log(`✓ [renderLayout] 位图渲染成功: ${bitmap.filename}`);
-                                                } else {
-                                                    throw new Error('位图数据为空或无效');
-                                                }
-                                            } else {
-                                                console.log(`[renderLayout] bitmap.bitmapData不存在，显示占位符`);
-                                                // 显示占位符
-                                                ctx.fillStyle = '#F0F0F0';
-                                                ctx.fillRect(0, 0, bitmapDisplayWidth, bitmapDisplayHeight);
-                                                ctx.fillStyle = '#FF6B6B';
-                                                ctx.font = 'bold 14px Arial';
-                                                ctx.textAlign = 'center';
-                                                ctx.textBaseline = 'middle';
-                                                ctx.fillText(bitmap.filename || '图片', bitmapDisplayWidth/2, bitmapDisplayHeight/2);
-                                                console.log(`⚠ [renderLayout] 位图数据不可用，显示占位符`);
-                                            }
-                                        } catch (error) {
-                                            console.error(`[renderLayout] 位图渲染出错:`, error);
-                                            ctx.fillStyle = '#FFE0E0';
-                                            ctx.fillRect(0, 0, bitmapDisplayWidth, bitmapDisplayHeight);
-                                            ctx.fillStyle = '#FF0000';
-                                            ctx.font = '10px Arial';
-                                            ctx.textAlign = 'center';
-                                            ctx.textBaseline = 'middle';
-                                            ctx.fillText('ERROR', bitmapDisplayWidth/2, bitmapDisplayHeight/2);
-                                        }
-                                    })();
-                                    
-                                    // 添加到容器
-                                    container.appendChild(bitmapCanvas);
-                                    console.log(`[renderLayout] ✓ Canvas已添加到容器，验证: ${container.contains(bitmapCanvas) ? '成功' : '失败'}, 容器内Canvas总数: ${container.querySelectorAll('canvas.bitmap-canvas').length}`);
-                                    
-                                    // 添加可拖动功能
-                                    makeDraggable(bitmapCanvas, index, 'bitmap', index);
-                                    
-                                    // 添加调整大小的手柄
-                                    const bitmapHandle = document.createElement('div');
-                                    bitmapHandle.className = 'resize-handle se';
-                                    bitmapHandle.style.width = '10px';
-                                    bitmapHandle.style.height = '10px';
-                                    bitmapHandle.style.position = 'absolute';
-                                    bitmapHandle.style.bottom = '-5px';
-                                    bitmapHandle.style.right = '-5px';
-                                    bitmapHandle.style.backgroundColor = '#FF6B6B';
-                                    bitmapHandle.style.cursor = 'nwse-resize';
-                                    bitmapHandle.style.zIndex = '10';
-                                    bitmapCanvas.appendChild(bitmapHandle);
-                                    
-                                } catch (bitmapError) {
-                                    console.error(`渲染位图失败:`, bitmapError);
-                                }
                             }
 
                             // 渲染文本元素 - 新增功能
@@ -2506,9 +1572,9 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                                     icon.display_x = rect.x + (newWidth - (icon.display_width || 30)) * (icon.rel_x || 0.5);
                                     icon.display_y = rect.y + (newHeight - (icon.display_height || 30)) * (icon.rel_y || 0.5);
 
-                                    // 更新DOM - 使用绝对位置
+                                    // 更新DOM
                                     const iconDiv = document.querySelector(
-                                        `.icon-canvas[data-rect-index="${index}"][data-icon-index="${iconIndex}"]`
+                                        `.icon-hollow-rect[data-rect-index="${index}"][data-icon-index="${iconIndex}"]`
                                     );
                                     if (iconDiv) {
                                         iconDiv.style.left = icon.display_x + 'px';
@@ -2535,7 +1601,6 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
             let isDragging = false;
             let startX, startY, initialLeft, initialTop;
             let originalIconPositions = []; // Store original icon positions for rect dragging
-            let originalBitmapPosition = null; // Store original bitmap position for rect dragging
 
             element.onmousedown = function (e) {
                 if (e.button !== 0) return; // 只响应左键
@@ -2564,13 +1629,6 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                             x: icon.display_x || 0,
                             y: icon.display_y || 0
                         }));
-                    }
-                    // Store original bitmap position
-                    if (rectData && rectData.bitmap) {
-                        originalBitmapPosition = {
-                            x: rectData.bitmap.display_x || 0,
-                            y: rectData.bitmap.display_y || 0
-                        };
                     }
                 }
 
@@ -2692,31 +1750,13 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
 
                                         // 更新对应的DOM元素
                                         const iconDiv = document.querySelector(
-                                            `.icon-canvas[data-rect-index="${index}"][data-icon-index="${iconIndex}"]`
+                                            `.icon-hollow-rect[data-rect-index="${index}"][data-icon-index="${iconIndex}"]`
                                         );
                                         if (iconDiv) {
                                             iconDiv.style.left = icon.display_x + 'px';
                                             iconDiv.style.top = icon.display_y + 'px';
                                         }
                                     });
-                                }
-
-                                // 同时更新矩形内位图的位置
-                                if (rect.bitmap && originalBitmapPosition) {
-                                    const deltaX = newX - initialLeft;
-                                    const deltaY = newY - initialTop;
-
-                                    rect.bitmap.display_x = originalBitmapPosition.x + deltaX;
-                                    rect.bitmap.display_y = originalBitmapPosition.y + deltaY;
-
-                                    // 更新对应的DOM元素（位图Canvas）
-                                    const bitmapCanvas = document.querySelector(
-                                        `.bitmap-canvas[data-rect-index="${index}"]`
-                                    );
-                                    if (bitmapCanvas) {
-                                        bitmapCanvas.style.left = rect.bitmap.display_x + 'px';
-                                        bitmapCanvas.style.top = rect.bitmap.display_y + 'px';
-                                    }
                                 }
                             }
                         } else {
@@ -2738,22 +1778,6 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                             // 计算相对位置（基于文本对齐点）
                             text.rel_x = Math.max(0, Math.min(1, (newX - parentRect.x) / parentRect.width));
                             text.rel_y = Math.max(0, Math.min(1, (newY - parentRect.y) / parentRect.height));
-                        }
-                    }
-
-                    // 如果拖动的是位图，更新相对位置
-                    if (type === 'bitmap' && rectIndex >= 0 && currentLayout.rectangles[rectIndex]) {
-                        const parentRect = currentLayout.rectangles[rectIndex];
-                        if (parentRect.bitmap) {
-                            const bitmap = parentRect.bitmap;
-                            const bitmapWidth = parseInt(element.style.width);
-                            const bitmapHeight = parseInt(element.style.height);
-
-                            // 计算相对位置（基于位图中心）
-                            const centerX = newX + bitmapWidth / 2;
-                            const centerY = newY + bitmapHeight / 2;
-                            bitmap.rel_x = Math.max(0, Math.min(1, (centerX - parentRect.x) / parentRect.width));
-                            bitmap.rel_y = Math.max(0, Math.min(1, (centerY - parentRect.y) / parentRect.height));
                         }
                     }
 
@@ -3118,7 +2142,7 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
             });
 
             // 清除所有图标的选中状态
-            document.querySelectorAll('.icon-canvas').forEach(icon => {
+            document.querySelectorAll('.icon-hollow-rect').forEach(icon => {
                 icon.classList.remove('selected');
             });
 
@@ -3151,7 +2175,7 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
             selectedIconIndex = iconIndex;
 
             // 3. 设置当前图标为选中状态
-            const iconDiv = document.querySelector(`.icon-canvas[data-rect-index="${rectIndex}"][data-icon-index="${iconIndex}"]`);
+            const iconDiv = document.querySelector(`.icon-hollow-rect[data-rect-index="${rectIndex}"][data-icon-index="${iconIndex}"]`);
             if (iconDiv) {
                 iconDiv.classList.add('selected');
             }
@@ -3160,22 +2184,9 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
             if (currentLayout.rectangles[rectIndex] &&
                 currentLayout.rectangles[rectIndex].icons[iconIndex]) {
                 const icon = currentLayout.rectangles[rectIndex].icons[iconIndex];
-                
-                // 只有在元素存在时才设置值
-                const iconIndexElem = document.getElementById('iconIndex');
-                if (iconIndexElem) {
-                    iconIndexElem.value = icon.icon_index || 0;
-                }
-                
-                const iconRelXElem = document.getElementById('iconRelX');
-                if (iconRelXElem) {
-                    iconRelXElem.value = (icon.rel_x !== undefined ? icon.rel_x : 0.5).toFixed(2);
-                }
-                
-                const iconRelYElem = document.getElementById('iconRelY');
-                if (iconRelYElem) {
-                    iconRelYElem.value = (icon.rel_y !== undefined ? icon.rel_y : 0.5).toFixed(2);
-                }
+                document.getElementById('iconIndex').value = icon.icon_index || 0;
+                document.getElementById('iconRelX').value = (icon.rel_x !== undefined ? icon.rel_x : 0.5).toFixed(2);
+                document.getElementById('iconRelY').value = (icon.rel_y !== undefined ? icon.rel_y : 0.5).toFixed(2);
             }
 
             // 5. 再次更新信息面板（因为 selectRectangle 更新时 selectedIconIndex 还是 -1）
@@ -3228,12 +2239,84 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                     <p>图标数: ${rect.icon_count || 0}</p>
                     <p>文本数: ${rect.texts ? rect.texts.length : 0}</p>
                     <p>状态栏: ${selectedRectIndex === currentLayout.status_rect_index ? '是' : '否'}</p>
+                    <div style="margin-top:8px;">
+                        <label style="font-weight:700; display:block; margin-bottom:6px;">焦点模式</label>
+                        <select id="rectFocusMode" style="width:100%; padding:6px; border:1px solid #ddd; border-radius:4px;">
+                            <option value="0">默认 (Default)</option>
+                            <option value="1">角标 (Corners)</option>
+                            <option value="2">边框 (Border)</option>
+                        </select>
+                    </div>
                     ${selectedIconIndex >= 0 ? `<p>选中的图标: ${selectedIconIndex} (索引: ${currentLayout.rectangles[selectedRectIndex].icons[selectedIconIndex]?.icon_index || 'N/A'}, 相对位置: ${(currentLayout.rectangles[selectedRectIndex].icons[selectedIconIndex]?.rel_x || 0.5).toFixed(2)}, ${(currentLayout.rectangles[selectedRectIndex].icons[selectedIconIndex]?.rel_y || 0.5).toFixed(2)})</p>` : ''}
                     ${selectedTextIndex >= 0 ? `<p>选中的文本: ${selectedTextIndex} (内容: "${currentLayout.rectangles[selectedRectIndex].texts[selectedTextIndex]?.content || ''}", 相对位置: ${(currentLayout.rectangles[selectedRectIndex].texts[selectedTextIndex]?.rel_x || 0.5).toFixed(2)}, ${(currentLayout.rectangles[selectedRectIndex].texts[selectedTextIndex]?.rel_y || 0.5).toFixed(2)})</p>` : ''}
                     ${deleteBtn}
                     ${iconInfo}
                     ${textInfo}
                 `;
+
+                // 将select设置为当前rect的focus_mode并绑定事件
+                setTimeout(() => {
+                    const sel = document.getElementById('rectFocusMode');
+                    if (sel) {
+                        const fm = (rect.focus_mode !== undefined) ? rect.focus_mode : 0;
+                        sel.value = String(fm);
+                        sel.onchange = function () {
+                            const val = parseInt(this.value);
+                            if (!isNaN(val) && currentLayout.rectangles[selectedRectIndex]) {
+                                currentLayout.rectangles[selectedRectIndex].focus_mode = val;
+                                showStatus('焦点模式已更新', 'success');
+                            }
+                        };
+                    }
+                    // 创建并设置 onConfirm 动作选择下拉
+                    const actSelId = 'rectOnConfirmAction';
+                    let actSel = document.getElementById(actSelId);
+                    if (!actSel) {
+                        actSel = document.createElement('select');
+                        actSel.id = actSelId;
+                        actSel.style.width = '100%';
+                        actSel.style.padding = '6px';
+                        actSel.style.border = '1px solid #ddd';
+                        actSel.style.borderRadius = '4px';
+                        // 插入到 infoDiv 中紧跟焦点模式元素
+                        const fmEl = document.getElementById('rectFocusMode');
+                        if (fmEl && fmEl.parentNode) {
+                            const wrapper = document.createElement('div');
+                            wrapper.style.marginTop = '8px';
+                            const label = document.createElement('label');
+                            label.style.fontWeight = '700';
+                            label.style.display = 'block';
+                            label.style.marginBottom = '6px';
+                            label.textContent = '确认动作 (onConfirm)';
+                            wrapper.appendChild(label);
+                            wrapper.appendChild(actSel);
+                            fmEl.parentNode.parentNode.insertBefore(wrapper, fmEl.parentNode.nextSibling);
+                        }
+                    }
+
+                    // 填充选项
+                    while (actSel.firstChild) actSel.removeChild(actSel.firstChild);
+                    const noneOpt = document.createElement('option');
+                    noneOpt.value = '';
+                    noneOpt.textContent = '-- 无 --';
+                    actSel.appendChild(noneOpt);
+                    const actions = window.availableActions || [];
+                    actions.forEach(a => {
+                        const opt = document.createElement('option');
+                        opt.value = a.id || '';
+                        opt.textContent = a.name || a.id || a;
+                        actSel.appendChild(opt);
+                    });
+
+                    // 设为当前rect的绑定（如果有）
+                    const curAction = currentLayout.rectangles[selectedRectIndex].on_confirm_action || '';
+                    actSel.value = curAction;
+                    actSel.onchange = function () {
+                        const val = this.value;
+                        currentLayout.rectangles[selectedRectIndex].on_confirm_action = val;
+                        showStatus('确认动作已更新', 'success');
+                    };
+                }, 0);
             } else {
                 infoDiv.innerHTML = '未选中任何矩形';
             }
@@ -3345,11 +2428,15 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                     showLoading('正在更新设备屏幕尺寸...');
                     showStatus('正在更新设备屏幕尺寸...', 'success');
 
-                    // 发送设置屏幕宽度的命令（使用相对路径）
-                    const widthCommandPath = `/command?commandText=$set/screenXSize=${width}&PAGE=0`;
-                    console.log('发送宽度命令:', widthCommandPath);
+                    // 获取当前页面的基础URL
+                    const currentOrigin = window.location.origin;
+                    console.log('当前页面Origin:', currentOrigin);
 
-                    const widthResponse = await fetchWithFallback(widthCommandPath, widthCommandPath);
+                    // 发送设置屏幕宽度的命令
+                    const widthCommandUrl = `${currentOrigin}/command?commandText=$set/screenXSize=${width}&PAGE=0`;
+                    console.log('发送宽度命令:', widthCommandUrl);
+
+                    const widthResponse = await fetch(widthCommandUrl);
                     if (!widthResponse.ok) {
                         throw new Error(`设置屏幕宽度失败: HTTP ${widthResponse.status}`);
                     }
@@ -3360,10 +2447,10 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                     await new Promise(resolve => setTimeout(resolve, 500));
 
                     // 发送设置屏幕高度的命令
-                    const heightCommandPath = `/command?commandText=$set/screenYSize=${height}&PAGE=0`;
-                    console.log('发送高度命令:', heightCommandPath);
+                    const heightCommandUrl = `${currentOrigin}/command?commandText=$set/screenYSize=${height}&PAGE=0`;
+                    console.log('发送高度命令:', heightCommandUrl);
 
-                    const heightResponse = await fetchWithFallback(heightCommandPath, heightCommandPath);
+                    const heightResponse = await fetch(heightCommandUrl);
                     if (!heightResponse.ok) {
                         throw new Error(`设置屏幕高度失败: HTTP ${heightResponse.status}`);
                     }
@@ -3512,7 +2599,8 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                 original_height: height,
                 icon_count: 0,
                 icons: [],
-                is_status_bar: false
+                is_status_bar: false,
+                focus_mode: 0 // 默认焦点模式
             };
 
             currentLayout.rectangles.push(newRect);
@@ -3554,29 +2642,13 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                 return;
             }
 
-            // 从全局变量或文件输入中获取图标索引
-            let iconIndex = window.selectedIconIndex;
-            
-            // 如果没有从文件选择器获取索引，尝试从下拉菜单（为了兼容）
-            if (iconIndex === undefined || iconIndex === null) {
-                const iconIndexElement = document.getElementById('iconIndex');
-                if (iconIndexElement && iconIndexElement.value) {
-                    iconIndex = parseInt(iconIndexElement.value);
-                } else {
-                    showStatus('请先选择一个图标文件 (.bin 格式)', 'error');
-                    return;
-                }
-            }
+            const rect = currentLayout.rectangles[selectedRectIndex];
+            const iconIndex = parseInt(document.getElementById('iconIndex').value);
 
-            if (iconIndex < 0 || iconIndex > 12) {
-                showStatus(`图标索引无效 (${iconIndex})。有效范围：0-12`, 'error');
-                window.selectedIconIndex = undefined;
-                document.getElementById('iconFileInput').value = '';
-                document.getElementById('iconFileName').value = '';
+            if (iconIndex < 0 || iconIndex > 20) {
+                showStatus('图标索引必须在0-20之间', 'error');
                 return;
             }
-
-            const rect = currentLayout.rectangles[selectedRectIndex];
 
             // 使用输入框中的相对位置（0.0-1.0）
             const relX = parseFloat(document.getElementById('iconRelX').value) || 0.5;
@@ -3588,19 +2660,27 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
 
             // 根据图标索引获取原始尺寸（与C++代码中g_available_icons匹配）
             const iconSizes = [
-                [62, 64],   // 0 - ICON_1 (house)
-                [64, 64],   // 1 - ICON_2 (measure) 
-                [86, 64],   // 2 - ICON_3 (settings)
-                [71, 56],   // 3 - ICON_4 (broom)
-                [76, 56],   // 4 - ICON_5 (mop)
-                [94, 64],   // 5 - ICON_6 (cleaning tool)
-                [120, 8],   // 6 - separate (divider)
-                [32, 32],   // 7 - WIFI_CONNECT
-                [32, 32],   // 8 - WIFI_DISCONNECT
-                [36, 24],   // 9 - BATTERY_1
-                [16, 16],   // 10 - HORN
-                [15, 16],   // 11 - NAIL
-                [32, 32]    // 12 - LOCK
+                [62, 64],   // 0 - ICON_1 (房子)
+                [64, 64],   // 1 - ICON_2 (测量图标) 
+                [86, 64],   // 2 - ICON_3 (设置)
+                [71, 56],   // 3 - ICON_4 (扫把)
+                [76, 56],   // 4 - ICON_5 (拖把)
+                [94, 64],   // 5 - ICON_6 (清洁工具)
+                [15, 16],   // 6 - NAIL (钉子)
+                [32, 32],   // 7 - LOCK (锁)
+                [16, 16],   // 8 - HORN (喇叭)
+                [36, 24],   // 9 - BATTERY_1 (电池)
+                [32, 32],   // 10 - WIFI_DISCONNECT (WiFi断开)
+                [32, 32],   // 11 - WIFI_CONNECT (WiFi连接)
+                [60, 16],   // 12 - UNDERLINE (下划线)
+                [320, 36],  // 13 - promt (提示框)
+                [80, 36],   // 14 - wifi_battry (WiFi电池)
+                [336, 48],  // 15 - word (单词框)
+                [416, 24],  // 16 - Translation1 (翻译框1)
+                [416, 16],  // 17 - separate (分隔线)
+                [80, 16],   // 18 - horn (小喇叭)
+                [80, 32],   // 19 - pon (功率显示)
+                [416, 72]   // 20 - definition (定义框)
             ];
 
             const [originalWidth, originalHeight] = iconSizes[iconIndex] || [30, 30];
@@ -3610,9 +2690,7 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                 rel_x: clampedRelX,
                 rel_y: clampedRelY,
                 original_width: originalWidth,
-                original_height: originalHeight,
-                display_width: originalWidth,  // 初始显示尺寸 = 原始尺寸
-                display_height: originalHeight  // 初始显示尺寸 = 原始尺寸
+                original_height: originalHeight
             };
 
             if (!rect.icons) rect.icons = [];
@@ -3623,13 +2701,8 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
 
             // 选中新添加的图标
             selectIcon(selectedRectIndex, rect.icons.length - 1);
-            
-            // 清除文件选择，准备下一次选择
-            window.selectedIconIndex = undefined;
-            document.getElementById('iconFileInput').value = '';
-            document.getElementById('iconFileName').value = '';
 
-            showStatus(`图标添加成功 (索引: ${iconIndex}, rel_x=${clampedRelX.toFixed(2)}, rel_y=${clampedRelY.toFixed(2)})`, 'success');
+            showStatus(`图标添加成功 (rel_x=${clampedRelX.toFixed(2)}, rel_y=${clampedRelY.toFixed(2)})`, 'success');
         }
 
         // 删除选中图标
@@ -3864,7 +2937,7 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                     rect.icons.forEach((icon, iconIndex) => {
                         // 从DOM元素获取最新位置和尺寸
                         const iconDiv = document.querySelector(
-                            `.icon-canvas[data-rect-index="${rectIndex}"][data-icon-index="${iconIndex}"]`
+                            `.icon-hollow-rect[data-rect-index="${rectIndex}"][data-icon-index="${iconIndex}"]`
                         );
                         if (iconDiv) {
                             // 获取DOM中的实际位置和尺寸
@@ -3960,11 +3033,16 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                     custom_text_mode: Boolean(rect.custom_text_mode ||
                         (rect.texts && rect.texts.length > 0) ||
                         (rect.texts && rect.texts.length === 0 && [2, 4, 5, 8].includes(rectIdx)))
+                    ,
+                    // 发送焦点模式给设备（整数枚举）
+                    focus_mode: Number(rect.focus_mode || 0),
+                    // 发送当前绑定的动作ID（如为空字符串则表示取消绑定）
+                    on_confirm_action: rect.on_confirm_action || ''
                 })),
                 status_rect_index: Number(currentLayout.status_rect_index || 0)
             };
 
-            console.log('简化的布局数据:', JSON.stringify(simplifiedLayout));
+            console.log('简化的布局数据:', JSON.stringify(simplifiedLayout, null, 2));
 
             // 验证保留一位小数的效果
             simplifiedLayout.rectangles.forEach((rect, i) => {
@@ -4064,7 +3142,7 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                     return;
                 }
 
-                const response = await fetchWithFallback(endpoints.set, endpoints.set, {
+                const response = await fetch(endpoints.set, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -4222,7 +3300,7 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                     // 移动图标
                     const rect = currentLayout.rectangles[selectedRectIndex];
                     const icon = rect.icons[selectedIconIndex];
-                    const iconDiv = document.querySelector(`.icon-canvas[data-rect-index="${selectedRectIndex}"][data-icon-index="${selectedIconIndex}"]`);
+                    const iconDiv = document.querySelector(`.icon-hollow-rect[data-rect-index="${selectedRectIndex}"][data-icon-index="${selectedIconIndex}"]`);
 
                     if (icon && iconDiv) {
                         let newX = parseInt(iconDiv.style.left);
@@ -4293,7 +3371,7 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                                 // 移动矩形内的图标
                                 if (rect.icons) {
                                     rect.icons.forEach((icon, idx) => {
-                                        const iconDiv = document.querySelector(`.icon-canvas[data-rect-index="${selectedRectIndex}"][data-icon-index="${idx}"]`);
+                                        const iconDiv = document.querySelector(`.icon-hollow-rect[data-rect-index="${selectedRectIndex}"][data-icon-index="${idx}"]`);
                                         if (iconDiv) {
                                             // 重新计算图标绝对位置
                                             const iconX = rect.x + icon.rel_x * rect.width;
@@ -4327,7 +3405,7 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                 document.querySelectorAll('.rect').forEach(rect => {
                     rect.classList.remove('selected');
                 });
-                document.querySelectorAll('.icon-canvas').forEach(icon => {
+                document.querySelectorAll('.icon-hollow-rect').forEach(icon => {
                     icon.classList.remove('selected');
                 });
 
@@ -4451,7 +3529,7 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
             try {
                 showLoading('正在保存' + (currentScreenMode === 'main' ? '主界面' : '单词界面') + '焦点配置...');
 
-                const response = await fetchWithFallback('/setfocusconfig', '/setfocusconfig', {
+                const response = await fetch('/setfocusconfig', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -4483,8 +3561,7 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                 const screenName = currentScreenMode === 'main' ? '主界面' : '单词界面';
                 showLoading('正在加载' + screenName + '焦点配置...');
 
-                const focusPath = '/getfocusconfig?screen_type=' + currentScreenMode;
-                const response = await fetchWithFallback(focusPath, focusPath);
+                const response = await fetch('/getfocusconfig?screen_type=' + currentScreenMode);
                 hideLoading();
 
                 if (response.ok) {
@@ -4713,7 +3790,7 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                 const screenName = currentScreenMode === 'main' ? '主界面' : '单词界面';
                 showLoading('正在保存' + screenName + '子数组配置...');
 
-                const response = await fetchWithFallback('/setsubarrayconfig', '/setsubarrayconfig', {
+                const response = await fetch('/setsubarrayconfig', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -4744,8 +3821,7 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                 const screenName = currentScreenMode === 'main' ? '主界面' : '单词界面';
                 showLoading('正在加载' + screenName + '子数组配置...');
 
-                const subarrayPath = '/getsubarrayconfig?screen_type=' + currentScreenMode;
-                const response = await fetchWithFallback(subarrayPath, subarrayPath);
+                const response = await fetch('/getsubarrayconfig?screen_type=' + currentScreenMode);
                 hideLoading();
 
                 if (response.ok) {
@@ -4777,1239 +3853,6 @@ const char* WEB_LAYOUT_HTML = R"rawliteral(
                 hideLoading();
                 showStatus('加载子数组配置时发生错误: ' + error.message, 'error');
                 console.error('加载子数组配置错误:', error);
-            }
-        }
-
-        // ============================================
-        // 字体和图片转换功能 (从web_layout.html移植)
-        // ============================================
-
-        /**
-         * 处理 TTF 字体文件上传
-         */
-        function handleTTFUpload(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-
-            currentTTFFile = file;  // 保存原始文件对象
-            currentFontName = file.name.replace(/\.(ttf|otf)$/i, '');
-            
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                currentTTFFont = e.target.result;
-                document.getElementById('fontStatusMessage').innerHTML = 
-                    `✅ 已加载字体: ${file.name}`;
-                
-                // 自动预览
-                previewTTFFont();
-            };
-            reader.readAsDataURL(file);
-        }
-
-        /**
-         * 预览 TTF 字体
-         */
-        function previewTTFFont() {
-            if (!currentTTFFont) {
-                alert('请先上传 TTF 字体文件！');
-                return;
-            }
-
-            const text = document.getElementById('previewText').value;
-            // 直接使用字库尺寸选择器的值作为预览字号
-            const fontSize = parseInt(document.getElementById('binFontSize').value) || 16;
-            const previewDiv = document.getElementById('fontPreviewCanvas');
-
-            // 创建预览 Canvas
-            if (!fontCanvas) {
-                fontCanvas = document.createElement('canvas');
-                fontContext = fontCanvas.getContext('2d');
-            }
-
-            // 计算需要的画布大小
-            const canvasWidth = 400;
-            const canvasHeight = parseInt(fontSize) * 3;
-            fontCanvas.width = canvasWidth;
-            fontCanvas.height = canvasHeight;
-
-            // 清空并设置背景
-            fontContext.fillStyle = '#ffffff';
-            fontContext.fillRect(0, 0, canvasWidth, canvasHeight);
-
-            // 加载字体
-            const fontFace = new FontFace(currentFontName, `url(${currentTTFFont})`);
-            fontFace.load().then(function(loadedFont) {
-                document.fonts.add(loadedFont);
-                
-                // 绘制文字
-                fontContext.font = `${fontSize}px "${currentFontName}"`;
-                fontContext.fillStyle = '#000000';
-                fontContext.textBaseline = 'top';
-                fontContext.fillText(text, 10, parseInt(fontSize) / 2);
-
-                // 显示预览
-                previewDiv.innerHTML = '';
-                previewDiv.appendChild(fontCanvas);
-                
-                // 显示状态消息，说明预览字号
-                const statusMsg = document.getElementById('fontStatusMessage');
-                if (statusMsg) {
-                    statusMsg.innerHTML = `✅ 字体预览成功 (预览使用 ${fontSize}pt)`;
-                }
-            }).catch(function(error) {
-                alert('字体加载失败: ' + error);
-                console.error('Font load error:', error);
-            });
-        }
-
-        let generatedBinFilename = null;
-        let generatedBinData = null;  // 保存生成的 .bin 文件数据，供上传使用
-
-        /**
-         * 转换TTF为.bin字库文件 (用于混合缓存系统)
-         */
-        async function convertTTFtoBin() {
-            if (!currentTTFFile) {
-                alert('请先上传 TTF 字体文件！');
-                return;
-            }
-
-            const binSize = parseInt(document.getElementById('binFontSize').value);
-            const charsetRange = document.getElementById('charsetRange').value;
-            const fontName = currentFontName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
-            
-            const statusDiv = document.getElementById('binGenerationStatus');
-            const charsetLabel = charsetRange === 'english' ? '英文ASCII' : 'GB2312汉字';
-            const estimatedTime = charsetRange === 'english' ? '数秒' : '1-3分钟';
-            
-            statusDiv.innerHTML = 
-                `<div style="color: #ff9800; font-weight: bold;">⏳ 正在生成 ${binSize}x${binSize} .bin字库文件...</div>` +
-                `<div style="color: #666;">字符集: ${charsetLabel}, 预计耗时: ${estimatedTime}...</div>`;
-            
-            // 隐藏下载按钮
-            document.getElementById('downloadBinBtn').style.display = 'none';
-            document.getElementById('uploadBinBtn').style.display = 'none';
-
-            try {
-                // 读取 TTF 文件为 base64
-                const reader = new FileReader();
-                reader.onload = async function(e) {
-                    const ttfBase64 = e.target.result.split(',')[1];
-
-                    const startTime = Date.now();
-
-                    // 调用 Python 后端 API（优先 PC 端，降级到 Python）
-                    const response = await fetchWithFallbackForPython('/convert_ttf_to_bin', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            ttf_base64: ttfBase64,
-                            font_size: binSize,
-                            font_name: fontName,
-                            char_range: charsetRange
-                        }),
-                        mode: 'cors'
-                    });
-
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-
-                    const result = await response.json();
-                    const elapsedTime = ((Date.now() - startTime) / 1000).toFixed(1);
-
-                    if (result.success) {
-                        generatedBinFilename = result.filename;
-                        
-                        statusDiv.innerHTML = 
-                            `<div style="color: green; font-weight: bold; margin-bottom: 10px;">✅ .bin字库生成成功！(耗时 ${elapsedTime}秒)</div>` +
-                            `<div style="background: #f5f5f5; padding: 10px; border-radius: 4px; font-size: 11px;">` +
-                            `<strong>📋 文件信息:</strong><br>` +
-                            `• 文件名: <span style="color: #0066cc; font-family: monospace;">${result.filename}</span><br>` +
-                            `• 文件大小: <strong>${result.file_size_kb} KB</strong><br>` +
-                            `• 字符总数: ${result.char_count}<br>` +
-                            `• 已生成字符: ${result.generated_count}<br>` +
-                            `• 字模尺寸: ${result.font_size}x${result.font_size}<br>` +
-                            `• 每字节数: ${result.glyph_size} bytes<br>` +
-                            `<br><strong>💾 本地路径:</strong><br>` +
-                            `<span style="color: #0066cc; font-family: monospace; font-size: 10px; word-break: break-all;">${result.saved_path}</span><br>` +
-                            `<br><span style="color: #4CAF50;">✅ 此文件可直接用于 ChineseFontCache 混合缓存系统</span>` +
-                            `</div>`;
-                        
-                        // 显示下载和上传按钮
-                        document.getElementById('downloadBinBtn').style.display = 'inline-block';
-                        document.getElementById('uploadBinBtn').style.display = 'inline-block';
-                    } else {
-                        throw new Error(result.error || '生成失败');
-                    }
-                };
-
-                reader.onerror = function() {
-                    statusDiv.innerHTML = `<div style="color: red;">❌ 读取 TTF 文件失败</div>`;
-                };
-
-                reader.readAsDataURL(currentTTFFile);
-
-            } catch (error) {
-                console.error('.bin字库生成失败:', error);
-                statusDiv.innerHTML = 
-                    `<div style="color: red; font-weight: bold;">❌ 生成失败: ${error.message}</div>` +
-                    `<div style="color: orange; margin-top: 5px;">请确保 Python 服务已启动: python tools/ttf_to_gfx_webservice.py</div>`;
-            }
-        }
-
-        /**
-         * 下载生成的.bin文件 - 保存到 components/resource/fonts 目录
-         */
-        async function downloadBinFile() {
-            if (!generatedBinFilename) {
-                alert('请先生成 .bin 文件！');
-                return;
-            }
-
-            try {
-                const statusDiv = document.getElementById('binGenerationStatus');
-                statusDiv.innerHTML += `<div style="color: #ff9800; margin-top: 10px;">⏳ 正在保存到本地资源目录...</div>`;
-                
-                // 从服务器获取 .bin 文件
-                const response = await fetchWithFallbackForPython(`/download_bin_file?filename=${encodeURIComponent(generatedBinFilename)}`);
-                
-                if (!response.ok) {
-                    throw new Error('获取文件失败');
-                }
-
-                const blob = await response.blob();
-                
-                // 保存 blob 数据供上传使用
-                generatedBinData = blob;
-                
-                const file = new File([blob], generatedBinFilename, { type: 'application/octet-stream' });
-                
-                // 调用 Python 服务保存到 components/resource/fonts 目录
-                const formData = new FormData();
-                formData.append('file', file);
-                formData.append('filename', generatedBinFilename);
-                
-                const saveResponse = await fetchWithFallbackForPython('/save_font_file', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                if (!saveResponse.ok) {
-                    throw new Error('保存到本地失败');
-                }
-                
-                const saveResult = await saveResponse.json();
-                if (!saveResult.success) {
-                    throw new Error(saveResult.error || '保存失败');
-                }
-
-                statusDiv.innerHTML += 
-                    `<div style="color: green; margin-top: 10px; font-weight: bold;">✅ 文件已保存到本地资源目录</div>` +
-                    `<div style="color: #0066cc; font-family: monospace; font-size: 11px;">路径: ${saveResult.saved_path}</div>`;
-
-            } catch (error) {
-                console.error('保存失败:', error);
-                const statusDiv = document.getElementById('binGenerationStatus');
-                statusDiv.innerHTML += 
-                    `<div style="color: red; margin-top: 10px;">❌ 保存失败: ${error.message}</div>` +
-                    `<div style="color: orange; font-size: 11px;">请确保 Python 服务已启动</div>`;
-            }
-        }
-
-        /**
-         * 上传.bin文件到SD卡 - 使用 /upload 接口
-         */
-        async function uploadBinToSD() {
-            if (!generatedBinFilename) {
-                alert('请先生成 .bin 文件！');
-                return;
-            }
-
-            if (!confirm(`确认将 ${generatedBinFilename} 上传到 ESP32 SD 卡根目录？\n\n文件较大，上传可能需要一些时间。`)) {
-                return;
-            }
-
-            try {
-                const statusDiv = document.getElementById('binGenerationStatus');
-                statusDiv.innerHTML += `<div style="color: #ff9800; margin-top: 10px;">⏳ 正在上传到 SD 卡...</div>`;
-
-                // 方法1：如果已经有 blob 数据（从 downloadBinFile 中的 generatedBinData）
-                let fileData = null;
-                
-                // 尝试从本地 Python 服务直接获取文件
-                try {
-                    const response = await fetchWithFallbackForPython(`/download_bin_file?filename=${encodeURIComponent(generatedBinFilename)}`);
-                    if (response.ok) {
-                        fileData = await response.blob();
-                    }
-                } catch (e) {
-                    console.warn('从 Python 服务获取文件失败，尝试从本地重新生成...');
-                }
-
-                if (!fileData) {
-                    throw new Error('无法获取 .bin 文件，请先点击"下载.bin文件"按钮保存文件');
-                }
-
-                const file = new File([fileData], generatedBinFilename, { type: 'application/octet-stream' });
-
-                // 上传到 ESP32 SD 卡根目录 (使用 /upload 接口)
-                await uploadFileToSD(file, '/');
-
-                statusDiv.innerHTML += 
-                    `<div style="color: green; font-weight: bold; margin-top: 10px;">✅ 文件已成功上传到 SD 卡根目录！</div>` +
-                    `<div style="color: #666; font-size: 11px;">可以在 ChineseFontCache 中使用: cache.init("/sd/${generatedBinFilename}", true);</div>`;
-
-            } catch (error) {
-                console.error('上传失败:', error);
-                const statusDiv = document.getElementById('binGenerationStatus');
-                statusDiv.innerHTML += 
-                    `<div style="color: red; margin-top: 10px;">❌ 上传失败: ${error.message}</div>` +
-                    `<div style="color: orange; font-size: 11px;">请确保 ESP32 已连接、SD 卡已插入且有足够空间</div>`;
-            }
-        }
-
-        /**
-         * 处理图片文件上传
-         */
-        function handleImageUpload(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-
-            currentImageFile = file;
-            
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                currentImageData = e.target.result;
-                
-                const img = new Image();
-                img.onload = function() {
-                    // 自动设置尺寸为图片原始尺寸
-                    document.getElementById('imageWidth').value = Math.min(img.width, 400);
-                    document.getElementById('imageHeight').value = Math.min(img.height, 300);
-                    
-                    document.getElementById('imageStatusMessage').innerHTML = 
-                        `✅ 已加载图片: ${file.name} (${img.width}x${img.height})`;
-                    
-                    // 自动预览
-                    previewImage();
-                };
-                img.src = e.target.result;
-            };
-            reader.readAsDataURL(file);
-        }
-
-        /**
-         * 预览图片处理效果
-         */
-        function previewImage() {
-            if (!currentImageData) {
-                alert('请先上传图片文件！');
-                return;
-            }
-
-            const width = parseInt(document.getElementById('imageWidth').value);
-            const height = parseInt(document.getElementById('imageHeight').value);
-            const mode = document.getElementById('imageMode').value;
-            const threshold = parseInt(document.getElementById('imageThreshold').value);
-
-            const img = new Image();
-            img.onload = function() {
-                // 创建源图片 canvas
-                srcImageCanvas = document.getElementById('srcImageCanvas');
-                srcImageCanvas.width = width;
-                srcImageCanvas.height = height;
-                const srcCtx = srcImageCanvas.getContext('2d');
-                srcCtx.drawImage(img, 0, 0, width, height);
-
-                // 创建目标 canvas
-                dstImageCanvas = document.getElementById('dstImageCanvas');
-                dstImageCanvas.width = width;
-                dstImageCanvas.height = height;
-                const dstCtx = dstImageCanvas.getContext('2d');
-
-                // 获取源图片数据
-                const srcImageData = srcCtx.getImageData(0, 0, width, height);
-                const dstImageData = dstCtx.createImageData(width, height);
-
-                if (mode === 'threshold') {
-                    // 阈值二值化
-                    processThreshold(srcImageData, dstImageData, threshold);
-                } else {
-                    // Floyd-Steinberg 抖动算法
-                    processDithering(srcImageData, dstImageData);
-                }
-
-                dstCtx.putImageData(dstImageData, 0, 0);
-                
-                document.getElementById('imageStatusMessage').innerHTML = 
-                    `✅ 预览完成 (${width}x${height}, ${mode === 'threshold' ? '阈值: ' + threshold : '抖动算法'})`;
-            };
-            img.src = currentImageData;
-        }
-
-        /**
-         * 阈值二值化处理
-         */
-        function processThreshold(srcData, dstData, threshold) {
-            for (let i = 0; i < srcData.data.length; i += 4) {
-                // 转换为灰度值
-                const gray = srcData.data[i] * 0.299 + srcData.data[i + 1] * 0.587 + srcData.data[i + 2] * 0.114;
-                const value = gray >= threshold ? 255 : 0;
-                
-                dstData.data[i] = value;
-                dstData.data[i + 1] = value;
-                dstData.data[i + 2] = value;
-                dstData.data[i + 3] = 255;
-            }
-        }
-
-        /**
-         * Floyd-Steinberg 抖动算法
-         */
-        function processDithering(srcData, dstData) {
-            const width = srcData.width;
-            const height = srcData.height;
-            
-            // 复制源数据到临时数组
-            const temp = new Float32Array(width * height);
-            for (let y = 0; y < height; y++) {
-                for (let x = 0; x < width; x++) {
-                    const i = (y * width + x) * 4;
-                    temp[y * width + x] = srcData.data[i] * 0.299 + srcData.data[i + 1] * 0.587 + srcData.data[i + 2] * 0.114;
-                }
-            }
-
-            // Floyd-Steinberg 抖动
-            for (let y = 0; y < height; y++) {
-                for (let x = 0; x < width; x++) {
-                    const idx = y * width + x;
-                    const oldPixel = temp[idx];
-                    const newPixel = oldPixel < 128 ? 0 : 255;
-                    temp[idx] = newPixel;
-                    
-                    const error = oldPixel - newPixel;
-                    
-                    // 分配误差到周围像素
-                    if (x + 1 < width) temp[idx + 1] += error * 7 / 16;
-                    if (y + 1 < height) {
-                        if (x > 0) temp[idx + width - 1] += error * 3 / 16;
-                        temp[idx + width] += error * 5 / 16;
-                        if (x + 1 < width) temp[idx + width + 1] += error * 1 / 16;
-                    }
-                    
-                    // 设置目标像素
-                    const i = (y * width + x) * 4;
-                    dstData.data[i] = newPixel;
-                    dstData.data[i + 1] = newPixel;
-                    dstData.data[i + 2] = newPixel;
-                    dstData.data[i + 3] = 255;
-                }
-            }
-        }
-
-        let generatedImageBinFilename = null;
-        let generatedImageBinData = null;
-
-        /**
-         * 转换图片为 .bin 文件格式
-         */
-        async function convertImageToBin() {
-            if (!currentImageFile) {
-                alert('请先上传图片文件！');
-                return;
-            }
-
-            if (!dstImageCanvas) {
-                alert('请先预览处理效果！');
-                return;
-            }
-
-            const width = parseInt(document.getElementById('imageWidth').value);
-            const height = parseInt(document.getElementById('imageHeight').value);
-            const mode = document.getElementById('imageMode').value;
-            const threshold = parseInt(document.getElementById('imageThreshold').value);
-            const imageName = currentImageFile.name.replace(/\.(jpg|jpeg|png|bmp|gif)$/i, '').replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
-            
-            const statusDiv = document.getElementById('imageBinStatus');
-            statusDiv.innerHTML = 
-                `<div style="color: #ff9800; font-weight: bold;">⏳ 正在生成 ${width}x${height} .bin 文件...</div>`;
-            
-            // 隐藏添加按钮（稍后生成成功后显示）
-            document.getElementById('addBitmapBtn').style.display = 'none';
-
-            try {
-                // 读取图片文件为 base64
-                const reader = new FileReader();
-                reader.onload = async function(e) {
-                    const imageBase64 = e.target.result.split(',')[1];
-
-                    const startTime = Date.now();
-
-                    // 调用 Python 后端 API
-                    const response = await fetchWithFallbackForPython('/convert_image_to_bin', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            image_base64: imageBase64,
-                            width: width,
-                            height: height,
-                            mode: mode,
-                            threshold: threshold,
-                            image_name: imageName
-                        }),
-                        mode: 'cors'
-                    });
-
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-
-                    const result = await response.json();
-                    const elapsedTime = ((Date.now() - startTime) / 1000).toFixed(1);
-
-                    if (result.success) {
-                        generatedImageBinFilename = result.filename;
-                        
-                        // 获取生成的 .bin 文件数据用于后续上传
-                        const binResponse = await fetchWithFallbackForPython(`/download_bin_file?filename=${encodeURIComponent(result.filename)}`);
-                        generatedImageBinData = await binResponse.blob();
-                        
-                        // 从文件名中提取位图尺寸（格式: {name}_{width}x{height}.bin）
-                        const bitmapIndex = extractBitmapIndexFromFileName(result.filename);
-                        window.generatedBitmapIndex = bitmapIndex;
-                        
-                        statusDiv.innerHTML = 
-                            `<div style="color: green; font-weight: bold; margin-bottom: 10px;">✅ .bin 文件生成成功！(耗时 ${elapsedTime}秒)</div>` +
-                            `<div style="background: #f5f5f5; padding: 10px; border-radius: 4px; font-size: 11px;">` +
-                            `<strong>📋 文件信息:</strong><br>` +
-                            `• 文件名: <span style="color: #0066cc; font-family: monospace;">${result.filename}</span><br>` +
-                            `• 文件大小: <strong>${result.file_size_kb} KB</strong><br>` +
-                            `• 图片尺寸: ${result.width}x${result.height}<br>` +
-                            `• 处理模式: ${mode === 'dithering' ? 'Floyd-Steinberg 抖动' : '阈值二值化'}<br>` +
-                            `<br><strong>💾 本地路径:</strong><br>` +
-                            `<span style="color: #0066cc; font-family: monospace; font-size: 10px; word-break: break-all;">${result.saved_path}</span><br>` +
-                            `<br><span style="color: #4CAF50;">✅ 此文件可直接用于墨水屏图片显示</span>` +
-                            `</div>`;
-                        
-                        // 显示添加按钮
-                        document.getElementById('addBitmapBtn').style.display = 'inline-block';
-                    } else {
-                        throw new Error(result.error || '生成失败');
-                    }
-                };
-
-                reader.onerror = function() {
-                    statusDiv.innerHTML = `<div style="color: red;">❌ 读取图片文件失败</div>`;
-                };
-
-                reader.readAsDataURL(currentImageFile);
-
-            } catch (error) {
-                console.error('.bin 文件生成失败:', error);
-                statusDiv.innerHTML = 
-                    `<div style="color: red; font-weight: bold;">❌ 生成失败: ${error.message}</div>` +
-                    `<div style="color: orange; margin-top: 5px;">请确保 Python 服务已启动: python tools/ttf_to_gfx_webservice.py</div>`;
-            }
-        }
-
-        /**
-         * 下载生成的图片 .bin 文件
-         */
-        async function downloadImageBin() {
-            if (!generatedImageBinFilename) {
-                alert('请先生成 .bin 文件！');
-                return;
-            }
-
-            try {
-                // 从服务器下载文件
-                const response = await fetchWithFallbackForPython(`/download_bin_file?filename=${encodeURIComponent(generatedImageBinFilename)}`);
-                
-                if (!response.ok) {
-                    throw new Error('下载失败');
-                }
-
-                const blob = await response.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = generatedImageBinFilename;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                document.body.removeChild(a);
-
-                const statusDiv = document.getElementById('imageBinStatus');
-                const currentContent = statusDiv.innerHTML;
-                statusDiv.innerHTML = currentContent + 
-                    `<div style="color: green; margin-top: 10px;">💾 文件已下载到浏览器默认下载目录</div>`;
-
-            } catch (error) {
-                console.error('下载失败:', error);
-                alert('下载失败: ' + error.message);
-            }
-        }
-
-        /**
-         * 上传图片 .bin 文件到 SD 卡
-         */
-        async function uploadImageBinToSD() {
-            if (!generatedImageBinFilename || !generatedImageBinData) {
-                alert('请先生成 .bin 文件！');
-                return;
-            }
-
-            const statusDiv = document.getElementById('imageBinStatus');
-            const originalContent = statusDiv.innerHTML;
-            
-            try {
-                statusDiv.innerHTML = originalContent + 
-                    `<div style="color: #ff9800; margin-top: 10px;">⏳ 正在上传到 SD 卡...</div>`;
-
-                // 创建 File 对象
-                const file = new File([generatedImageBinData], generatedImageBinFilename, {
-                    type: 'application/octet-stream'
-                });
-
-                // 上传到 SD 卡根目录
-                await uploadFileToSD(file, '/');
-
-                statusDiv.innerHTML = originalContent + 
-                    `<div style="color: green; margin-top: 10px; font-weight: bold;">✅ 已成功上传到 SD 卡: /${generatedImageBinFilename}</div>` +
-                    `<div style="color: #666; font-size: 11px;">可以在 ESP32 代码中使用: displayImageFromSD("/sd/${generatedImageBinFilename}", x, y, display);</div>`;
-
-            } catch (error) {
-                console.error('上传失败:', error);
-                statusDiv.innerHTML = originalContent + 
-                    `<div style="color: red; margin-top: 10px;">❌ 上传失败: ${error.message}</div>` +
-                    `<div style="color: orange; font-size: 11px;">请检查 ESP32 连接和 SD 卡状态</div>`;
-            }
-        }
-
-        /**
-         * 上传文件到 ESP32 SD 卡的通用函数
-         * @param {File} file - 要上传的文件对象
-         * @param {string} path - SD卡上的目标路径（默认为根目录 '/'）
-         */
-        async function uploadFileToSD(file, path = '/') {
-            return new Promise((resolve, reject) => {
-                // 构建 FormData（模仿 index.html 的方式）
-                const formData = new FormData();
-                formData.append('path', path);
-                formData.append('size', file.size);
-                formData.append('file', file, file.name);
-                
-                // 创建 XMLHttpRequest
-                const xhr = new XMLHttpRequest();
-                
-                // 进度监听
-                xhr.upload.addEventListener('progress', (e) => {
-                    if (e.lengthComputable) {
-                        const percentComplete = (e.loaded / e.total) * 100;
-                        console.log(`上传进度: ${percentComplete.toFixed(2)}%`);
-                    }
-                });
-                
-                // 完成监听
-                xhr.onload = function() {
-                    if (xhr.status === 200) {
-                        console.log('上传成功:', xhr.responseText);
-                        resolve(xhr.responseText);
-                    } else {
-                        reject(new Error(`上传失败: HTTP ${xhr.status}`));
-                    }
-                };
-                
-                // 错误监听
-                xhr.onerror = function() {
-                    reject(new Error('网络错误'));
-                };
-                
-                // 使用 CONFIG 对象获取 ESP32 服务地址
-                const uploadUrl = CONFIG.esp32Url('/upload');
-                console.log('使用上传地址:', uploadUrl);
-                
-                // 发送请求到 ESP32 的 /upload 接口
-                xhr.open('POST', uploadUrl, true);
-                xhr.send(formData);
-            });
-        }
-
-        /**
-         * 搜索字体库
-         */
-        async function searchFontLibrary() {
-            try {
-                const response = await fetchWithFallbackForPython('/list_fonts');
-                const result = await response.json();
-                
-                if (!result.success) {
-                    throw new Error(result.error);
-                }
-
-                const listDiv = document.getElementById('fontLibraryList');
-                
-                if (result.fonts.length === 0) {
-                    listDiv.innerHTML = '<p style="color: #666;">暂无字体文件</p>';
-                    return;
-                }
-
-                let html = `<p style="font-size: 12px; color: #666;">找到 ${result.count} 个字体文件:</p>`;
-                html += '<div style="max-height: 250px; overflow-y: auto;">';
-                
-                result.fonts.forEach(font => {
-                    html += `
-                        <div style="background: #f9f9f9; padding: 8px; margin: 5px 0; border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
-                            <div>
-                                <strong>${font.name}</strong>
-                                <br><small style="color: #666;">${font.size_kb} KB</small>
-                            </div>
-                            <div>
-                                <button class="btn btn-success" style="padding: 5px 10px; font-size: 12px;" onclick="importFont('${font.name}')">
-                                    📤 导入
-                                </button>
-                            </div>
-                        </div>
-                    `;
-                });
-                
-                html += '</div>';
-                listDiv.innerHTML = html;
-                
-            } catch (error) {
-                console.error('查询字体库失败:', error);
-                document.getElementById('fontLibraryList').innerHTML = 
-                    `<p style="color: red;">❌ 查询失败: ${error.message}</p>` +
-                    `<p style="color: orange;">请确保 Python 服务已启动</p>`;
-            }
-        }
-
-        /**
-         * 导入字体到 SD 卡根目录
-         */
-        async function importFont(fontName) {
-            if (!confirm(`确认上传字体到 SD 卡根目录: ${fontName}?`)) {
-                return;
-            }
-            
-            try {
-                // 从 components/resource/fonts 读取文件
-                const response = await fetchWithFallbackForPython(`/get_font_file?filename=${encodeURIComponent(fontName)}`);
-                if (!response.ok) {
-                    throw new Error('获取字体文件失败');
-                }
-                
-                const blob = await response.blob();
-                const file = new File([blob], fontName, { type: 'application/octet-stream' });
-                
-                // 上传到 ESP32 SD 卡根目录
-                await uploadFileToSD(file, '/');
-                
-                alert(`✅ 字体 ${fontName} 已成功上传到 SD 卡根目录！`);
-                
-            } catch (error) {
-                console.error('上传字体失败:', error);
-                alert(`❌ 上传失败: ${error.message}\n\n请确保:\n1. Python 服务已启动\n2. ESP32 已连接\n3. SD 卡已插入`);
-            }
-        }
-
-        /**
-         * 搜索图片库
-         */
-        async function searchBitmapLibrary() {
-            try {
-                const response = await fetchWithFallbackForPython('/list_bitmaps');
-                const result = await response.json();
-                
-                if (!result.success) {
-                    throw new Error(result.error);
-                }
-
-                const listDiv = document.getElementById('bitmapLibraryList');
-                
-                if (result.bitmaps.length === 0) {
-                    listDiv.innerHTML = '<p style="color: #666;">暂无位图文件</p>';
-                    return;
-                }
-
-                let html = `<p style="font-size: 12px; color: #666;">找到 ${result.count} 个位图文件:</p>`;
-                html += '<div style="max-height: 350px; overflow-y: auto;">';
-                
-                result.bitmaps.forEach(bitmap => {
-                    const sizeInfo = bitmap.width && bitmap.height ? 
-                        `${bitmap.width}x${bitmap.height}` : '未知尺寸';
-                    
-                    html += `
-                        <div style="background: #f9f9f9; padding: 8px; margin: 5px 0; border-radius: 4px;">
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <div>
-                                    <strong>${bitmap.name}</strong>
-                                    <br><small style="color: #666;">${sizeInfo} · ${bitmap.size_kb} KB</small>
-                                </div>
-                                <div>
-                                    <button class="btn btn-success" style="padding: 5px 10px; font-size: 12px;" onclick="importBitmap('${bitmap.name}')">
-                                        📤 导入
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                });
-                
-                html += '</div>';
-                listDiv.innerHTML = html;
-                
-            } catch (error) {
-                console.error('查询图片库失败:', error);
-                document.getElementById('bitmapLibraryList').innerHTML = 
-                    `<p style="color: red;">❌ 查询失败: ${error.message}</p>` +
-                    `<p style="color: orange;">请确保 Python 服务已启动</p>`;
-            }
-        }
-
-        /**
-         * 导入位图到 SD 卡根目录
-         */
-        async function importBitmap(bitmapName) {
-            if (!confirm(`确认上传位图到 SD 卡根目录: ${bitmapName}?`)) {
-                return;
-            }
-            
-            try {
-                // 从 components/resource/bitmap 读取文件
-                const response = await fetchWithFallbackForPython(`/get_bitmap_file?filename=${encodeURIComponent(bitmapName)}`);
-                if (!response.ok) {
-                    throw new Error('获取位图文件失败');
-                }
-                
-                const blob = await response.blob();
-                const file = new File([blob], bitmapName, { type: 'application/octet-stream' });
-                
-                // 上传到 ESP32 SD 卡根目录
-                await uploadFileToSD(file, '/');
-                
-                alert(`✅ 位图 ${bitmapName} 已成功上传到 SD 卡根目录！`);
-                
-            } catch (error) {
-                console.error('上传位图失败:', error);
-                alert(`❌ 上传失败: ${error.message}\n\n请确保:\n1. Python 服务已启动\n2. ESP32 已连接\n3. SD 卡已插入`);
-            }
-        }
-
-        // ==================== SD 卡文件管理功能 ====================
-        
-        let sdFilesData = []; // 存储文件列表数据
-        
-        /**
-         * 刷新 SD 卡文件列表
-         */
-        async function refreshSDFiles() {
-            try {
-                const response = await fetchWithFallback('/files?path=/', '/files?path=/');
-                if (!response.ok) {
-                    throw new Error('获取文件列表失败');
-                }
-                
-                const data = await response.json();
-                console.log('SD卡文件数据:', data);
-                
-                // 保存文件数据（只保存文件，不包含目录）
-                sdFilesData = data.files.filter(file => file.size !== '-1');
-                
-                // 显示 SD 卡信息
-                displaySDCardInfo(data);
-                
-                // 显示文件列表
-                displaySDFilesList(sdFilesData);
-                
-            } catch (error) {
-                console.error('刷新文件列表失败:', error);
-                document.getElementById('sdFilesList').innerHTML = 
-                    `<div style="padding: 20px; text-align: center; color: red;">
-                        ❌ 加载失败: ${error.message}<br>
-                        <small>请确保 ESP32 已连接且 SD 卡已插入</small>
-                    </div>`;
-            }
-        }
-        
-        /**
-         * 显示 SD 卡信息
-         */
-        function displaySDCardInfo(data) {
-            const infoDiv = document.getElementById('sdCardInfo');
-            infoDiv.innerHTML = `
-                <strong>📊 SD 卡状态:</strong> ${data.status}<br>
-                <strong>💾 总容量:</strong> ${data.total}<br>
-                <strong>📁 已使用:</strong> ${data.used} (${data.occupation}%)
-            `;
-        }
-        
-        /**
-         * 显示文件列表
-         */
-        function displaySDFilesList(files) {
-            const listDiv = document.getElementById('sdFilesList');
-            
-            if (files.length === 0) {
-                listDiv.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">暂无文件</div>';
-                return;
-            }
-            
-            let html = '<table style="width: 100%; border-collapse: collapse;">';
-            html += `
-                <thead>
-                    <tr style="background: #f5f5f5;">
-                        <th style="padding: 8px; border: 1px solid #ddd; width: 40px;">选择</th>
-                        <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">文件名</th>
-                        <th style="padding: 8px; border: 1px solid #ddd; width: 100px;">大小</th>
-                        <th style="padding: 8px; border: 1px solid #ddd; width: 80px;">操作</th>
-                    </tr>
-                </thead>
-                <tbody>
-            `;
-            
-            files.forEach((file, index) => {
-                html += `
-                    <tr style="border-bottom: 1px solid #eee;">
-                        <td style="padding: 8px; text-align: center;">
-                            <input type="checkbox" class="file-checkbox" data-index="${index}" data-filename="${file.name}">
-                        </td>
-                        <td style="padding: 8px;">
-                            <span style="font-family: monospace;">${file.name}</span>
-                        </td>
-                        <td style="padding: 8px; text-align: right;">
-                            ${file.size}
-                        </td>
-                        <td style="padding: 8px; text-align: center;">
-                            <button class="btn btn-danger" style="padding: 3px 8px; font-size: 11px;" 
-                                    onclick="deleteSingleFile('${file.name}')">
-                                删除
-                            </button>
-                        </td>
-                    </tr>
-                `;
-            });
-            
-            html += '</tbody></table>';
-            listDiv.innerHTML = html;
-        }
-        
-        /**
-         * 全选/取消全选
-         */
-        function toggleSelectAll() {
-            const selectAllCheckbox = document.getElementById('selectAllCheckbox');
-            const fileCheckboxes = document.querySelectorAll('.file-checkbox');
-            
-            fileCheckboxes.forEach(checkbox => {
-                checkbox.checked = selectAllCheckbox.checked;
-            });
-        }
-        
-        /**
-         * 删除单个文件
-         */
-        async function deleteSingleFile(filename) {
-            if (!confirm(`确认删除文件: ${filename}?`)) {
-                return;
-            }
-            
-            try {
-                const deleteCmd = `/command?commandText=$SD/Delete=${encodeURIComponent(filename)}`;
-                const response = await fetchWithFallback(deleteCmd, deleteCmd);
-                if (!response.ok) {
-                    throw new Error('删除请求失败');
-                }
-                
-                const result = await response.text();
-                console.log('删除结果:', result);
-                
-                alert(`✅ 文件 ${filename} 删除成功！`);
-                
-                // 刷新文件列表
-                await refreshSDFiles();
-                
-            } catch (error) {
-                console.error('删除文件失败:', error);
-                alert(`❌ 删除失败: ${error.message}`);
-            }
-        }
-        
-        /**
-         * 批量删除选中的文件
-         */
-        async function deleteSelectedFiles() {
-            const checkedBoxes = document.querySelectorAll('.file-checkbox:checked');
-            
-            if (checkedBoxes.length === 0) {
-                alert('请先选择要删除的文件！');
-                return;
-            }
-            
-            if (!confirm(`确认删除选中的 ${checkedBoxes.length} 个文件?`)) {
-                return;
-            }
-            
-            // 获取选中文件的索引
-            const indices = Array.from(checkedBoxes).map(checkbox => checkbox.dataset.index);
-            const indexStr = indices.join(',');
-            
-            try {
-                const batchCmd = `/command?commandText=$SD/BatchDelete=${indexStr}`;
-                const response = await fetchWithFallback(batchCmd, batchCmd);
-                if (!response.ok) {
-                    throw new Error('批量删除请求失败');
-                }
-                
-                const result = await response.text();
-                console.log('批量删除结果:', result);
-                
-                alert(`✅ 批量删除完成！`);
-                
-                // 取消全选
-                document.getElementById('selectAllCheckbox').checked = false;
-                
-                // 刷新文件列表
-                await refreshSDFiles();
-                
-            } catch (error) {
-                console.error('批量删除失败:', error);
-                alert(`❌ 批量删除失败: ${error.message}`);
-            }
-        }
-        
-        /**
-         * 删除所有文件
-         */
-        async function deleteAllFiles() {
-            if (sdFilesData.length === 0) {
-                alert('当前没有文件可以删除！');
-                return;
-            }
-            
-            if (!confirm(`⚠️ 警告！\n\n确认删除 SD 卡中的所有 ${sdFilesData.length} 个文件?\n\n此操作不可恢复！`)) {
-                return;
-            }
-            
-            // 二次确认
-            if (!confirm('请再次确认：真的要删除所有文件吗？')) {
-                return;
-            }
-            
-            try {
-                const allDelCmd = '/command?commandText=$SD/AllDelete';
-                const response = await fetchWithFallback(allDelCmd, allDelCmd);
-                if (!response.ok) {
-                    throw new Error('全部删除请求失败');
-                }
-                
-                const result = await response.text();
-                console.log('全部删除结果:', result);
-                
-                alert(`✅ 所有文件已删除！`);
-                
-                // 取消全选
-                document.getElementById('selectAllCheckbox').checked = false;
-                
-                // 刷新文件列表
-                await refreshSDFiles();
-                
-            } catch (error) {
-                console.error('全部删除失败:', error);
-                alert(`❌ 全部删除失败: ${error.message}`);
-            }
-        }
-
-        /**
-         * 更新字符集信息显示
-         */
-        function updateCharsetInfo() {
-            const charsetRange = document.getElementById('charsetRange').value;
-            const charsetInfo = document.getElementById('charsetInfo');
-            
-            if (charsetRange === 'english') {
-                charsetInfo.innerHTML = '英文ASCII字符，包含空格、字母、数字和常用符号。生成速度快，文件小。';
-            } else {
-                charsetInfo.innerHTML = '中文GB2312汉字，约20000个常用汉字。生成速度较慢，文件较大。';
-            }
-        }
-
-        // 页面加载时初始化字符集信息
-        document.addEventListener('DOMContentLoaded', function() {
-            updateCharsetInfo();
-        });
-
-        /**
-         * 从图片文件名中提取位图索引
-         * 文件名格式: {name}_{width}x{height}.bin 例如: image1_416x240.bin
-         */
-        function extractBitmapIndexFromFileName(fileName) {
-            // 移除 .bin 扩展名
-            const nameWithoutExt = fileName.replace(/\.bin$/i, '');
-            
-            // 查找最后一个数字序列作为索引
-            // 格式: {name}_{width}x{height}
-            // 我们尝试从宽度数字中提取
-            const match = nameWithoutExt.match(/(\d+)x(\d+)$/);
-            if (match) {
-                const width = parseInt(match[1], 10);
-                const height = parseInt(match[2], 10);
-                // 返回一个对象，包含宽度和高度以供后续使用
-                window.generatedBitmapWidth = width;
-                window.generatedBitmapHeight = height;
-                return 0;  // 位图索引默认为 0（如无特殊需求）
-            }
-            
-            return -1;  // 无效的格式
-        }
-
-        /**
-         * 添加生成的位图到选中的矩形 - 同时保存到本地和SD卡
-         */
-        function addBitmapToSelectedRect() {
-            if (selectedRectIndex < 0 || selectedRectIndex >= currentLayout.rectangles.length) {
-                showStatus('请先选择一个矩形', 'error');
-                return;
-            }
-
-            // 如果还没有选择文件，打开文件选择器
-            if (!generatedImageBinFilename || !generatedImageBinData) {
-                // 先检查是否已生成了 .bin 文件
-                const statusDiv = document.getElementById('imageBinStatus');
-                if (!statusDiv || !statusDiv.innerHTML.includes('✅')) {
-                    showStatus('请先转换图片生成 .bin 文件，然后点击"添加图片到选中矩形"按钮', 'info');
-                    return;
-                }
-                
-                // 如果已生成但未加载到内存，则触发文件选择
-                document.getElementById('bitmapFileInput').click();
-                return;
-            }
-
-            const bitmapWidth = window.generatedBitmapWidth || 416;
-            const bitmapHeight = window.generatedBitmapHeight || 240;
-            const bitmapFilename = generatedImageBinFilename;
-            const bitmapData = generatedImageBinData;
-
-            // 获取矩形对象
-            const rect = currentLayout.rectangles[selectedRectIndex];
-
-            // 创建位图对象
-            const bitmap = {
-                filename: bitmapFilename,
-                width: bitmapWidth,
-                height: bitmapHeight,
-                display_width: Math.min(bitmapWidth, rect.width * 0.8),  // 默认显示宽度
-                display_height: Math.min(bitmapHeight, rect.height * 0.8),  // 默认显示高度
-                rel_x: 0.5,  // 相对位置 (中心)
-                rel_y: 0.5,  // 相对位置 (中心)
-                bitmapData: bitmapData  // 保存位图二进制数据
-            };
-
-            // 添加位图到矩形
-            if (!rect.bitmap) {
-                rect.bitmap = bitmap;
-            } else {
-                // 如果已有位图，则替换
-                rect.bitmap = bitmap;
-            }
-
-            // 调试：检查位图数据是否正确保存
-            console.log(`✓ 位图已添加到矩形 ${selectedRectIndex}`);
-            console.log(`  - 文件名: ${bitmap.filename}`);
-            console.log(`  - 尺寸: ${bitmap.width}x${bitmap.height}`);
-            console.log(`  - 显示尺寸: ${bitmap.display_width}x${bitmap.display_height}`);
-            console.log(`  - 位置: (${bitmap.rel_x}, ${bitmap.rel_y})`);
-            console.log(`  - 数据类型: ${bitmap.bitmapData.constructor.name}`);
-            console.log(`  - 数据大小: ${bitmap.bitmapData.size || bitmap.bitmapData.length || 'unknown'}`);
-            console.log(`  - 矩形对象内的位图: `, rect.bitmap);
-
-            // 重新渲染布局
-            renderLayout(currentLayout);
-
-            // 显示处理状态
-            const statusDiv = document.getElementById('imageBinStatus');
-            statusDiv.innerHTML += `<div style="color: #ff9800; margin-top: 10px; font-weight: bold;">⏳ 位图已添加到矩形，正在保存到本地和 SD 卡...</div>`;
-
-            // 同时保存到本地和 SD 卡
-            Promise.all([
-                saveBitmapToLocal(bitmapFilename, bitmapData),
-                autoUploadBitmapToSD(bitmapFilename, bitmapData)
-            ]).then(() => {
-                statusDiv.innerHTML += 
-                    `<div style="color: green; font-weight: bold; margin-top: 10px;">✅ 位图已保存到本地和 SD 卡！</div>` +
-                    `<div style="color: #666; font-size: 11px;">本地: components/resource/bitmap/${bitmapFilename}</div>` +
-                    `<div style="color: #666; font-size: 11px;">SD卡: /${bitmapFilename}</div>`;
-                
-                // 清除文件选择，准备下一次
-                generatedImageBinFilename = null;
-                generatedImageBinData = null;
-                window.generatedBitmapWidth = null;
-                window.generatedBitmapHeight = null;
-                document.getElementById('bitmapFileInput').value = '';
-                document.getElementById('addBitmapBtn').style.display = 'none';
-            }).catch((error) => {
-                console.error('保存位图时出错:', error);
-                statusDiv.innerHTML += 
-                    `<div style="color: orange; margin-top: 10px;">⚠️ 位图已添加到布局，但保存过程中出现错误: ${error.message}</div>`;
-            });
-        }
-
-        /**
-         * 保存位图到本地资源目录
-         */
-        async function saveBitmapToLocal(filename, data) {
-            try {
-                const file = new File([data], filename, { type: 'application/octet-stream' });
-                
-                // 调用 Python 服务保存到 components/resource/bitmap 目录
-                const formData = new FormData();
-                formData.append('file', file);
-                formData.append('filename', filename);
-                
-                const response = await fetchWithFallbackForPython('/save_bitmap_file', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                if (!response.ok) {
-                    throw new Error('保存到本地失败');
-                }
-                
-                const result = await response.json();
-                if (!result.success) {
-                    throw new Error(result.error || '保存失败');
-                }
-                
-                console.log('位图已保存到本地:', result.saved_path);
-                return result;
-                
-            } catch (error) {
-                console.error('保存位图到本地失败:', error);
-                throw error;
-            }
-        }
-
-        /**
-         * 自动上传位图文件到 SD 卡 - 使用 /upload 接口
-         */
-        async function autoUploadBitmapToSD(filename, data) {
-            try {
-                const file = new File([data], filename, { type: 'application/octet-stream' });
-                
-                // 使用 uploadFileToSD 函数，通过 /upload 接口上传到 SD 卡根目录
-                await uploadFileToSD(file, '/');
-                
-                console.log('位图已自动上传到 SD 卡:', filename);
-
-            } catch (error) {
-                console.error('自动上传位图文件失败:', error);
-                throw error;
             }
         }
 

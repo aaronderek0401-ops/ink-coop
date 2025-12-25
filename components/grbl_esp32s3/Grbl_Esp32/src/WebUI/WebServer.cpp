@@ -26,6 +26,10 @@
 #    include <stdint.h>
 #    include "WifiServices.h"
 
+// Macros from NutsBolts.h
+#define MIN(a, b) (((a) < (b)) ? (a) : (b))
+#define MAX(a, b) (((a) > (b)) ? (a) : (b))
+
 #    include "ESPResponse.h"
 #    include "Serial2Socket.h"
 #    include "WebServer.h"
@@ -50,9 +54,6 @@
 #        include <ESP32SSDP.h>
 #    endif
 
-// TTF字体管理API
-#    include "../BL_add/ink_screen/ttf_font_api.h"
-#    include <Pic.h>  // 图标位图数据
 #    ifdef ENABLE_CAPTIVE_PORTAL
 #        include <DNSServer.h>
 
@@ -460,25 +461,25 @@ Error delete_files(const char *path) {
     static esp_err_t root_handler(httpd_req_t *req)
     {
         // 使用未压缩的HTML文件
-        extern const char web_layout_start[] asm("_binary_web_layout_html_gz_start");
-        extern const char web_layout_end[]   asm("_binary_web_layout_html_gz_end");
-        const size_t file_size = (web_layout_end - web_layout_start);
+        // extern const char web_layout_start[] asm("_binary_web_layout_html_gz_start");
+        // extern const char web_layout_end[]   asm("_binary_web_layout_html_gz_end");
+        // const size_t file_size = (web_layout_end - web_layout_start);
         
-        ESP_LOGI("WEB", "web_layout.html size: %d bytes", file_size);
+        // ESP_LOGI("WEB", "web_layout.html size: %d bytes", file_size);
         
-        if (file_size == 0) {
-            ESP_LOGE("WEB", "web_layout.html not found or empty");
-            // 返回一个简单的错误页面
-            const char* error_html = 
-                "<!DOCTYPE html><html><head><title>Error</title></head>"
-                "<body><h1>Layout Editor Not Available</h1>"
-                "<p>Please check if web_layout.html is properly embedded.</p></body></html>";
-            httpd_resp_set_type(req, "text/html");
-            httpd_resp_send(req, error_html, strlen(error_html));
-            return ESP_OK;
-        }
-        httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-        httpd_resp_send(req, (char *)web_layout_start, file_size);
+        // if (file_size == 0) {
+        //     ESP_LOGE("WEB", "web_layout.html not found or empty");
+        //     // 返回一个简单的错误页面
+        //     const char* error_html = 
+        //         "<!DOCTYPE html><html><head><title>Error</title></head>"
+        //         "<body><h1>Layout Editor Not Available</h1>"
+        //         "<p>Please check if web_layout.html is properly embedded.</p></body></html>";
+        //     httpd_resp_set_type(req, "text/html");
+        //     httpd_resp_send(req, error_html, strlen(error_html));
+        //     return ESP_OK;
+        // }
+        // httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+        // httpd_resp_send(req, (char *)web_layout_start, file_size);
         return ESP_OK;
         // httpd_resp_set_type(req, "text/html");
         // httpd_resp_send(req, web_layout_start, file_size);
@@ -494,12 +495,12 @@ Error delete_files(const char *path) {
     }
     static esp_err_t icon_handler(httpd_req_t *req)
     {
-        extern const unsigned char icon_start[] asm("_binary_favicon_ico_start");
-        extern const unsigned char icon_end[]   asm("_binary_favicon_ico_end");
-        const size_t icon_size = (icon_end - icon_start);
+        // extern const unsigned char icon_start[] asm("_binary_favicon_ico_start");
+        // extern const unsigned char icon_end[]   asm("_binary_favicon_ico_end");
+        // const size_t icon_size = (icon_end - icon_start);
 
-        httpd_resp_set_hdr(req, "Content-Type", "image/x-icon");
-        httpd_resp_send(req, (char *)icon_start, icon_size);
+        // httpd_resp_set_hdr(req, "Content-Type", "image/x-icon");
+        // httpd_resp_send(req, (char *)icon_start, icon_size);
         return ESP_OK;
     }
     static esp_err_t not_found_handle(httpd_req_t *req, httpd_err_code_t error)
@@ -952,553 +953,6 @@ Error delete_files(const char *path) {
         return ESP_OK;
     }
     
-    static esp_err_t Web_layout_upload_handler(httpd_req_t *req) {
-        #define LAYOUT_UPLOAD_BUFFER_SIZE 4096
-        
-        if (req->method == HTTP_POST) {
-            char* buf = (char*)heap_caps_malloc(LAYOUT_UPLOAD_BUFFER_SIZE, MALLOC_CAP_INTERNAL);
-            if (!buf) {
-                ESP_LOGE(TAG, "Failed to allocate memory for layout upload!");
-                httpd_resp_send_500(req);
-                return ESP_ERR_NO_MEM;
-            }
-
-            // 使用堆分配而不是栈分配，避免栈溢出
-            char* layout_json = (char*)heap_caps_malloc(4096, MALLOC_CAP_INTERNAL);
-            if (!layout_json) {
-                ESP_LOGE(TAG, "Failed to allocate memory for layout JSON!");
-                free(buf);
-                httpd_resp_send_500(req);
-                return ESP_ERR_NO_MEM;
-            }
-            memset(layout_json, 0, 4096);
-            
-            int received = 0;
-            size_t json_length = 0;
-            
-            // 接收JSON数据
-            while ((received = httpd_req_recv(req, buf, LAYOUT_UPLOAD_BUFFER_SIZE)) > 0) {
-                if (json_length + received < 4096) {
-                    memcpy(layout_json + json_length, buf, received);
-                    json_length += received;
-                } else {
-                    ESP_LOGE(TAG, "Layout JSON too large!");
-                    free(buf);
-                    free(layout_json);
-                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Layout JSON too large");
-                    return ESP_FAIL;
-                }
-            }
-            free(buf);
-            
-            if (json_length == 0) {
-                ESP_LOGE(TAG, "No layout data received");
-                free(layout_json);
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No layout data received");
-                return ESP_FAIL;
-            }
-            
-            // 解析布局JSON
-            ESP_LOGI(TAG, "Received layout JSON, length: %d", json_length);
-            
-            // 保存到文件
-            if (get_sd_state(true) != SDState::Idle) {
-                grbl_send(CLIENT_ALL, "[MSG:Upload cancelled - SD card busy]\r\n");
-                free(layout_json);
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "SD card busy");
-                return ESP_ERR_INVALID_STATE;
-            }
-            
-            set_sd_state(SDState::BusyUploading);
-            
-            String filename = "/layout.json";
-            if (SD.exists(filename)) {
-                SD.remove(filename);
-            }
-            
-            File layoutFile = SD.open(filename.c_str(), FILE_WRITE);
-            if (!layoutFile) {
-                ESP_LOGE(TAG, "Failed to create layout file");
-                set_sd_state(SDState::Idle);
-                free(layout_json);
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create layout file");
-                return ESP_FAIL;
-            }
-            
-            size_t bytesWritten = layoutFile.write((const uint8_t *)layout_json, json_length);
-            layoutFile.close();
-            
-            if (bytesWritten != json_length) {
-                ESP_LOGE(TAG, "Failed to write layout file");
-                set_sd_state(SDState::Idle);
-                free(layout_json);
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to write layout file");
-                return ESP_FAIL;
-            }
-            
-            ESP_LOGI(TAG, "Layout saved to SD card: %d bytes", bytesWritten);
-            set_sd_state(SDState::Idle);
-            
-            // 解析并应用布局
-            if (parseAndApplyLayout(layout_json)) {
-                ESP_LOGI(TAG, "Layout applied successfully");
-                free(layout_json);
-                httpd_resp_set_type(req, "application/json");
-                httpd_resp_sendstr(req, "{\"status\":\"success\",\"message\":\"Layout uploaded and applied successfully\"}");
-            } else {
-                ESP_LOGE(TAG, "Failed to apply layout");
-                free(layout_json);
-                httpd_resp_set_type(req, "application/json");
-                httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Layout uploaded but failed to apply\"}");
-            }
-            
-            return ESP_OK;
-            
-        }else if (req->method == HTTP_GET) {
-            ESP_LOGI("HTTP", "======== /getlayout GET 请求开始 ========");
-            // 尝试使用普通malloc分配内存，如果失败再试试更小的大小
-            char *response = (char*)malloc(8192);
-            int buffer_size = 8192;
-            
-            if (!response) {
-                ESP_LOGW("HTTP", "8KB内存分配失败，尝试4KB");
-                response = (char*)malloc(4096);
-                buffer_size = 4096;
-                
-                if (!response) {
-                    ESP_LOGE("HTTP", "内存分配失败 (4KB)");
-                    httpd_resp_send_500(req);
-                    return ESP_FAIL;
-                }
-            }
-            ESP_LOGI("HTTP", "内存分配成功，地址: %p, 大小: %d", response, buffer_size);
-            
-            // 调用 getCurrentLayoutInfo 函数获取布局信息
-            ESP_LOGI("HTTP", "调用 getCurrentLayoutInfo...");
-            bool success = getCurrentLayoutInfo(response, buffer_size);
-            ESP_LOGI("HTTP", "getCurrentLayoutInfo 返回: %s", success ? "true" : "false");
-            
-            if (success) {
-                int resp_len = strlen(response);
-                ESP_LOGI("HTTP", "返回JSON数据，长度: %d", resp_len);
-                
-                // 设置响应头
-                httpd_resp_set_type(req, "application/json");
-                httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-                httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-                httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
-                
-                // 发送响应
-                ESP_LOGI("HTTP", "发送HTTP响应...");
-                esp_err_t ret = httpd_resp_send(req, response, resp_len);
-                ESP_LOGI("HTTP", "httpd_resp_send 返回: %d", ret);
-                free(response);
-                ESP_LOGI("HTTP", "======== /getlayout GET 请求结束 (成功) ========");
-                return ret;
-            } else {
-                ESP_LOGE("HTTP", "获取布局信息失败");
-                free(response);
-                httpd_resp_set_type(req, "application/json");
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "获取布局信息失败");
-                ESP_LOGI("HTTP", "======== /getlayout GET 请求结束 (失败) ========");
-                return ESP_FAIL;
-            }
-        } else {
-            // 处理其他HTTP方法
-            ESP_LOGW(TAG, "不支持的HTTP方法: %d", req->method);
-            httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method not allowed");
-            return ESP_ERR_INVALID_ARG;
-        }
-    }
-
-    // 单词界面布局上传处理器
-
-    /**
-     * @brief 焦点配置处理函数
-     * GET: 获取焦点配置
-     * POST: 保存焦点配置
-     */
-    static esp_err_t Web_focus_config_handler(httpd_req_t *req) {
-        if (req->method == HTTP_POST) {
-            // 保存焦点配置
-            char* buf = (char*)heap_caps_malloc(1024, MALLOC_CAP_INTERNAL);
-            if (!buf) {
-                ESP_LOGE(TAG, "Failed to allocate memory for focus config!");
-                httpd_resp_send_500(req);
-                return ESP_ERR_NO_MEM;
-            }
-
-            int received = 0;
-            char config_json[1024] = {0};
-            size_t json_length = 0;
-            
-            while ((received = httpd_req_recv(req, buf, 1024)) > 0) {
-                if (json_length + received < sizeof(config_json)) {
-                    memcpy(config_json + json_length, buf, received);
-                    json_length += received;
-                } else {
-                    ESP_LOGE(TAG, "Focus config JSON too large!");
-                    free(buf);
-                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Config JSON too large");
-                    return ESP_FAIL;
-                }
-            }
-            free(buf);
-            
-            if (json_length == 0) {
-                ESP_LOGE(TAG, "No focus config data received");
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No config data");
-                return ESP_FAIL;
-            }
-            
-            ESP_LOGI(TAG, "Received focus config JSON: %s", config_json);
-            
-            // 解析JSON
-            cJSON *root = cJSON_Parse(config_json);
-            if (!root) {
-                ESP_LOGE(TAG, "Failed to parse focus config JSON");
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Invalid JSON");
-                return ESP_FAIL;
-            }
-            
-            cJSON *count_obj = cJSON_GetObjectItem(root, "count");
-            cJSON *indices_array = cJSON_GetObjectItem(root, "focusable_indices");
-            cJSON *screen_type_obj = cJSON_GetObjectItem(root, "screen_type");  // 获取界面类型
-            
-            if (!count_obj || !indices_array || !cJSON_IsArray(indices_array)) {
-                ESP_LOGE(TAG, "Missing required fields in focus config");
-                cJSON_Delete(root);
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Missing fields");
-                return ESP_FAIL;
-            }
-            
-            // 获取界面类型，默认为vocab
-            const char* screen_type = "vocab";
-            if (screen_type_obj && cJSON_IsString(screen_type_obj)) {
-                screen_type = screen_type_obj->valuestring;
-            }
-            
-            int count = count_obj->valueint;
-            int array_size = cJSON_GetArraySize(indices_array);
-            
-            if (count <= 0 || count > MAX_FOCUSABLE_RECTS || count != array_size) {
-                ESP_LOGE(TAG, "Invalid focus config count: %d (array size: %d)", count, array_size);
-                cJSON_Delete(root);
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Invalid count");
-                return ESP_FAIL;
-            }
-            
-            int rect_indices[MAX_FOCUSABLE_RECTS];
-            for (int i = 0; i < count; i++) {
-                cJSON *index_obj = cJSON_GetArrayItem(indices_array, i);
-                if (index_obj) {
-                    rect_indices[i] = index_obj->valueint;
-                }
-            }
-            
-            // 保存到SD卡（根据界面类型）
-            saveFocusableRectsToConfig(rect_indices, count, screen_type);
-            
-            cJSON_Delete(root);
-            
-            ESP_LOGI(TAG, "Focus config saved successfully for %s screen", screen_type);
-            httpd_resp_set_type(req, "application/json");
-            httpd_resp_sendstr(req, "{\"status\":\"success\",\"message\":\"Focus config saved\"}");
-            
-            return ESP_OK;
-            
-        } else if (req->method == HTTP_GET) {
-            // 获取焦点配置
-            // 从URL参数获取界面类型
-            char screen_type_param[32] = "vocab";  // 默认为vocab
-            if (httpd_req_get_url_query_str(req, screen_type_param, sizeof(screen_type_param)) == ESP_OK) {
-                char param_value[32];
-                if (httpd_query_key_value(screen_type_param, "screen_type", param_value, sizeof(param_value)) == ESP_OK) {
-                    strcpy(screen_type_param, param_value);
-                } else {
-                    strcpy(screen_type_param, "vocab");
-                }
-            }
-            
-            // 根据界面类型选择配置文件
-            String config_filename;
-            if (strcmp(screen_type_param, "main") == 0) {
-                config_filename = "/main_focusable_rects_config.json";
-            } else {
-                config_filename = "/vocab_focusable_rects_config.json";
-            }
-            
-            ESP_LOGI(TAG, "Getting focus config for %s screen from %s", screen_type_param, config_filename.c_str());
-            
-            if (!SD.exists(config_filename)) {
-                ESP_LOGI(TAG, "Focus config file not found, returning empty config");
-                httpd_resp_set_type(req, "application/json");
-                httpd_resp_sendstr(req, "{\"status\":\"not_found\",\"count\":0,\"focusable_indices\":[]}");
-                return ESP_OK;
-            }
-            
-            File config_file = SD.open(config_filename.c_str(), FILE_READ);
-            if (!config_file) {
-                ESP_LOGE(TAG, "Failed to open focus config file");
-                httpd_resp_send_500(req);
-                return ESP_FAIL;
-            }
-            
-            String json_content = config_file.readString();
-            config_file.close();
-            
-            if (json_content.length() == 0) {
-                ESP_LOGE(TAG, "Focus config file is empty");
-                httpd_resp_set_type(req, "application/json");
-                httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Config file empty\"}");
-                return ESP_OK;
-            }
-            
-            ESP_LOGI(TAG, "Returning focus config: %s", json_content.c_str());
-            
-            httpd_resp_set_type(req, "application/json");
-            httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-            httpd_resp_sendstr(req, json_content.c_str());
-            
-            return ESP_OK;
-        } else {
-            httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method not allowed");
-            return ESP_ERR_INVALID_ARG;
-        }
-    }
-
-    /**
-     * @brief 子数组配置处理函数
-     * GET: 获取子数组配置
-     * POST: 保存子数组配置
-     */
-    static esp_err_t Web_subarray_config_handler(httpd_req_t *req) {
-        if (req->method == HTTP_POST) {
-            // 保存子数组配置
-            char* buf = (char*)heap_caps_malloc(2048, MALLOC_CAP_INTERNAL);
-            if (!buf) {
-                ESP_LOGE(TAG, "Failed to allocate memory for subarray config!");
-                httpd_resp_send_500(req);
-                return ESP_ERR_NO_MEM;
-            }
-
-            int received = 0;
-            char config_json[2048] = {0};
-            size_t json_length = 0;
-            
-            while ((received = httpd_req_recv(req, buf, 2048)) > 0) {
-                if (json_length + received < sizeof(config_json)) {
-                    memcpy(config_json + json_length, buf, received);
-                    json_length += received;
-                } else {
-                    ESP_LOGE(TAG, "Subarray config JSON too large!");
-                    free(buf);
-                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Config JSON too large");
-                    return ESP_FAIL;
-                }
-            }
-            free(buf);
-            
-            if (json_length == 0) {
-                ESP_LOGE(TAG, "No subarray config data received");
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No config data");
-                return ESP_FAIL;
-            }
-            
-            ESP_LOGI(TAG, "Received subarray config JSON: %s", config_json);
-            
-            // 解析JSON并设置子数组
-            cJSON *root = cJSON_Parse(config_json);
-            if (!root) {
-                ESP_LOGE(TAG, "Failed to parse subarray config JSON");
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Invalid JSON");
-                return ESP_FAIL;
-            }
-            
-            cJSON *sub_arrays = cJSON_GetObjectItem(root, "sub_arrays");
-            cJSON *screen_type_obj = cJSON_GetObjectItem(root, "screen_type");  // 获取界面类型
-            
-            if (!sub_arrays || !cJSON_IsArray(sub_arrays)) {
-                ESP_LOGE(TAG, "Missing sub_arrays field");
-                cJSON_Delete(root);
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Missing sub_arrays");
-                return ESP_FAIL;
-            }
-            
-            // 获取界面类型，默认为vocab
-            const char* screen_type = "vocab";
-            if (screen_type_obj && cJSON_IsString(screen_type_obj)) {
-                screen_type = screen_type_obj->valuestring;
-            }
-            
-            int array_size = cJSON_GetArraySize(sub_arrays);
-            bool all_success = true;
-            
-            for (int i = 0; i < array_size; i++) {
-                cJSON *item = cJSON_GetArrayItem(sub_arrays, i);
-                if (!item) continue;
-                
-                cJSON *parent_idx_obj = cJSON_GetObjectItem(item, "parent_index");
-                cJSON *sub_indices_array = cJSON_GetObjectItem(item, "sub_indices");
-                cJSON *sub_count_obj = cJSON_GetObjectItem(item, "sub_count");
-                
-                if (!parent_idx_obj || !sub_indices_array || !sub_count_obj) continue;
-                
-                int parent_rect_index = parent_idx_obj->valueint;  // 这是矩形的实际索引
-                int sub_count = sub_count_obj->valueint;
-                
-                if (sub_count <= 0 || sub_count > MAX_FOCUSABLE_RECTS) continue;
-                
-                int sub_indices[MAX_FOCUSABLE_RECTS];
-                for (int j = 0; j < sub_count; j++) {
-                    cJSON *idx_obj = cJSON_GetArrayItem(sub_indices_array, j);
-                    if (idx_obj) {
-                        sub_indices[j] = idx_obj->valueint;
-                    }
-                }
-                
-                // 调用函数设置子数组（使用矩形索引，函数内部自动转换）
-                setSubArrayForRect(parent_rect_index, sub_indices, sub_count);
-            }
-            
-            // 保存到SD卡（根据界面类型）
-            saveSubArrayConfigToSD(config_json, screen_type);
-            
-            cJSON_Delete(root);
-            
-            ESP_LOGI(TAG, "Subarray config saved successfully for %s screen", screen_type);
-            httpd_resp_set_type(req, "application/json");
-            httpd_resp_sendstr(req, "{\"status\":\"success\",\"message\":\"Subarray config saved\"}");
-            
-            return ESP_OK;
-            
-        } else if (req->method == HTTP_GET) {
-            // 获取子数组配置
-            // 从URL参数获取界面类型
-            char screen_type_param[32] = "vocab";  // 默认为vocab
-            if (httpd_req_get_url_query_str(req, screen_type_param, sizeof(screen_type_param)) == ESP_OK) {
-                char param_value[32];
-                if (httpd_query_key_value(screen_type_param, "screen_type", param_value, sizeof(param_value)) == ESP_OK) {
-                    strcpy(screen_type_param, param_value);
-                } else {
-                    strcpy(screen_type_param, "vocab");
-                }
-            }
-            
-            ESP_LOGI(TAG, "Getting subarray config for %s screen", screen_type_param);
-            
-            char *response = (char*)heap_caps_malloc(2048, MALLOC_CAP_INTERNAL);
-            if (!response) {
-                ESP_LOGE(TAG, "Failed to allocate memory for subarray config");
-                httpd_resp_send_500(req);
-                return ESP_FAIL;
-            }
-            
-            bool success = loadSubArrayConfigFromSD(response, 2048, screen_type_param);
-            
-            if (success && strlen(response) > 0) {
-                ESP_LOGI(TAG, "Returning subarray config: %s", response);
-                
-                httpd_resp_set_type(req, "application/json");
-                httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-                httpd_resp_sendstr(req, response);
-            } else {
-                ESP_LOGI(TAG, "No subarray config found for %s screen", screen_type_param);
-                httpd_resp_set_type(req, "application/json");
-                httpd_resp_sendstr(req, "{\"status\":\"not_found\",\"sub_arrays\":[]}");
-            }
-            
-            free(response);
-            return ESP_OK;
-        } else {
-            httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method not allowed");
-            return ESP_ERR_INVALID_ARG;
-        }
-    }
-
-    static esp_err_t Web_vocab_layout_handler(httpd_req_t *req) {
-        #define VOCAB_LAYOUT_BUFFER_SIZE 8192
-        
-        if (req->method == HTTP_POST) {
-            char* buf = (char*)heap_caps_malloc(VOCAB_LAYOUT_BUFFER_SIZE, MALLOC_CAP_INTERNAL);
-            if (!buf) {
-                ESP_LOGE(TAG, "Failed to allocate memory for vocab layout upload!");
-                httpd_resp_send_500(req);
-                return ESP_ERR_NO_MEM;
-            }
-
-            int received = 0;
-            char layout_json[4096] = {0};
-            size_t json_length = 0;
-            
-            while ((received = httpd_req_recv(req, buf, VOCAB_LAYOUT_BUFFER_SIZE)) > 0) {
-                if (json_length + received < sizeof(layout_json)) {
-                    memcpy(layout_json + json_length, buf, received);
-                    json_length += received;
-                } else {
-                    ESP_LOGE(TAG, "Vocab layout JSON too large!");
-                    free(buf);
-                    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Layout JSON too large");
-                    return ESP_FAIL;
-                }
-            }
-            free(buf);
-            
-            if (json_length == 0) {
-                ESP_LOGE(TAG, "No vocab layout data received");
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No layout data received");
-                return ESP_FAIL;
-            }
-            
-            ESP_LOGI(TAG, "Received vocab layout JSON, length: %d", json_length);
-            
-            // 解析并应用单词界面布局
-            if (parseAndApplyVocabLayout(layout_json)) {
-                ESP_LOGI(TAG, "Vocab layout applied successfully");
-                httpd_resp_set_type(req, "application/json");
-                httpd_resp_sendstr(req, "{\"status\":\"success\",\"message\":\"Vocab layout applied successfully\"}");
-            } else {
-                ESP_LOGE(TAG, "Failed to apply vocab layout");
-                httpd_resp_set_type(req, "application/json");
-                httpd_resp_sendstr(req, "{\"status\":\"error\",\"message\":\"Failed to apply vocab layout\"}");
-            }
-            
-            return ESP_OK;
-            
-        } else if (req->method == HTTP_GET) {
-            char *response = (char*)heap_caps_malloc(8192, MALLOC_CAP_INTERNAL);
-            if (!response) {
-                ESP_LOGE("HTTP", "内存分配失败");
-                httpd_resp_send_500(req);
-                return ESP_FAIL;
-            }
-            
-            bool success = getVocabLayoutInfo(response, 8192);
-            
-            if (success) {
-                ESP_LOGI("HTTP", "返回单词界面JSON数据，长度: %d", strlen(response));
-                
-                httpd_resp_set_type(req, "application/json");
-                httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-                httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-                httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
-                
-                esp_err_t ret = httpd_resp_send(req, response, strlen(response));
-                free(response);
-                return ret;
-            } else {
-                ESP_LOGE("HTTP", "获取单词界面布局信息失败");
-                free(response);
-                httpd_resp_set_type(req, "application/json");
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "获取布局信息失败");
-                return ESP_FAIL;
-            }
-        } else {
-            ESP_LOGW(TAG, "不支持的HTTP方法: %d", req->method);
-            httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method not allowed");
-            return ESP_ERR_INVALID_ARG;
-        }
-    }
     #undef UPLOAD_FILE_BUFFER_SIZE
 
     uint16_t fileNum = 0;
@@ -1866,105 +1320,7 @@ Error delete_files(const char *path) {
         }
         return ESP_OK;
     }
-    
-    // ===== 图标 API 处理器 =====
-    // Base64 编码表
-    static const char BASE64_TABLE[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    static char icon_base64_cache[13][1600];  // 增加到13个图标，每个最多1600字节
-    static bool icon_base64_cached[13] = {false};
-    
-    // Base64 编码函数
-    static void encode_base64_data(const uint8_t* input, size_t input_len, char* output, size_t output_len) {
-        if (!input || !output || output_len < 4) {
-            if (output_len > 0) output[0] = '\0';
-            return;
-        }
-        
-        size_t output_index = 0;
-        size_t i = 0;
-        
-        // 处理3字节块
-        while (i + 3 <= input_len && output_index + 5 <= output_len) {  // 增加5字节的检查余量
-            uint32_t value = ((uint32_t)input[i] << 16) | ((uint32_t)input[i+1] << 8) | input[i+2];
-            output[output_index++] = BASE64_TABLE[(value >> 18) & 0x3F];
-            output[output_index++] = BASE64_TABLE[(value >> 12) & 0x3F];
-            output[output_index++] = BASE64_TABLE[(value >> 6) & 0x3F];
-            output[output_index++] = BASE64_TABLE[value & 0x3F];
-            i += 3;
-        }
-        
-        // 处理剩余的1-2字节
-        if (i < input_len && output_index + 5 <= output_len) {
-            uint32_t value = (uint32_t)input[i] << 16;
-            if (i + 1 < input_len) {
-                // 处理2字节（1个完整字符 + 1个字符）
-                value |= ((uint32_t)input[i+1] << 8);
-                output[output_index++] = BASE64_TABLE[(value >> 18) & 0x3F];
-                output[output_index++] = BASE64_TABLE[(value >> 12) & 0x3F];
-                output[output_index++] = BASE64_TABLE[(value >> 6) & 0x3F];
-                output[output_index++] = '=';
-            } else {
-                // 处理1字节
-                output[output_index++] = BASE64_TABLE[(value >> 18) & 0x3F];
-                output[output_index++] = BASE64_TABLE[(value >> 12) & 0x3F];
-                output[output_index++] = '=';
-                output[output_index++] = '=';
-            }
-        }
-        
-        // 确保字符串以null终止
-        if (output_index < output_len) {
-            output[output_index] = '\0';
-        } else {
-            output[output_len - 1] = '\0';
-        }
-    }
-    
-    // GET /api/icon/data/{index} - 返回 Base64 编码的图标位图数据
-    static esp_err_t icon_data_handler(httpd_req_t *req) {
-        // 从user_ctx中获取icon索引
-        int icon_index = (int)(intptr_t)req->user_ctx;
-        
-        if (icon_index < 0 || icon_index >= 13) {
-            httpd_resp_set_status(req, "400 Bad Request");
-            httpd_resp_send(req, "Invalid icon index", -1);
-            return ESP_OK;
-        }
-        
-        // 检查缓存
-        if (!icon_base64_cached[icon_index]) {
-            const uint8_t* icon_data = nullptr;
-            uint16_t icon_size = 0;
-            
-            // 获取对应的图标数据
-            switch (icon_index) {
-                case 0: icon_data = ZHONGJINGYUAN_3_7_ICON_1; icon_size = 496; break;
-                case 1: icon_data = ZHONGJINGYUAN_3_7_ICON_2; icon_size = 512; break;
-                case 2: icon_data = ZHONGJINGYUAN_3_7_ICON_3; icon_size = 688; break;
-                case 3: icon_data = ZHONGJINGYUAN_3_7_ICON_4; icon_size = 497; break;
-                case 4: icon_data = ZHONGJINGYUAN_3_7_ICON_5; icon_size = 532; break;
-                case 5: icon_data = ZHONGJINGYUAN_3_7_ICON_6; icon_size = 752; break;
-                case 6: icon_data = ZHONGJINGYUAN_3_7_separate; icon_size = 120; break;
-                case 7: icon_data = ZHONGJINGYUAN_3_7_WIFI_CONNECT; icon_size = 128; break;
-                case 8: icon_data = ZHONGJINGYUAN_3_7_WIFI_DISCONNECT; icon_size = 128; break;
-                case 9: icon_data = ZHONGJINGYUAN_3_7_BATTERY_1; icon_size = 108; break;
-                case 10: icon_data = ZHONGJINGYUAN_3_7_HORN; icon_size = 32; break;
-                case 11: icon_data = ZHONGJINGYUAN_3_7_NAIL; icon_size = 30; break;
-                case 12: icon_data = ZHONGJINGYUAN_3_7_LOCK; icon_size = 128; break;
-                default: break;
-            }
-            
-            if (icon_data && icon_size > 0) {
-                encode_base64_data(icon_data, icon_size, icon_base64_cache[icon_index], sizeof(icon_base64_cache[icon_index]));
-                icon_base64_cached[icon_index] = true;
-            }
-        }
-        
-        httpd_resp_set_type(req, "text/plain; charset=utf-8");
-        httpd_resp_send(req, icon_base64_cache[icon_index], strlen(icon_base64_cache[icon_index]));
-        return ESP_OK;
-    }
-    
+
     static const httpd_uri_t basic_handlers[] = {
         { .uri      = "/",
         .method   = HTTP_GET,
@@ -2001,111 +1357,6 @@ Error delete_files(const char *path) {
         .handler  = update_upload_handler,
         .user_ctx = NULL,
         },
-        { .uri      = "/getlayout",
-        .method   = HTTP_GET,
-        .handler  = Web_layout_upload_handler,
-        .user_ctx = NULL,
-        },
-        { .uri      = "/setlayout",
-        .method   = HTTP_POST,
-        .handler  = Web_layout_upload_handler,
-        .user_ctx = NULL,
-        },
-        { .uri      = "/getvocablayout",
-        .method   = HTTP_GET,
-        .handler  = Web_vocab_layout_handler,
-        .user_ctx = NULL,
-        },
-        { .uri      = "/setvocablayout",
-        .method   = HTTP_POST,
-        .handler  = Web_vocab_layout_handler,
-        .user_ctx = NULL,
-        },
-        { .uri      = "/getfocusconfig",
-        .method   = HTTP_GET,
-        .handler  = Web_focus_config_handler,
-        .user_ctx = NULL,
-        },
-        { .uri      = "/setfocusconfig",
-        .method   = HTTP_POST,
-        .handler  = Web_focus_config_handler,
-        .user_ctx = NULL,
-        },
-        { .uri      = "/getsubarrayconfig",
-        .method   = HTTP_GET,
-        .handler  = Web_subarray_config_handler,
-        .user_ctx = NULL,
-        },
-        { .uri      = "/setsubarrayconfig",
-        .method   = HTTP_POST,
-        .handler  = Web_subarray_config_handler,
-        .user_ctx = NULL,
-        },
-        { .uri      = "/api/icon/data/0",
-        .method   = HTTP_GET,
-        .handler  = icon_data_handler,
-        .user_ctx = (void*)0,
-        },
-        { .uri      = "/api/icon/data/1",
-        .method   = HTTP_GET,
-        .handler  = icon_data_handler,
-        .user_ctx = (void*)1,
-        },
-        { .uri      = "/api/icon/data/2",
-        .method   = HTTP_GET,
-        .handler  = icon_data_handler,
-        .user_ctx = (void*)2,
-        },
-        { .uri      = "/api/icon/data/3",
-        .method   = HTTP_GET,
-        .handler  = icon_data_handler,
-        .user_ctx = (void*)3,
-        },
-        { .uri      = "/api/icon/data/4",
-        .method   = HTTP_GET,
-        .handler  = icon_data_handler,
-        .user_ctx = (void*)4,
-        },
-        { .uri      = "/api/icon/data/5",
-        .method   = HTTP_GET,
-        .handler  = icon_data_handler,
-        .user_ctx = (void*)5,
-        },
-        { .uri      = "/api/icon/data/6",
-        .method   = HTTP_GET,
-        .handler  = icon_data_handler,
-        .user_ctx = (void*)6,
-        },
-        { .uri      = "/api/icon/data/7",
-        .method   = HTTP_GET,
-        .handler  = icon_data_handler,
-        .user_ctx = (void*)7,
-        },
-        { .uri      = "/api/icon/data/8",
-        .method   = HTTP_GET,
-        .handler  = icon_data_handler,
-        .user_ctx = (void*)8,
-        },
-        { .uri      = "/api/icon/data/9",
-        .method   = HTTP_GET,
-        .handler  = icon_data_handler,
-        .user_ctx = (void*)9,
-        },
-        { .uri      = "/api/icon/data/10",
-        .method   = HTTP_GET,
-        .handler  = icon_data_handler,
-        .user_ctx = (void*)10,
-        },
-        { .uri      = "/api/icon/data/11",
-        .method   = HTTP_GET,
-        .handler  = icon_data_handler,
-        .user_ctx = (void*)11,
-        },
-        { .uri      = "/api/icon/data/12",
-        .method   = HTTP_GET,
-        .handler  = icon_data_handler,
-        .user_ctx = (void*)12,
-        },
     };
     static const uint8_t basic_handlers_no = sizeof(basic_handlers)/sizeof(httpd_uri_t);
 
@@ -2123,8 +1374,8 @@ Error delete_files(const char *path) {
     {
         httpd_handle_t server = NULL;
         httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-        config.stack_size = 8192;
-        config.max_uri_handlers  = 32;  // 增加到 32 以容纳所有图标 API 和其他端点
+        config.stack_size = 5124;
+        config.max_uri_handlers  = 8;  
         config.server_port = 8848;
         // Start the httpd server
         
@@ -2132,9 +1383,6 @@ Error delete_files(const char *path) {
             // Registering the ws handler
             register_basic_handlers(server);
             httpd_register_err_handler(server, HTTPD_404_NOT_FOUND, not_found_handle);
-            
-            // 注册TTF字体管理API
-            register_ttf_font_apis(server);
             
             ESP_LOGW(TAG, "Started HTTP server on port: '%d'", config.server_port);
             ESP_LOGW(TAG, "Max URI handlers: '%d'", config.max_uri_handlers);

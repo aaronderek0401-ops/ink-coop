@@ -9,13 +9,13 @@
 #define BLACK 0x00
 
 /* 定义端口电平状态 */
-#define EPD_RES_Set() gpio_set_level(EPD_RES_GPIO_PIN, 1)
-#define EPD_RES_Clr() gpio_set_level(EPD_RES_GPIO_PIN, 0)
+#define EPD_RES_Set() gpio_set_level(RES_GPIO_PIN, 1)
+#define EPD_RES_Clr() gpio_set_level(RES_GPIO_PIN, 0)
 
-#define EPD_DC_Set() gpio_set_level(EPD_DC_GPIO_PIN, 1)
-#define EPD_DC_Clr() gpio_set_level(EPD_DC_GPIO_PIN, 0)
+#define EPD_DC_Set() gpio_set_level(DC_GPIO_PIN, 1)
+#define EPD_DC_Clr() gpio_set_level(DC_GPIO_PIN, 0)
 
-#define EPD_ReadBUSY gpio_get_level(EPD_BUSY_GPIO_PIN)
+#define EPD_ReadBUSY gpio_get_level(BUSY_GPIO_PIN)
 extern spi_device_handle_t EPD_Handle;
 
 #ifdef __cplusplus

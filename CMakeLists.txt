@@ -8,3 +8,6 @@ set(EXTRA_COMPONENT_DIRS ./idf_components)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(grbl_idf)
 idf_build_set_property(COMPILE_OPTIONS "-Wno-unused-variable" APPEND)
+
+# 创建SPIFFS分区镜像，包含data目录的文件
+spiffs_create_partition_image(storage data FLASH_IN_PROJECT)

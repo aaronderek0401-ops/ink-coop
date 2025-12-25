@@ -1,5 +1,13 @@
 #include "Grbl.h"
 
+// Default settings (previously in Defaults.h)
+#ifndef DEFAULT_VERBOSE_ERRORS
+#    define DEFAULT_VERBOSE_ERRORS 0
+#endif
+#ifndef DEFAULT_STATUS_REPORT_MASK
+#    define DEFAULT_STATUS_REPORT_MASK 1
+#endif
+
 FlagSetting* verbose_errors;
 
 StringSetting* build_info;

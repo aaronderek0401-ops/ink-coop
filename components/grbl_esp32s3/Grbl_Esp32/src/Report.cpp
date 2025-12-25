@@ -49,6 +49,9 @@
 #include "Grbl.h"
 #include <map>
 
+// Macros from NutsBolts.h
+#define bit_istrue(x, mask) ((x & mask) != 0)
+
 #ifdef REPORT_HEAP
 EspClass esp;
 #endif
@@ -171,7 +174,7 @@ void report_status_message(Error status_code, uint8_t client) {
 #ifdef ENABLE_SD_CARD
             // do we need to stop a running SD job?
             if (get_sd_state(true) == SDState::BusyPrinting) {
-                if (status_code == Error::GcodeUnsupportedCommand) {
+                if (status_code == Error::InvalidStatement) {
                     grbl_sendf(client, "error:%d\r\n", status_code);  // most senders seem to tolerate this error and keep on going
                     grbl_sendf(CLIENT_ALL, "error:%d in SD file at line %d\r\n", status_code, sd_get_current_line_number());
                     // don't close file

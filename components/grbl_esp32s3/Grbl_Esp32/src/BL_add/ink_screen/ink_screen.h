@@ -2,60 +2,8 @@
 #include "../../Grbl.h"
 #include <FS.h>
 #include <GxEPD2_BW.h>
-
-// 颜色常量定义 - 仅在未定义时定义
-#ifndef BLACK
-#define BLACK GxEPD_BLACK
-#endif
-#ifndef WHITE
-#define WHITE GxEPD_WHITE
-#endif
-
-// 屏幕尺寸定义 - GxEPD2 屏幕是 240x416，而旧 EPD.h 定义的是 152x152
-// 使用新的名称以避免冲突，或者检查是否是 GXEPD2 屏幕
-#define SCREEN_WIDTH 240
-#define SCREEN_HEIGHT 416
-
-// 为了兼容旧代码中使用 EPD_H 和 EPD_W 的地方，这里定义为新屏幕尺寸
-#ifndef EPD_W
-#define EPD_W SCREEN_WIDTH
-#endif
-#ifndef EPD_H
-#define EPD_H SCREEN_HEIGHT
-#endif
-
+#include <gdey/GxEPD2_370_GDEY037T03.h>
 void ink_screen_init();
-void clearEntireScreen();
-
-// 定义图片显示区域结构体
-typedef struct {
-    uint16_t x;
-    uint16_t y;
-    uint16_t width;
-    uint16_t height;
-    bool displayed;  // 标记是否正在显示
-} display_area_t;
-
-// 图片显示区域数组
-static display_area_t picture_areas[] = {
-    {60, 40, 62, 64, false},   // ZHONGJINGYUAN_3_7_ICON_1
-    {180, 40, 64, 64, false},  // ZHONGJINGYUAN_3_7_ICON_2
-    {300, 40, 86, 64, false},  // ZHONGJINGYUAN_3_7_ICON_3
-    {60, 140, 71, 56, false},  // ZHONGJINGYUAN_3_7_ICON_4
-    {180, 140, 76, 56, false}, // ZHONGJINGYUAN_3_7_ICON_5
-    {300, 140, 94, 64, false}  // ZHONGJINGYUAN_3_7_ICON_6
-};
-
-typedef struct {
-    int grid_cols;
-    int grid_rows;
-    int icon_width;
-    int icon_height;
-    int icon_spacing_x;
-    int icon_spacing_y;
-    int status_bar_height;
-} LayoutConfig;
-
 //全局变量记录选中的图标位置
 // 修改IconPosition结构体，增加存储图标索引和数据的字段
 typedef struct {
@@ -81,21 +29,15 @@ typedef struct {
     float rel_x;           // 相对x位置 (0.0-1.0)
     float rel_y;           // 相对y位置 (0.0-1.0)
 } IconConfig;
-// 全局变量记录上次下划线信息
-typedef struct {
-    uint16_t x;
-    uint16_t y;
-    uint16_t width;
-    uint16_t height;
-    uint16_t color;
-    bool has_underline;  // 是否有下划线
-} LastUnderlineInfo;
+
 
 typedef struct {
     uint16_t screenWidth;
     uint16_t screenHeigt;
 }InkScreenSize;
 
+
+//用到
 /**
  * @brief 矩形内容类型枚举
  */
@@ -110,7 +52,7 @@ typedef enum {
     CONTENT_SEPARATOR,       // 分隔线
     CONTENT_CUSTOM           // 自定义内容
 } RectContentType;
-
+//用到
 /**
  * @brief 文本对齐方式枚举
  */
@@ -123,6 +65,7 @@ typedef enum {
     ALIGN_BOTTOM
 } TextAlignment;
 
+//用到
 /*
  * @brief 矩形内图标位置定义
  */
@@ -131,7 +74,29 @@ typedef struct {
     float rel_y;    // 图标在矩形内的垂直相对位置 (0.0-1.0, 0.5为中心)
     int icon_index; // 使用的图标索引
 } IconPositionInRect;
-
+//用到
+/*
+ * @brief 矩形内动态图标组位置定义 (icon_roll)
+ */
+typedef struct {
+    float rel_x;           // 图标在矩形内的水平相对位置 (0.0-1.0, 0.5为中心)
+    float rel_y;           // 图标在矩形内的垂直相对位置 (0.0-1.0, 0.5为中心)
+    char icon_arr[32];     // 图标数组名称 (如: "cat_jump")
+    char idx[16];          // 索引变量名称 (如: "$cat_jump_idx")
+    bool auto_roll;        // 是否自动滚动 (true=自动100ms切换, false=固定)
+} IconRollInRect;
+//用到
+/*
+ * @brief 矩形内动态文本组位置定义 (text_roll)
+ */
+typedef struct {
+    float rel_x;           // 文本在矩形内的水平相对位置 (0.0-1.0)
+    float rel_y;           // 文本在矩形内的垂直相对位置 (0.0-1.0)
+    char text_arr[32];     // 文本数组名称 (如: "message_remind")
+    char idx[16];          // 索引变量名称 (如: "$message_idx")
+    bool auto_roll;        // 是否自动滚动 (true=自动100ms切换, false=固定)
+} TextRollInRect;
+//用到
 /*
  * @brief 矩形内文本内容位置定义
  */
@@ -145,11 +110,20 @@ typedef struct {
     int max_width;            // 最大宽度（0表示使用矩形剩余宽度）
     int max_height;           // 最大高度（0表示使用矩形剩余高度）
 } TextPositionInRect;
-
+//用到
+/**
+ * @brief 焦点显示模式枚举（放在 RectInfo 之前以便内嵌）
+ */
+typedef enum {
+    FOCUS_MODE_DEFAULT = 0, // 默认（钉子图标）
+    FOCUS_MODE_CORNERS = 1, // 四角小方块
+    FOCUS_MODE_BORDER = 2   // 绘制边框
+} FocusMode;
+//用到
 /**
  * @brief 框架结构体（只定义位置和内容类型，不含图标）
  */
-typedef struct {
+typedef struct RectInfo {
     int x;          // X坐标（原始坐标，基准416x240）
     int y;          // Y坐标（原始坐标，基准416x240）
     int width;      // 宽度（原始尺寸）
@@ -170,27 +144,48 @@ typedef struct {
     IconPositionInRect icons[4];  // 每个矩形最多支持4个图标
     int icon_count;               // 实际图标数量
     
+    // ========== 动态图标组列表（icon_roll） ==========
+    IconRollInRect icon_rolls[4]; // 每个矩形最多支持4个动态图标组
+    int icon_roll_count;          // 实际动态图标组数量
+    
     // ========== 文本内容列表（动态填充） ==========
     TextPositionInRect texts[4];  // 每个矩形最多支持4个文本内容
     int text_count;               // 实际文本数量
     bool custom_text_mode;        // Web自定义文本模式，true则禁用默认回退
+    
+    // ========== 动态文本组列表（text_roll） ==========
+    TextRollInRect text_rolls[4]; // 每个矩形最多支持4个动态文本组
+    int text_roll_count;          // 实际动态文本组数量
+    
+    FocusMode focus_mode;         // 每个矩形独立的焦点显示模式
+    int focus_icon_index;         // 焦点光标使用的图标索引 (-1表示使用默认样式)
+    
+    // ========== 子母数组相关 ==========
+    char is_mother[8];            // "non"不可选中, "mom"母数组, "son"子数组
+    int group_indices[8];         // 子数组索引列表（母数组专用）
+    int group_count;              // 子数组数量
+    
+    // 每个矩形在确认按键时的回调（可为NULL）
+    void (*onConfirm)(struct RectInfo* rect, int rect_index);
+    // 绑定的动作ID（用于在Web/UI之间传递），以C字符串形式保存
+    char on_confirm_action[32];
+    
 } RectInfo;
 
-/**
- * @brief 图标放置辅助函数
- * @param rects 矩形数组
- * @param rect_index 目标矩形索引
- * @param icon_index 图标索引（0-20）
- * @param rel_x 相对X位置（0.0-1.0，0.5为中心）
- * @param rel_y 相对Y位置（0.0-1.0，0.5为中心）
- * @return 是否成功添加
- */
-bool addIconToRect(RectInfo* rects, int rect_index, int icon_index, float rel_x, float rel_y);
+// 回调类型与动作注册项
+typedef void (*OnConfirmFn)(struct RectInfo* rect, int rect_index);
+typedef struct {
+    const char* id;    // 动作ID（用于JSON/web端标识）
+    const char* name;  // 显示名称
+    OnConfirmFn fn;    // 函数指针
+} ActionEntry;
 
-/**
- * @brief 清空矩形内所有图标
- */
-void clearRectIcons(RectInfo* rect);
+// 在 ink_screen.cpp 中定义的动作注册表
+extern ActionEntry g_action_registry[];
+extern int g_action_registry_count;
+
+// 根据动作ID查找对应的回调函数（若不存在返回NULL）
+OnConfirmFn find_action_by_id(const char* id);
 
 /**
  * @brief 添加文本内容到矩形
@@ -212,21 +207,6 @@ bool addTextToRect(RectInfo* rects, int rect_index, RectContentType content_type
  * @brief 清空矩形内所有文本
  */
 void clearRectTexts(RectInfo* rect);
-
-/**
- * @brief 初始化主界面图标布局
- */
-void initMainScreenIcons();
-
-/**
- * @brief 初始化单词界面图标布局
- */
-void initVocabScreenIcons();
-
-/**
- * @brief 初始化单词界面文本布局
- */
-void initVocabScreenTexts();
 
 typedef struct {
     int icon_x;
@@ -270,7 +250,7 @@ typedef struct {
     bool screen_initialized[SCREEN_COUNT];
 } ScreenManager;
 
-#define PICTURE_AREA_COUNT (sizeof(picture_areas) / sizeof(picture_areas[0]))
+
 #define MAX_GLOBAL_ICONS 20  // 增加到20个图标
 #define MAX_MAIN_RECTS 20    // 主界面最大矩形数量
 #define MAX_VOCAB_RECTS 20   // 单词界面最大矩形数量
@@ -282,10 +262,8 @@ void getStatusIconPositions(RectInfo *rects, int rect_count, int status_rect_ind
                            int* wifi_x, int* wifi_y, 
                            int* battery_x, int* battery_y);
 void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, int show_border);
-void displayVocabularyScreen(RectInfo *rects, int rect_count, int status_rect_index, int show_border);
 void displaySleepScreen(RectInfo *rects, int rect_count, int status_rect_index, int show_border);
 void displayScreen(ScreenType screen_type);  // 统一屏幕显示函数
-void readAndPrintRandomWord();
 void initIconPositions();
 
 // ======== 焦点系统函数声明 ========
@@ -301,8 +279,11 @@ void moveFocusNext();
 void moveFocusPrev();
 int getCurrentFocusRect();
 void handleFocusConfirm();
-void drawFocusCursor(RectInfo *rects, int focus_index, float global_scale);
+void drawFocusCursor(RectInfo *rects, int rect_count, int focus_index, float global_scale);
 void startFocusTestMode();  // 焦点测试模式启动函数
+int getIconIndexByName(const char* name);  // 通过图标名称获取索引
+void getIconSizeByIndex(int icon_index, int* width, int* height);  // 通过图标索引获取尺寸
+const uint8_t* getIconDataByIndex(int icon_index);  // 通过图标索引获取数据指针
 
 extern uint8_t inkScreenTestFlag;
 extern uint8_t inkScreenTestFlagTwo;
@@ -312,37 +293,132 @@ extern RectInfo vocab_rects[MAX_VOCAB_RECTS];
 extern int rect_count;
 extern int g_global_icon_count;
 extern IconPosition g_icon_positions[MAX_GLOBAL_ICONS];
-extern IconInfo g_available_icons[13];
+extern IconInfo g_available_icons[22];
 extern InkScreenSize setInkScreenSize;
-extern ScreenManager g_screen_manager;
-extern bool g_focus_mode_enabled;
-extern int g_current_focus_rect;
-// 屏幕管理函数
-void updateVocabScreenRectCount(int new_rect_count);
-void updateMainScreenRectCount(int new_rect_count);
+
 int getVocabScreenRectCount();
 int getMainScreenRectCount();
-void drawPictureScaled(uint16_t orig_x, uint16_t orig_y, 
-                           uint16_t orig_w, uint16_t orig_h,
-                           const uint8_t* BMP, uint16_t color) ;
+//用到
 void clearDisplayArea(uint16_t start_x, uint16_t start_y, uint16_t end_x, uint16_t end_y);
 
-// ===== 外部声明 =====
-extern GxEPD2_BW<GxEPD2_370_GDEY037T03, GxEPD2_370_GDEY037T03::HEIGHT> display;
-extern char lastDisplayedText[256];
-extern uint16_t lastTextLength;
-extern uint16_t lastX;
-extern uint16_t lastY;
-extern uint16_t lastSize;
+// ==================== 简化的本地JSON加载和显示 ====================
+/**
+ * @brief 从JSON字符串解析布局并显示到墨水屏
+ * @param json_str JSON字符串内容
+ * @return true 成功, false 失败
+ */
+//用到
+bool loadAndDisplayFromJSON(const char* json_str);
 
-// ===== 图标文件名映射表 =====
-// 与 g_available_icons 数组保持同步
-// 每个文件对应 components/resource/icon/ 文件夹中的文件
-extern const char *g_icon_filenames[13];
+/**
+ * @brief 从文件读取JSON并显示
+ * @param file_path 文件路径
+ * @return true 成功, false 失败
+ */
+//用到
+bool loadAndDisplayFromFile(const char* file_path);
+//用到
+// ==================== JSON布局全局变量（extern声明） ====================
+extern RectInfo* g_json_rects;
+extern int g_json_rect_count;
+extern int g_json_status_rect_index;
 
-// ===== 函数声明 =====
+// ==================== JSON布局的按键交互 ====================
+/**
+ * @brief 按键：向下移动焦点并重绘
+ */
+//用到
+void jsonLayoutFocusNext();
 
-void showSimplePromptWithNail(uint8_t *tempPrompt, int bg_x, int bg_y);
-void showPromptInfor(uint8_t *tempPrompt, bool isAllRefresh);
-bool isChineseText(const uint8_t* text);
-void showChineseString(uint16_t x, uint16_t y, uint8_t *s, uint8_t sizey, uint16_t color);
+/**
+ * @brief 按键：向上移动焦点并重绘
+ */
+//用到
+void jsonLayoutFocusPrev();
+
+/**
+ * @brief 按键：确认当前焦点矩形（触发回调）
+ */
+//用到
+void jsonLayoutConfirm();
+
+/**
+ * @brief icon_roll 相关函数
+ */
+//用到
+int getVariableIndex(const char* var_name);
+int getIconRollCurrentIndex(const IconRollInRect* icon_roll);
+const char* getTextRollCurrentText(const TextRollInRect* text_roll);
+void updateIconRollIndices();
+void processAutoRollAnimations();
+
+// ==================== 界面缓存管理系统 ====================
+//用到
+#define MAX_CACHED_SCREENS 10  // 最多缓存10个界面
+//用到
+/**
+ * @brief 单个界面缓存结构体
+ */
+typedef struct {
+    char file_path[64];         // JSON文件路径
+    char screen_name[32];       // 界面名称（从文件名提取）
+    RectInfo* rects;            // 矩形数组
+    int rect_count;             // 矩形数量
+    int status_rect_index;      // 状态栏索引
+    bool is_loaded;             // 是否已加载
+    uint32_t last_access_time;  // 最后访问时间（用于LRU）
+} ScreenCache;
+//用到
+/**
+ * @brief 从文件加载界面但不显示（仅解析到内存）
+ * @param file_path 文件路径
+ * @param out_rects 输出矩形数组指针
+ * @param out_rect_count 输出矩形数量
+ * @param out_status_index 输出状态栏索引
+ * @return true 成功, false 失败
+ */
+bool loadScreenToMemory(const char* file_path, RectInfo** out_rects, 
+                        int* out_rect_count, int* out_status_index);
+//用到
+/**
+ * @brief 扫描/spiffs目录下所有.json文件并预加载到缓存
+ * @return 成功加载的界面数量
+ */
+int preloadAllScreens();
+//用到
+/**
+ * @brief 根据索引切换到指定界面（从缓存中快速显示）
+ * @param screen_index 界面索引（0-9）
+ * @return true 成功, false 失败
+ */
+bool switchToScreen(int screen_index);
+//用到
+/**
+ * @brief 根据文件名切换到指定界面
+ * @param file_path 文件路径（如 "/spiffs/layout.json"）
+ * @return true 成功, false 失败
+ */
+bool switchToScreenByPath(const char* file_path);
+//用到
+/**
+ * @brief 获取已缓存的界面数量
+ */
+int getCachedScreenCount();
+//用到
+/**
+ * @brief 获取指定索引的界面名称
+ * @param screen_index 界面索引
+ * @return 界面名称，失败返回NULL
+ */
+const char* getScreenName(int screen_index);
+//用到
+/**
+ * @brief 释放所有界面缓存
+ */
+void freeAllScreenCache();
+//用到
+/**
+ * @brief 获取当前显示的界面索引
+ * @return 当前界面索引，-1表示无界面
+ */
+int getCurrentScreenIndex();

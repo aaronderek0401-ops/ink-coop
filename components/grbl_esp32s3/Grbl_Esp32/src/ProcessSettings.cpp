@@ -2,28 +2,6 @@
 #include <map>
 #include "Regex.h"
 
-// WG Readable and writable as guest
-// WU Readable and writable as user and admin
-// WA Readable as user and admin, writable as admin
-
-// If authentication is disabled, auth_level will be LEVEL_ADMIN
-bool auth_failed(Word* w, const char* value, WebUI::AuthenticationLevel auth_level) {
-    permissions_t permissions = w->getPermissions();
-    switch (auth_level) {
-        case WebUI::AuthenticationLevel::LEVEL_ADMIN:  // Admin can do anything
-            return false;                              // Nothing is an Admin auth fail
-        case WebUI::AuthenticationLevel::LEVEL_GUEST:  // Guest can only access open settings
-            return permissions != WG;                  // Anything other than RG is Guest auth fail
-        case WebUI::AuthenticationLevel::LEVEL_USER:   // User is complicated...
-            if (!value) {                              // User can read anything
-                return false;                          // No read is a User auth fail
-            }
-            return permissions == WA;  // User cannot write WA
-        default:
-            return true;
-    }
-}
-
 void show_setting(const char* name, const char* value, const char* description, WebUI::ESPResponseStream* out) {
     grbl_sendf(out->client(), "$%s=%s", name, value);
     if (description) {
@@ -116,7 +94,7 @@ Error list_grbl_names(const char* value, WebUI::AuthenticationLevel auth_level, 
 }
 Error list_settings(const char* value, WebUI::AuthenticationLevel auth_level, WebUI::ESPResponseStream* out) {
     for (Setting* s = Setting::List; s; s = s->next()) {
-        const char* displayValue = auth_failed(s, value, auth_level) ? "<Authentication required>" : s->getStringValue();
+        const char* displayValue = s->getStringValue();
         show_setting(s->getName(), displayValue, NULL, out);
     }
     return Error::Ok;
@@ -125,7 +103,7 @@ Error list_changed_settings(const char* value, WebUI::AuthenticationLevel auth_l
     for (Setting* s = Setting::List; s; s = s->next()) {
         const char* value  = s->getStringValue();
         const char* defval = s->getDefaultString();
-        if (!auth_failed(s, value, auth_level) && strcmp(value, defval)) {
+        if (strcmp(value, defval)) {
             String message = "(Default=";
             message += defval;
             message += ")";
@@ -203,35 +181,6 @@ Error doJog(const char* value, WebUI::AuthenticationLevel auth_level, WebUI::ESP
     return Error::Ok;//gc_execute_line(jogLine, out->client());
 }
 
-const char* alarmString(ExecAlarm alarmNumber) {
-    auto it = AlarmNames.find(alarmNumber);
-    return it == AlarmNames.end() ? NULL : it->second;
-}
-
-Error listAlarms(const char* value, WebUI::AuthenticationLevel auth_level, WebUI::ESPResponseStream* out) {
-    if (value) {
-        char*   endptr      = NULL;
-        uint8_t alarmNumber = strtol(value, &endptr, 10);
-        if (*endptr) {
-            grbl_sendf(out->client(), "Malformed alarm number: %s\r\n", value);
-            return Error::InvalidValue;
-        }
-        const char* alarmName = alarmString(static_cast<ExecAlarm>(alarmNumber));
-        if (alarmName) {
-            grbl_sendf(out->client(), "%d: %s\r\n", alarmNumber, alarmName);
-            return Error::Ok;
-        } else {
-            grbl_sendf(out->client(), "Unknown alarm number: %d\r\n", alarmNumber);
-            return Error::InvalidValue;
-        }
-    }
-
-    for (auto it = AlarmNames.begin(); it != AlarmNames.end(); it++) {
-        grbl_sendf(out->client(), "%d: %s\r\n", it->first, it->second);
-    }
-    return Error::Ok;
-}
-
 const char* errorString(Error errorNumber) {
     auto it = ErrorNames.find(errorNumber);
     return it == ErrorNames.end() ? NULL : it->second;
@@ -276,7 +225,7 @@ void make_grbl_commands() {
     new GrblCommand("S", "Settings/List", list_settings, notCycleOrHold);
     new GrblCommand("SC", "Settings/ListChanged", list_changed_settings, notCycleOrHold);
     new GrblCommand("CMD", "Commands/List", list_commands, notCycleOrHold);
-    new GrblCommand("A", "Alarms/List", listAlarms, anyState);
+    // Alarm list command removed - alarm functionality no longer needed
     new GrblCommand("E", "Errors/List", listErrors, anyState);
     new GrblCommand("NVX", "Settings/Erase", Setting::eraseNVS, idleOrAlarm, WA);
     new GrblCommand("V", "Settings/Stats", Setting::report_nvs_stats, idleOrAlarm);
@@ -330,9 +279,6 @@ Error do_command_or_setting(const char* key, char* value, WebUI::AuthenticationL
     // value if one is given, otherwise display the current value
     for (Setting* s = Setting::List; s; s = s->next()) {
         if (strcasecmp(s->getName(), key) == 0) {
-            if (auth_failed(s, value, auth_level)) {
-                return Error::AuthenticationFailed;
-            }
             if (value) {
                 return s->setStringValue(value);
             } else {
@@ -346,9 +292,6 @@ Error do_command_or_setting(const char* key, char* value, WebUI::AuthenticationL
     // value if one is given, otherwise display the current value in compatible mode
     for (Setting* s = Setting::List; s; s = s->next()) {
         if (s->getGrblName() && strcasecmp(s->getGrblName(), key) == 0) {
-            if (auth_failed(s, value, auth_level)) {
-                return Error::AuthenticationFailed;
-            }
             if (value) {
                 return s->setStringValue(value);
             } else {
@@ -362,9 +305,6 @@ Error do_command_or_setting(const char* key, char* value, WebUI::AuthenticationL
     // or display solely based on the presence of a value.
     for (Command* cp = Command::List; cp; cp = cp->next()) {
         if ((strcasecmp(cp->getName(), key) == 0) || (cp->getGrblName() && strcasecmp(cp->getGrblName(), key) == 0)) {
-            if (auth_failed(cp, value, auth_level)) {
-                return Error::AuthenticationFailed;
-            }
             return cp->action(value, auth_level, out);
         }
     }
@@ -383,7 +323,7 @@ Error do_command_or_setting(const char* key, char* value, WebUI::AuthenticationL
             lcTest.toLowerCase();
 
             if (regexMatch(lcKey.c_str(), lcTest.c_str())) {
-                const char* displayValue = auth_failed(s, value, auth_level) ? "<Authentication required>" : s->getStringValue();
+                const char* displayValue = s->getStringValue();
                 show_setting(s->getName(), displayValue, NULL, out);
                 found = true;
             }

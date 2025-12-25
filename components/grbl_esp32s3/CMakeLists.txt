@@ -2,7 +2,6 @@
 set(srcs Grbl_Esp32/src/Grbl.cpp
     Grbl_Esp32/src/Error.cpp
     Grbl_Esp32/src/Exec.cpp
-    Grbl_Esp32/src/NutsBolts.cpp
     Grbl_Esp32/src/ProcessSettings.cpp
     Grbl_Esp32/src/Protocol.cpp
     Grbl_Esp32/src/Regex.cpp
@@ -36,7 +35,6 @@ set(srcs Grbl_Esp32/src/Grbl.cpp
     Grbl_Esp32/src/BL_add/ink_screen/wordbook_interface.cpp
     Grbl_Esp32/src/BL_add/ink_screen/sleep_interface.cpp
     Grbl_Esp32/src/BL_add/ink_screen/ttf_font_manager.cpp
-    Grbl_Esp32/src/BL_add/ink_screen/ttf_font_api.cpp
     Grbl_Esp32/src/BL_add/ink_screen/multi_font_manager.cpp
      )
 
@@ -47,5 +45,4 @@ set(includes Grbl_Esp32
 idf_component_register(SRCS ${srcs}
                        INCLUDE_DIRS ${includes}
                        REQUIRES soc driver hal arduino_esp32 ESP32SSDP arduinoWebSockets newlib
-                       esp_http_server EPD GXEPD2 AdafruitGFX
-                       EMBED_FILES "Grbl_Esp32/data/index.html.gz" "Grbl_Esp32/data/favicon.ico" "Grbl_Esp32/data/web_layout.html.gz")
+                       esp_http_server EPD GXEPD2 AdafruitGFX)
