@@ -748,10 +748,45 @@ void onConfirmPlaySound(RectInfo* rect, int idx) {
     // TODO: 在此处添加实际播放声音的逻辑
 }
 
+// 单词本：下一个单词
+void onConfirmNextWord(RectInfo* rect, int idx) {
+    ESP_LOGI("ONCONFIRM", "切换到下一个单词，矩形 %d", idx);
+    
+    if (!g_wordbook_text_initialized) {
+        ESP_LOGW("WORDBOOK", "单词本文本缓存未初始化");
+        return;
+    }
+    
+    // 在文本数组注册表中查找 $wordbook_idx
+    for (int i = 0; i < g_text_arrays_count; i++) {
+        if (strcmp(g_text_arrays[i].var_name, "$wordbook_idx") == 0) {
+            int old_index = g_text_animation_indices[i];
+            int new_index = (old_index + 1) % g_text_arrays[i].count;
+            g_text_animation_indices[i] = new_index;
+            
+            ESP_LOGI("WORDBOOK", "单词本索引已更新: %d -> %d (共%d个单词)", 
+                     old_index, new_index, g_text_arrays[i].count);
+            ESP_LOGI("WORDBOOK", "  当前单词: %s", getWordBookWord(new_index));
+            ESP_LOGI("WORDBOOK", "  音标: %s", getWordBookPhonetic(new_index));
+            ESP_LOGI("WORDBOOK", "  翻译: %s", getWordBookTranslation(new_index));
+            
+            // 刷新显示
+            // if (g_json_rects && g_json_rect_count > 0) {
+            //     updateDisplayWithMain(g_json_rects, g_json_rect_count, -1, 1);
+            //     ESP_LOGI("WORDBOOK", "界面已刷新显示新单词");
+            // }
+            return;
+        }
+    }
+    
+    ESP_LOGW("WORDBOOK", "未找到$wordbook_idx变量");
+}
+
 // 动作注册表
 ActionEntry g_action_registry[] = {
     {"open_menu", "打开菜单", onConfirmOpenMenu},
-    {"play_sound", "播放提示音", onConfirmPlaySound}
+    {"play_sound", "播放提示音", onConfirmPlaySound},
+    {"next_word", "下一个单词", onConfirmNextWord}
 };
 int g_action_registry_count = sizeof(g_action_registry) / sizeof(g_action_registry[0]);
 
