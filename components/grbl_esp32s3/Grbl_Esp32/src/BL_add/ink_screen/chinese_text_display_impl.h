@@ -409,6 +409,8 @@ int16_t drawChineseTextWithCache(T& display, int16_t x, int16_t y, const char* t
                 current_x = x;
                 current_y += font_size + 5;
             }
+            display.setCursor(current_x, current_y);
+            display.setTextSize(font_size / 8);  // 根据中文字体大小调整，20号字 -> 2-3倍，可调整此值
             display.print((char)unicode);
             current_x += font_size / 2;
         }
