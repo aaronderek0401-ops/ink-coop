@@ -6,12 +6,17 @@
 #include "chinese_font_cache.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "esp32/spiram.h"  // 使用新的头文件路径
 #include <string.h>
 #include <algorithm>
+#include <stdio.h>  // 用于文件操作
+#include <dirent.h> // 用于目录扫描
+#include <ctype.h>  // 用于isdigit
 
 static const char* TAG = "FontCache";
 
-// ============ GB2312一级常用汉字前500个 ============
+// ============ GB2312一级常用汉字前500个 (已禁用 - 使用PSRAM完整字库) ============
+/*
 // 这个列表包含了最常用的500个汉字,覆盖日常使用约80%的场景
 static const uint16_t DEFAULT_COMMON_CHARS[] = {
     // 高频词(前100个)
@@ -75,6 +80,7 @@ static const uint16_t DEFAULT_COMMON_CHARS[] = {
 };
 
 static const int DEFAULT_COMMON_CHAR_COUNT = sizeof(DEFAULT_COMMON_CHARS) / sizeof(uint16_t);
+*/
 
 // ============ 全局单例 ============
 static ChineseFontCache* g_font_cache_instance = nullptr;
@@ -115,13 +121,17 @@ ChineseFontCache::~ChineseFontCache() {
     // 释放常用字缓存
     for (auto& pair : common_cache_) {
         if (pair.second.glyph_16x16) free(pair.second.glyph_16x16);
+        if (pair.second.glyph_20x20) free(pair.second.glyph_20x20);
         if (pair.second.glyph_24x24) free(pair.second.glyph_24x24);
+        if (pair.second.glyph_28x28) free(pair.second.glyph_28x28);
     }
     
     // 释放页面缓存
     for (auto& pair : page_cache_) {
         if (pair.second.glyph_16x16) free(pair.second.glyph_16x16);
+        if (pair.second.glyph_20x20) free(pair.second.glyph_20x20);
         if (pair.second.glyph_24x24) free(pair.second.glyph_24x24);
+        if (pair.second.glyph_28x28) free(pair.second.glyph_28x28);
     }
     
     if (cache_mutex_) {
@@ -149,8 +159,8 @@ bool ChineseFontCache::init(const char* sd_font_path, bool enable_psram) {
         }
     }
     
-    // 使用默认常用字列表
-    setCommonCharList(DEFAULT_COMMON_CHARS, DEFAULT_COMMON_CHAR_COUNT);
+    // 使用默认常用字列表 (已禁用 - 使用PSRAM完整字库)
+    // setCommonCharList(DEFAULT_COMMON_CHARS, DEFAULT_COMMON_CHAR_COUNT);
     
     is_initialized_ = true;
     ESP_LOGI(TAG, "Font cache initialized, path: %s, PSRAM: %s", 
@@ -184,7 +194,23 @@ int ChineseFontCache::loadCommonCharacters() {
         return 0;
     }
     
-    ESP_LOGI(TAG, "Loading %d common characters to cache...", common_char_count_);
+    // 根据文件路径判断字体大小
+    FontSize target_font_size = FONT_24x24;  // 默认24x24
+    if (strstr(sd_font_path_, "16x16") != nullptr) {
+        target_font_size = FONT_16x16;
+    } else if (strstr(sd_font_path_, "20x20") != nullptr) {
+        target_font_size = FONT_20x20;
+    } else if (strstr(sd_font_path_, "24x24") != nullptr) {
+        target_font_size = FONT_24x24;
+    } else if (strstr(sd_font_path_, "28x28") != nullptr) {
+        target_font_size = FONT_28x28;
+    } else if (strstr(sd_font_path_, "32x32") != nullptr) {
+        target_font_size = FONT_32x32;
+    }
+    
+    uint32_t glyph_size = getGlyphSize(target_font_size);
+    ESP_LOGI(TAG, "Loading %d common characters to cache (font size: %dx%d, %d bytes)...", 
+             common_char_count_, target_font_size, target_font_size, glyph_size);
     
     int loaded = 0;
     uint8_t temp_buffer[MAX_FONT_SIZE];
@@ -192,22 +218,58 @@ int ChineseFontCache::loadCommonCharacters() {
     for (int i = 0; i < common_char_count_; i++) {
         uint16_t unicode = common_char_list_[i];
         
-        // 读取16x16字模
-        if (readFromSD(unicode, FONT_16x16, temp_buffer)) {
+        // 读取指定字号的字模
+        if (readFromSD(unicode, target_font_size, temp_buffer)) {
             CharCacheEntry entry;
             entry.unicode = unicode;
-            entry.glyph_16x16 = (uint8_t*)malloc(32);  // 16x16 = 32 bytes
-            entry.glyph_24x24 = nullptr;
             entry.hit_count = 0;
             entry.last_access_time = 0;
             entry.is_loaded = true;
             
-            if (entry.glyph_16x16) {
-                memcpy(entry.glyph_16x16, temp_buffer, 32);
-                common_cache_[unicode] = entry;
-                loaded++;
-                
-                stats_.memory_used += 32;
+            if (target_font_size == FONT_16x16) {
+                entry.glyph_16x16 = (uint8_t*)malloc(32);
+                entry.glyph_20x20 = nullptr;
+                entry.glyph_24x24 = nullptr;
+                entry.glyph_28x28 = nullptr;
+                if (entry.glyph_16x16) {
+                    memcpy(entry.glyph_16x16, temp_buffer, 32);
+                    common_cache_[unicode] = entry;
+                    loaded++;
+                    stats_.memory_used += 32;
+                }
+            } else if (target_font_size == FONT_20x20) {
+                entry.glyph_16x16 = nullptr;
+                entry.glyph_20x20 = (uint8_t*)malloc(60);
+                entry.glyph_24x24 = nullptr;
+                entry.glyph_28x28 = nullptr;
+                if (entry.glyph_20x20) {
+                    memcpy(entry.glyph_20x20, temp_buffer, 60);
+                    common_cache_[unicode] = entry;
+                    loaded++;
+                    stats_.memory_used += 60;
+                }
+            } else if (target_font_size == FONT_24x24) {
+                entry.glyph_16x16 = nullptr;
+                entry.glyph_20x20 = nullptr;
+                entry.glyph_24x24 = (uint8_t*)malloc(72);
+                entry.glyph_28x28 = nullptr;
+                if (entry.glyph_24x24) {
+                    memcpy(entry.glyph_24x24, temp_buffer, 72);
+                    common_cache_[unicode] = entry;
+                    loaded++;
+                    stats_.memory_used += 72;
+                }
+            } else if (target_font_size == FONT_28x28) {
+                entry.glyph_16x16 = nullptr;
+                entry.glyph_20x20 = nullptr;
+                entry.glyph_24x24 = nullptr;
+                entry.glyph_28x28 = (uint8_t*)malloc(112);
+                if (entry.glyph_28x28) {
+                    memcpy(entry.glyph_28x28, temp_buffer, 112);
+                    common_cache_[unicode] = entry;
+                    loaded++;
+                    stats_.memory_used += 112;
+                }
             }
         }
         
@@ -248,6 +310,26 @@ bool ChineseFontCache::getCharGlyph(uint16_t unicode, FontSize font_size, uint8_
             updateAccessStats(true, false);
             xSemaphoreGive(cache_mutex_);
             return true;
+        } else if (font_size == FONT_20x20 && entry.glyph_20x20) {
+            memcpy(out_buffer, entry.glyph_20x20, 60);
+            entry.hit_count++;
+            entry.last_access_time = xTaskGetTickCount();
+            stats_.common_cache_hits++;
+            success = true;
+            
+            updateAccessStats(true, false);
+            xSemaphoreGive(cache_mutex_);
+            return true;
+        } else if (font_size == FONT_24x24 && entry.glyph_24x24) {
+            memcpy(out_buffer, entry.glyph_24x24, 72);
+            entry.hit_count++;
+            entry.last_access_time = xTaskGetTickCount();
+            stats_.common_cache_hits++;
+            success = true;
+            
+            updateAccessStats(true, false);
+            xSemaphoreGive(cache_mutex_);
+            return true;
         }
     }
     
@@ -258,6 +340,26 @@ bool ChineseFontCache::getCharGlyph(uint16_t unicode, FontSize font_size, uint8_
         
         if (font_size == FONT_16x16 && entry.glyph_16x16) {
             memcpy(out_buffer, entry.glyph_16x16, 32);
+            entry.hit_count++;
+            entry.last_access_time = xTaskGetTickCount();
+            stats_.page_cache_hits++;
+            success = true;
+            
+            updateAccessStats(false, true);
+            xSemaphoreGive(cache_mutex_);
+            return true;
+        } else if (font_size == FONT_20x20 && entry.glyph_20x20) {
+            memcpy(out_buffer, entry.glyph_20x20, 60);
+            entry.hit_count++;
+            entry.last_access_time = xTaskGetTickCount();
+            stats_.page_cache_hits++;
+            success = true;
+            
+            updateAccessStats(false, true);
+            xSemaphoreGive(cache_mutex_);
+            return true;
+        } else if (font_size == FONT_24x24 && entry.glyph_24x24) {
+            memcpy(out_buffer, entry.glyph_24x24, 72);
             entry.hit_count++;
             entry.last_access_time = xTaskGetTickCount();
             stats_.page_cache_hits++;
@@ -286,27 +388,50 @@ bool ChineseFontCache::getCharGlyph(uint16_t unicode, FontSize font_size, uint8_
 }
 
 bool ChineseFontCache::readFromSD(uint16_t unicode, FontSize font_size, uint8_t* out_buffer) {
-    // TODO: 实现从SD卡读取字模的逻辑
-    // 这里需要根据您的SD卡字库文件格式来实现
-    // 示例伪代码:
-    /*
+    if (!out_buffer || !is_initialized_) {
+        return false;
+    }
+    
+    // 检查 Unicode 范围 (GB2312 汉字范围: 0x4E00-0x9FA5)
+    if (unicode < 0x4E00 || unicode > 0x9FA5) {
+        ESP_LOGW(TAG, "Unicode 0x%04X out of range", unicode);
+        return false;
+    }
+    
+    // 打开字体文件
     FILE* fp = fopen(sd_font_path_, "rb");
-    if (!fp) return false;
+    if (!fp) {
+        ESP_LOGE(TAG, "Failed to open font file: %s", sd_font_path_);
+        return false;
+    }
     
-    // 计算偏移位置 (假设按Unicode顺序存储)
-    uint32_t offset = (unicode - 0x4E00) * getGlyphSize(font_size);
-    fseek(fp, offset, SEEK_SET);
+    // 计算字模大小
+    uint32_t glyph_size = getGlyphSize(font_size);
     
-    size_t bytes_read = fread(out_buffer, 1, getGlyphSize(font_size), fp);
+    // 计算文件偏移量 (按 Unicode 顺序存储)
+    uint32_t offset = (unicode - 0x4E00) * glyph_size;
+    
+    // 定位到指定位置
+    if (fseek(fp, offset, SEEK_SET) != 0) {
+        ESP_LOGE(TAG, "Failed to seek to offset %u", offset);
+        fclose(fp);
+        return false;
+    }
+    
+    // 读取字模数据
+    size_t bytes_read = fread(out_buffer, 1, glyph_size, fp);
     fclose(fp);
     
-    return bytes_read == getGlyphSize(font_size);
-    */
+    if (bytes_read != glyph_size) {
+        ESP_LOGW(TAG, "Read %u bytes, expected %u for unicode 0x%04X", 
+                 bytes_read, glyph_size, unicode);
+        return false;
+    }
     
-    ESP_LOGD(TAG, "Reading unicode 0x%04X from SD", unicode);
+    stats_.sd_reads++;
+    ESP_LOGD(TAG, "Successfully read unicode 0x%04X from SD", unicode);
     
-    // 临时返回false,等待实际实现
-    return false;
+    return true;
 }
 
 void ChineseFontCache::addToPageCache(uint16_t unicode, const uint8_t* glyph, FontSize font_size) {
@@ -325,17 +450,41 @@ void ChineseFontCache::addToPageCache(uint16_t unicode, const uint8_t* glyph, Fo
     
     if (font_size == FONT_16x16) {
         entry.glyph_16x16 = (uint8_t*)malloc(glyph_size);
+        entry.glyph_20x20 = nullptr;
         entry.glyph_24x24 = nullptr;
+        entry.glyph_28x28 = nullptr;
         if (entry.glyph_16x16) {
             memcpy(entry.glyph_16x16, glyph, glyph_size);
             page_cache_[unicode] = entry;
             stats_.memory_used += glyph_size;
         }
+    } else if (font_size == FONT_20x20) {
+        entry.glyph_16x16 = nullptr;
+        entry.glyph_20x20 = (uint8_t*)malloc(glyph_size);
+        entry.glyph_24x24 = nullptr;
+        entry.glyph_28x28 = nullptr;
+        if (entry.glyph_20x20) {
+            memcpy(entry.glyph_20x20, glyph, glyph_size);
+            page_cache_[unicode] = entry;
+            stats_.memory_used += glyph_size;
+        }
     } else if (font_size == FONT_24x24) {
         entry.glyph_16x16 = nullptr;
+        entry.glyph_20x20 = nullptr;
         entry.glyph_24x24 = (uint8_t*)malloc(glyph_size);
+        entry.glyph_28x28 = nullptr;
         if (entry.glyph_24x24) {
             memcpy(entry.glyph_24x24, glyph, glyph_size);
+            page_cache_[unicode] = entry;
+            stats_.memory_used += glyph_size;
+        }
+    } else if (font_size == FONT_28x28) {
+        entry.glyph_16x16 = nullptr;
+        entry.glyph_20x20 = nullptr;
+        entry.glyph_24x24 = nullptr;
+        entry.glyph_28x28 = (uint8_t*)malloc(glyph_size);
+        if (entry.glyph_28x28) {
+            memcpy(entry.glyph_28x28, glyph, glyph_size);
             page_cache_[unicode] = entry;
             stats_.memory_used += glyph_size;
         }
@@ -366,9 +515,17 @@ void ChineseFontCache::evictLRU() {
             stats_.memory_used -= 32;
             free(it->second.glyph_16x16);
         }
+        if (it->second.glyph_20x20) {
+            stats_.memory_used -= 60;
+            free(it->second.glyph_20x20);
+        }
         if (it->second.glyph_24x24) {
             stats_.memory_used -= 72;
             free(it->second.glyph_24x24);
+        }
+        if (it->second.glyph_28x28) {
+            stats_.memory_used -= 112;
+            free(it->second.glyph_28x28);
         }
         page_cache_.erase(it);
         
@@ -474,7 +631,9 @@ int ChineseFontCache::extractChineseChars(const char* text, uint16_t* out_unicod
 uint32_t ChineseFontCache::getGlyphSize(FontSize font_size) const {
     switch (font_size) {
         case FONT_16x16: return 32;   // 16*16/8
+        case FONT_20x20: return 60;   // 20 * ((20+7)/8) = 20*3
         case FONT_24x24: return 72;   // 24*24/8
+        case FONT_28x28: return 112;  // 28 * ((28+7)/8) = 28*4
         case FONT_32x32: return 128;  // 32*32/8
         default: return 32;
     }
@@ -522,4 +681,626 @@ void ChineseFontCache::printStatus() const {
 void ChineseFontCache::resetStats() {
     memset(&stats_, 0, sizeof(stats_));
     ESP_LOGI(TAG, "Statistics reset");
+}
+
+// ============ 便捷初始化接口实现 ============
+
+// 存储三个缓存实例（16x16、20x20 和 24x24）
+static ChineseFontCache g_font_cache_16x16;
+static ChineseFontCache g_font_cache_20x20;  // 新增 20x20 缓存
+static ChineseFontCache g_font_cache_24x24;
+static bool g_font_cache_initialized = false;
+
+/**
+ * @brief 一步初始化字库缓存系统 (16x16 + 20x20)
+ */
+bool initFontCacheSystem(const char* font_16x16_path,
+                         const char* font_20x20_path,
+                         bool enable_psram) {
+    if (g_font_cache_initialized) {
+        ESP_LOGW(TAG, "字库缓存系统已初始化，跳过重复初始化");
+        return true;
+    }
+
+    ESP_LOGI(TAG, "========== 初始化字库缓存系统 ==========");
+    ESP_LOGI(TAG, "16x16字体: %s", font_16x16_path);
+    ESP_LOGI(TAG, "20x20字体: %s", font_20x20_path);
+    ESP_LOGI(TAG, "启用PSRAM: %s", enable_psram ? "是" : "否");
+
+    // 初始化16x16字体缓存
+    if (!g_font_cache_16x16.init(font_16x16_path, enable_psram)) {
+        ESP_LOGE(TAG, "✗ 16x16字体缓存初始化失败");
+        return false;
+    }
+    ESP_LOGI(TAG, "✅ 16x16字体缓存初始化成功");
+
+    // 初始化20x20字体缓存
+    if (!g_font_cache_20x20.init(font_20x20_path, enable_psram)) {
+        ESP_LOGE(TAG, "✗ 20x20字体缓存初始化失败");
+        return false;
+    }
+    ESP_LOGI(TAG, "✅ 20x20字体缓存初始化成功");
+
+    // 预加载常用字到两个字号的缓存
+    int loaded_16 = g_font_cache_16x16.loadCommonCharacters();
+    int loaded_20 = g_font_cache_20x20.loadCommonCharacters();
+    ESP_LOGI(TAG, "✅ 预加载完成: 16x16: %d个常用字, 20x20: %d个常用字", 
+             loaded_16, loaded_20);
+
+    g_font_cache_initialized = true;
+    ESP_LOGI(TAG, "========== 缓存初始化完成 ==========");
+    
+    return true;
+}
+
+/**
+ * @brief 预加载页面到缓存
+ */
+int preloadPageToCache(const char* page_text) {
+    if (!g_font_cache_initialized) {
+        ESP_LOGW(TAG, "缓存系统未初始化，无法预加载");
+        return 0;
+    }
+
+    int count_16 = g_font_cache_16x16.preloadPage(page_text, FONT_16x16);
+    int count_24 = g_font_cache_24x24.preloadPage(page_text, FONT_24x24);
+    
+    int total = count_16 + count_24;
+    ESP_LOGI(TAG, "页面预加载: 16x16=%d, 24x24=%d, 总计=%d", 
+             count_16, count_24, total);
+    
+    return total;
+}
+
+/**
+ * @brief 打印缓存统计信息
+ */
+void printCacheStats() {
+    if (!g_font_cache_initialized) {
+        ESP_LOGW(TAG, "缓存系统未初始化");
+        return;
+    }
+
+    ESP_LOGI(TAG, "========== 缓存统计信息 ==========");
+    
+    ESP_LOGI(TAG, "--- 16x16字体缓存 ---");
+    g_font_cache_16x16.printStatus();
+    
+    ESP_LOGI(TAG, "--- 20x20字体缓存 ---");
+    g_font_cache_20x20.printStatus();
+    
+    ESP_LOGI(TAG, "========== 统计完成 ==========");
+}
+
+/**
+ * @brief 清除所有缓存（保留常用字缓存）
+ */
+void clearAllPageCache() {
+    if (!g_font_cache_initialized) {
+        ESP_LOGW(TAG, "缓存系统未初始化");
+        return;
+    }
+
+    g_font_cache_16x16.clearPageCache();
+    g_font_cache_20x20.clearPageCache();
+    
+    ESP_LOGI(TAG, "✅ 已清除所有页面缓存");
+}
+
+/**
+ * @brief 获取16x16字体缓存实例
+ */
+ChineseFontCache& getFontCache16() {
+    return g_font_cache_16x16;
+}
+
+/**
+ * @brief 获取20x20字体缓存实例
+ */
+ChineseFontCache& getFontCache20() {
+    return g_font_cache_20x20;
+}
+
+/**
+ * @brief 获取24x24字体缓存实例 (已废弃，保留以兼容)
+ */
+ChineseFontCache& getFontCache24() {
+    return g_font_cache_24x24;
+}
+
+// ============ PSRAM 完整字体加载系统实现 ============
+
+// 全局PSRAM字体数据
+static FullFontData g_psram_fonts[MAX_PSRAM_FONTS];
+static int g_psram_font_count = 0;
+
+// 当前激活的字体
+const FullFontData* g_current_psram_font = nullptr;
+
+/**
+ * @brief 从SD卡加载完整字体文件到PSRAM
+ */
+bool loadFullFontToPSRAM(FullFontData* font_data, const char* file_path) {
+    if (!font_data || !file_path) {
+        ESP_LOGE(TAG, "loadFullFontToPSRAM: 无效参数");
+        return false;
+    }
+    
+    // 检查 PSRAM 是否可用
+    #if CONFIG_ESP32S3_SPIRAM_SUPPORT || CONFIG_SPIRAM
+    if (!esp_spiram_is_initialized()) {
+        ESP_LOGE(TAG, "PSRAM 未初始化");
+        return false;
+    }
+    #else
+    ESP_LOGE(TAG, "PSRAM 支持未启用");
+    return false;
+    #endif
+    
+    // 打开字体文件
+    FILE* fp = fopen(file_path, "rb");
+    if (!fp) {
+        ESP_LOGE(TAG, "无法打开字体文件: %s", file_path);
+        return false;
+    }
+    
+    // 获取文件大小
+    fseek(fp, 0, SEEK_END);
+    size_t file_size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    
+    ESP_LOGI(TAG, "字体文件 %s 大小: %u 字节 (%.2f MB)", file_path, file_size, file_size / 1024.0 / 1024.0);
+    
+    // 检查 PSRAM 剩余空间
+    size_t free_psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    ESP_LOGI(TAG, "PSRAM 可用空间: %u 字节 (%.2f MB)", free_psram, free_psram / 1024.0 / 1024.0);
+    
+    if (free_psram < file_size) {
+        ESP_LOGE(TAG, "PSRAM 空间不足! 需要 %u 字节, 可用 %u 字节", file_size, free_psram);
+        fclose(fp);
+        return false;
+    }
+    
+    // 从 PSRAM 分配内存
+    font_data->data = (uint8_t*)heap_caps_malloc(file_size, MALLOC_CAP_SPIRAM);
+    if (!font_data->data) {
+        ESP_LOGE(TAG, "PSRAM 分配失败");
+        fclose(fp);
+        return false;
+    }
+    
+    // 读取整个文件到 PSRAM
+    ESP_LOGI(TAG, "正在加载字体到 PSRAM...");
+    size_t read_size = fread(font_data->data, 1, file_size, fp);
+    fclose(fp);
+    
+    if (read_size != file_size) {
+        ESP_LOGE(TAG, "文件读取不完整: 读取 %u / %u 字节", read_size, file_size);
+        heap_caps_free(font_data->data);
+        font_data->data = nullptr;
+        return false;
+    }
+    
+    // 保存字体信息
+    font_data->size = file_size;
+    strncpy(font_data->file_path, file_path, sizeof(font_data->file_path) - 1);
+    font_data->is_loaded = true;
+    
+    // 从文件路径提取字体名称 (去掉路径和.bin扩展名)
+    const char* filename = strrchr(file_path, '/');
+    if (filename) {
+        filename++; // 跳过 '/'
+    } else {
+        filename = file_path;
+    }
+    strncpy(font_data->font_name, filename, sizeof(font_data->font_name) - 1);
+    font_data->font_name[sizeof(font_data->font_name) - 1] = '\0';
+    char* dot = strrchr(font_data->font_name, '.');
+    if (dot && strcmp(dot, ".bin") == 0) {
+        *dot = '\0';  // 去掉 .bin
+    }
+    
+    // 计算字符参数
+    int bytes_per_row = (font_data->font_size + 7) / 8;
+    font_data->glyph_size = bytes_per_row * font_data->font_size;
+    font_data->char_count = file_size / font_data->glyph_size;
+    
+    ESP_LOGI(TAG, "✅ 字体加载成功:");
+    ESP_LOGI(TAG, "   - 文件: %s", file_path);
+    ESP_LOGI(TAG, "   - 名称: %s", font_data->font_name);
+    ESP_LOGI(TAG, "   - 尺寸: %dx%d", font_data->font_size, font_data->font_size);
+    ESP_LOGI(TAG, "   - 字节/字符: %u", font_data->glyph_size);
+    ESP_LOGI(TAG, "   - 字符总数: %u", font_data->char_count);
+    ESP_LOGI(TAG, "   - 内存位置: PSRAM");
+    
+    return true;
+}
+
+/**
+ * @brief 从PSRAM字体中获取字符字模
+ */
+bool getCharGlyphFromPSRAM(const FullFontData* font_data, uint16_t unicode, uint8_t* out_buffer) {
+    if (!font_data || !font_data->is_loaded || !font_data->data || !out_buffer) {
+        return false;
+    }
+    
+    // 检查文件是否有 TTFG 文件头（TTF 转换工具生成的格式）
+    if (font_data->size > 12 && 
+        font_data->data[0] == 'T' && 
+        font_data->data[1] == 'T' &&
+        font_data->data[2] == 'F' && 
+        font_data->data[3] == 'G') {
+        
+        // 带文件头的格式，使用字形表查找
+        // 文件头格式:
+        // [0-3]   魔数 "TTFG"
+        // [4-5]   字体大小 (uint16_t little-endian)
+        // [6-7]   字形数量 (uint16_t little-endian)
+        // [8-11]  字形表大小 (uint32_t little-endian)
+        // [12+]   字形表 (每个12字节: code[4], offset[4], width[2], height[2])
+        
+        uint16_t glyph_count = (font_data->data[6]) | (font_data->data[7] << 8);
+        uint32_t glyph_table_size = (font_data->data[8]) | (font_data->data[9] << 8) |
+                                   (font_data->data[10] << 16) | (font_data->data[11] << 24);
+        
+        // 字形表起始位置
+        const uint8_t* glyph_table = font_data->data + 12;
+        
+        // 查找目标字符
+        for (int i = 0; i < glyph_count; i++) {
+            const uint8_t* entry = glyph_table + (i * 12);
+            
+            // 读取 Unicode 编码 (little-endian)
+            uint32_t code = entry[0] | (entry[1] << 8) | (entry[2] << 16) | (entry[3] << 24);
+            
+            if (code == unicode) {
+                // 找到了！读取位图偏移量
+                uint32_t bitmap_offset = entry[4] | (entry[5] << 8) | 
+                                        (entry[6] << 16) | (entry[7] << 24);
+                
+                // 计算位图在文件中的实际位置
+                uint32_t bitmap_pos = 12 + glyph_table_size + bitmap_offset;
+                
+                // 检查是否越界
+                if (bitmap_pos + font_data->glyph_size > font_data->size) {
+                    ESP_LOGW(TAG, "字符 U+%04X 位图数据越界", unicode);
+                    return false;
+                }
+                
+                // 复制字模数据
+                memcpy(out_buffer, font_data->data + bitmap_pos, font_data->glyph_size);
+                return true;
+            }
+        }
+        
+        // 未找到字符
+        return false;
+    }
+    
+    // ===== 无文件头的原始格式（旧格式，用于 fangsong 等字体）=====
+    uint32_t offset = 0;
+    
+    // 判断字符类型并计算偏移量
+    if (unicode >= 0x4E00 && unicode <= 0x9FA5) {
+        // 中文字符 (GB2312: 0x4E00-0x9FA5)
+        offset = (unicode - 0x4E00) * font_data->glyph_size;
+    } else if (unicode >= 0x20 && unicode <= 0x7E) {
+        // ASCII 可打印字符 (0x20-0x7E, 共95个字符)
+        offset = (unicode - 0x20) * font_data->glyph_size;
+    } else if (unicode >= 0x0250 && unicode <= 0x02AF) {
+        // IPA 国际音标扩展 (0x0250-0x02AF, 共96个字符)
+        // 存储在 ASCII 后面
+        offset = (95 + (unicode - 0x0250)) * font_data->glyph_size;
+    } else {
+        return false;
+    }
+    
+    // 检查是否越界
+    if (offset + font_data->glyph_size > font_data->size) {
+        return false;
+    }
+    
+    // 从 PSRAM 复制字模数据
+    memcpy(out_buffer, font_data->data + offset, font_data->glyph_size);
+    
+    return true;
+}
+
+/**
+ * @brief 根据字体大小查找PSRAM字体
+ */
+const FullFontData* findPSRAMFontBySize(int font_size) {
+    for (int i = 0; i < g_psram_font_count; i++) {
+        if (g_psram_fonts[i].is_loaded && g_psram_fonts[i].font_size == font_size) {
+            return &g_psram_fonts[i];
+        }
+    }
+    return nullptr;
+}
+
+/**
+ * @brief 根据字体名称查找PSRAM字体
+ */
+const FullFontData* findPSRAMFontByName(const char* font_name) {
+    if (!font_name) {
+        return nullptr;
+    }
+    
+    for (int i = 0; i < g_psram_font_count; i++) {
+        if (g_psram_fonts[i].is_loaded) {
+            if (strcmp(g_psram_fonts[i].font_name, font_name) == 0) {
+                return &g_psram_fonts[i];
+            }
+            if (strcasecmp(g_psram_fonts[i].font_name, font_name) == 0) {
+                return &g_psram_fonts[i];
+            }
+        }
+    }
+    return nullptr;
+}
+
+/**
+ * @brief 辅助函数实现
+ */
+int getFontSize(const FullFontData* font_data) {
+    if (!font_data || !font_data->is_loaded) return 0;
+    return font_data->font_size;
+}
+
+uint32_t getGlyphSize(const FullFontData* font_data) {
+    if (!font_data || !font_data->is_loaded) return 0;
+    return font_data->glyph_size;
+}
+
+const char* getFontName(const FullFontData* font_data) {
+    if (!font_data || !font_data->is_loaded) return nullptr;
+    return font_data->font_name;
+}
+
+/**
+ * @brief 根据索引获取PSRAM字体
+ */
+const FullFontData* getPSRAMFontByIndex(int index) {
+    if (index < 0 || index >= g_psram_font_count) {
+        return nullptr;
+    }
+    if (g_psram_fonts[index].is_loaded) {
+        return &g_psram_fonts[index];
+    }
+    return nullptr;
+}
+
+/**
+ * @brief 从文件名解析字体尺寸
+ */
+int parseFontSizeFromFilename(const char* filename) {
+    const char* p = strstr(filename, "x");
+    if (p && p > filename) {
+        const char* start = p - 1;
+        while (start > filename && isdigit(*(start - 1))) {
+            start--;
+        }
+        int first_size = atoi(start);
+        int second_size = atoi(p + 1);
+        if (first_size == second_size && first_size > 0 && first_size <= 64) {
+            return first_size;
+        }
+    }
+    return 0;
+}
+
+/**
+ * @brief 判断字体文件是否需要加载到 PSRAM
+ */
+bool shouldLoadToPSRAM(const char* filename) {
+    // 默认情况下 fangsong 字体也加载到 PSRAM (全量加载方案)
+    // 如果内存受限，可以选择性注释掉某些字体
+    
+    // fangsong 字体加载到 PSRAM (推荐 - 性能最佳)
+    if (strstr(filename, "fangsong") || strstr(filename, "fang_song")) {
+        return true;  // 改为 true, 启用全量加载
+    }
+    
+    // comic_sans_ms 系列加载到 PSRAM
+    if (strstr(filename, "comic_sans")) {
+        return true;
+    }
+    
+    // 其他包含 "bold" 的字体加载到 PSRAM
+    if (strstr(filename, "bold")) {
+        return true;
+    }
+    
+    return false;
+}
+
+/**
+ * @brief 扫描SD卡并加载字体到PSRAM
+ */
+int initFullFontsInPSRAM(bool load_all_fonts) {
+    ESP_LOGI(TAG, "========== 开始扫描 SD 卡字体文件 ==========");
+    ESP_LOGI(TAG, "模式: %s", load_all_fonts ? "加载所有字体(包括fangsong)" : "只加载非fangsong字体");
+    
+    DIR* dir = opendir("/sd");
+    if (!dir) {
+        ESP_LOGE(TAG, "无法打开 SD 卡目录");
+        return 0;
+    }
+    
+    struct dirent* entry;
+    int loaded_count = 0;
+    int scanned_count = 0;
+    
+    struct FontFileInfo {
+        char path[64];
+        int size;
+        bool is_fangsong;  // 新增：标记是否为 fangsong
+    };
+    
+    FontFileInfo font_files[MAX_PSRAM_FONTS];
+    int font_file_count = 0;
+    
+    while ((entry = readdir(dir)) != NULL && font_file_count < MAX_PSRAM_FONTS) {
+        if (entry->d_type == DT_DIR) continue;
+        
+        const char* name = entry->d_name;
+        size_t len = strlen(name);
+        if (len < 4 || strcmp(name + len - 4, ".bin") != 0) continue;
+        
+        scanned_count++;
+        
+        int font_size = parseFontSizeFromFilename(name);
+        if (font_size == 0) {
+            ESP_LOGD(TAG, "跳过 (无法识别尺寸): %s", name);
+            continue;
+        }
+        
+        bool should_load = shouldLoadToPSRAM(name);
+        bool is_fangsong = (strstr(name, "fangsong") != nullptr || strstr(name, "fang_song") != nullptr);
+        
+        // 如果 load_all_fonts=false, 跳过 fangsong
+        if (!load_all_fonts && is_fangsong) {
+            ESP_LOGI(TAG, "跳过 (使用缓存系统): %s", name);
+            continue;
+        }
+        
+        if (!should_load) {
+            ESP_LOGI(TAG, "跳过 (不符合加载条件): %s", name);
+            continue;
+        }
+        
+        if (strlen(name) > 58) {
+            ESP_LOGW(TAG, "字体文件名过长，跳过: %s", name);
+            continue;
+        }
+        
+        #pragma GCC diagnostic push
+        #pragma GCC diagnostic ignored "-Wformat-truncation"
+        snprintf(font_files[font_file_count].path, sizeof(font_files[0].path), "/sd/%s", name);
+        #pragma GCC diagnostic pop
+        font_files[font_file_count].size = font_size;
+        font_files[font_file_count].is_fangsong = is_fangsong;
+        font_file_count++;
+        
+        ESP_LOGI(TAG, "发现字体: %s (%dx%d) → PSRAM %s", name, font_size, font_size,
+                 is_fangsong ? "[中文]" : "[英文]");
+    }
+    
+    closedir(dir);
+    
+    ESP_LOGI(TAG, "扫描完成: 共扫描 %d 个 .bin 文件, 发现 %d 个需要加载到 PSRAM", 
+             scanned_count, font_file_count);
+    
+    if (font_file_count == 0) {
+        ESP_LOGW(TAG, "没有找到需要加载到 PSRAM 的字体文件");
+        return 0;
+    }
+    
+    // ===== 优化：fangsong 优先加载 (大字库优先) =====
+    // 对字体文件排序：fangsong 排在前面
+    for (int i = 0; i < font_file_count - 1; i++) {
+        for (int j = i + 1; j < font_file_count; j++) {
+            if (!font_files[i].is_fangsong && font_files[j].is_fangsong) {
+                // 交换位置：把 fangsong 移到前面
+                FontFileInfo temp = font_files[i];
+                font_files[i] = font_files[j];
+                font_files[j] = temp;
+            }
+        }
+    }
+    
+    int fonts_to_load = (font_file_count > MAX_PSRAM_FONTS) ? MAX_PSRAM_FONTS : font_file_count;
+    
+    ESP_LOGI(TAG, "========== 开始加载字体到 PSRAM (最多%d个) ==========", fonts_to_load);
+    ESP_LOGI(TAG, "加载顺序: fangsong 优先, 然后是其他字体");
+    
+    for (int i = 0; i < fonts_to_load; i++) {
+        FullFontData* target = &g_psram_fonts[i];
+        
+        target->data = nullptr;
+        target->size = 0;
+        target->font_size = font_files[i].size;
+        target->glyph_size = 0;
+        target->char_count = 0;
+        target->is_loaded = false;
+        memset(target->file_path, 0, sizeof(target->file_path));
+        memset(target->font_name, 0, sizeof(target->font_name));
+        
+        ESP_LOGI(TAG, "[%d/%d] 正在加载: %s %s...", 
+                 i+1, fonts_to_load, font_files[i].path,
+                 font_files[i].is_fangsong ? "[中文字库]" : "[英文字体]");
+        
+        if (loadFullFontToPSRAM(target, font_files[i].path)) {
+            loaded_count++;
+            g_psram_font_count++;
+        } else {
+            ESP_LOGW(TAG, "❌ 加载失败: %s", font_files[i].path);
+        }
+    }
+    
+    ESP_LOGI(TAG, "========== PSRAM 字体加载完成: %d/%d ==========", loaded_count, fonts_to_load);
+    
+    #if CONFIG_ESP32S3_SPIRAM_SUPPORT || CONFIG_SPIRAM
+    size_t free_psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    size_t total_psram = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
+    size_t used_psram = total_psram - free_psram;
+    ESP_LOGI(TAG, "PSRAM 使用情况: %u / %u 字节 (%.1f%%)", 
+             used_psram, total_psram, (float)used_psram / total_psram * 100.0f);
+    #endif
+    
+    return loaded_count;
+}
+
+/**
+ * @brief 释放所有PSRAM字体
+ */
+void freeAllPSRAMFonts() {
+    for (int i = 0; i < MAX_PSRAM_FONTS; i++) {
+        if (g_psram_fonts[i].data) {
+            heap_caps_free(g_psram_fonts[i].data);
+            g_psram_fonts[i].data = nullptr;
+            g_psram_fonts[i].is_loaded = false;
+        }
+    }
+    g_psram_font_count = 0;
+    g_current_psram_font = nullptr;
+    ESP_LOGI(TAG, "所有 PSRAM 字体已释放");
+}
+
+/**
+ * @brief 获取PSRAM字体数量
+ */
+int getPSRAMFontCount() {
+    return g_psram_font_count;
+}
+
+/**
+ * @brief 直接加载指定字体文件到PSRAM (用于fangsong等大字库)
+ */
+bool loadSpecificFontToPSRAM(const char* file_path, int font_size) {
+    if (!file_path || g_psram_font_count >= MAX_PSRAM_FONTS) {
+        ESP_LOGE(TAG, "无法加载字体: 参数无效或PSRAM字体槽已满 (%d/%d)", 
+                 g_psram_font_count, MAX_PSRAM_FONTS);
+        return false;
+    }
+    
+    FullFontData* target = &g_psram_fonts[g_psram_font_count];
+    
+    target->data = nullptr;
+    target->size = 0;
+    target->font_size = font_size;
+    target->glyph_size = 0;
+    target->char_count = 0;
+    target->is_loaded = false;
+    memset(target->file_path, 0, sizeof(target->file_path));
+    memset(target->font_name, 0, sizeof(target->font_name));
+    
+    if (loadFullFontToPSRAM(target, file_path)) {
+        g_psram_font_count++;
+        ESP_LOGI(TAG, "✅ 字体已加载到 PSRAM 槽位 #%d", g_psram_font_count - 1);
+        return true;
+    } else {
+        ESP_LOGE(TAG, "❌ 字体加载失败: %s", file_path);
+        return false;
+    }
 }

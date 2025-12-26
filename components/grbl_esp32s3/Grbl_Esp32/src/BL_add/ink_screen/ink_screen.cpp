@@ -10,6 +10,10 @@
 #include <SPI.h>
 #include "../../grbl_esp32s3/Grbl_Esp32/src/Machines/inkScreen.h"
 #include "image_loader.h"          // SD卡图片加载器
+#include "chinese_text_display_impl.h"  // 中文字库支持
+#include "chinese_font_cache.h"    // 中文字库缓存系统
+#include "word_book.h"             // 单词本缓存系统
+
 extern "C" {
 #include "./Pic.h"
 }
@@ -72,8 +76,7 @@ static char lastDisplayedText[256] = {0};
 static esp_timer_handle_t sleep_timer;
 static bool is_sleep_mode = false;
 static uint32_t last_activity_time = 0;
-// 休眠模式显示的数据
-static bool has_sleep_data = false;
+// 注意：has_sleep_data 已在 word_book.h 中声明为 extern，这里不再重复声明
 InkScreenSize setInkScreenSize;
 TimerHandle_t inkScreenDebounceTimer = NULL;
 uint8_t interfaceIndex = 1;  // 界面索引，已删除的测试变量但代码中仍然使用
@@ -862,7 +865,230 @@ void clearRectTexts(RectInfo* rect) {
     rect->text_count = 0;
 }
 
-
+// ================= IPA 国际音标测试函数 =================
+/**
+ * @brief 测试国际音标(IPA)字体显示
+ * 
+ * 测试说明:
+ * - 字体文件: comic_sans_ms_bold_phonetic_20x20.bin
+ * - 字符范围: ASCII (0x20-0x7E, 95字符) + IPA (0x0250-0x02AF, 96字符)
+ * - 总字符数: 191个字符
+ * 
+ * IPA音标示例:
+ * - ə (schwa, U+0259)
+ * - ʃ (esh, U+0283)  
+ * - ʒ (ezh, U+0292)
+ * - θ (theta, U+03B8)
+ * - ð (eth, U+00F0)
+ * - ŋ (eng, U+014B)
+ */
+void test_ipa_phonetic_font()
+{
+    ESP_LOGI(TAG, "=== 开始测试 IPA 国际音标字体 ===");
+    
+    // 先列出所有已加载的PSRAM字体
+    int font_count = getPSRAMFontCount();
+    ESP_LOGI(TAG, "当前已加载 %d 个PSRAM字体:", font_count);
+    for (int i = 0; i < font_count; i++) {
+        const FullFontData* loaded_font = getPSRAMFontByIndex(i);
+        if (loaded_font) {
+            ESP_LOGI(TAG, "  [%d] %s (%dx%d)", i, getFontName(loaded_font), 
+                     getFontSize(loaded_font), getFontSize(loaded_font));
+        }
+    }
+    
+    // 1. 切换到音标字体 (注意文件名有空格)
+    const char* font_name = "comic_sans_ms_phonetic_20x20";  // 注意 phonetic 后有空格
+    ESP_LOGI(TAG, "尝试切换到字体: '%s'", font_name);
+    
+    const FullFontData* font = findPSRAMFontByName(font_name);
+    if (!font) {
+        ESP_LOGE(TAG, "未找到字体: %s", font_name);
+        ESP_LOGE(TAG, "请确认SD卡中存在文件: %s.bin", font_name);
+        ESP_LOGE(TAG, "或者该字体未被加载到PSRAM (可能被shouldLoadToPSRAM()过滤)");
+        return;
+    }
+    
+    g_current_psram_font = font;
+    ESP_LOGI(TAG, "✅ 成功切换到字体: %s", getFontName(font));
+    ESP_LOGI(TAG, "   字体大小: %dx%d", getFontSize(font), getFontSize(font));
+    ESP_LOGI(TAG, "   字模大小: %u 字节", getGlyphSize(font));
+    ESP_LOGI(TAG, "   字符总数: %u", font->char_count);
+    ESP_LOGI(TAG, "   文件大小: %u 字节", font->size);
+    
+    // 验证字符范围计算
+    ESP_LOGI(TAG, "字符范围验证:");
+    ESP_LOGI(TAG, "   ASCII: 0x20-0x7E (95字符) -> 偏移 0-%u", 95 * getGlyphSize(font) - 1);
+    ESP_LOGI(TAG, "   IPA: 0x0250-0x02AF (96字符) -> 偏移 %u-%u", 
+             95 * getGlyphSize(font), 191 * getGlyphSize(font) - 1);
+    
+    // 直接检查PSRAM中IPA字符区域的数据
+    ESP_LOGI(TAG, "检查PSRAM中IPA区域数据:");
+    uint32_t ipa_start_offset = 95 * getGlyphSize(font);  // IPA区域起始偏移
+    int non_zero_glyphs = 0;
+    for (int i = 0; i < 10; i++) {  // 检查前10个IPA字符
+        uint32_t offset = ipa_start_offset + i * getGlyphSize(font);
+        bool has_data = false;
+        for (uint32_t j = 0; j < getGlyphSize(font); j++) {
+            if (font->data[offset + j] != 0) {
+                has_data = true;
+                break;
+            }
+        }
+        if (has_data) non_zero_glyphs++;
+    }
+    ESP_LOGI(TAG, "   前10个IPA字符中有 %d 个非空字模", non_zero_glyphs);
+    
+    if (non_zero_glyphs == 0) {
+        ESP_LOGE(TAG, "❌ 严重警告: 字体文件的IPA区域全部为空!");
+        ESP_LOGE(TAG, "   原因: Comic Sans MS Bold 字体不包含IPA扩展字符");
+        ESP_LOGE(TAG, "   解决: 需要使用支持IPA的字体,如:");
+        ESP_LOGE(TAG, "   - Noto Sans (推荐)");
+        ESP_LOGE(TAG, "   - DejaVu Sans");
+        ESP_LOGE(TAG, "   - Gentium Plus");
+    }
+    
+    int font_size = getFontSize(font);
+    uint32_t glyph_size = getGlyphSize(font);
+    
+    // 分配字模缓冲区
+    uint8_t* glyph_buffer = (uint8_t*)malloc(glyph_size);
+    if (!glyph_buffer) {
+        ESP_LOGE(TAG, "无法分配字模缓冲区");
+        return;
+    }
+    
+    // 2. 清屏准备显示
+    display.setFullWindow();
+    display.firstPage();
+    
+    do {
+        display.fillScreen(GxEPD_WHITE);
+        display.setTextColor(GxEPD_BLACK);
+        
+        int x = 10;
+        int y = 10;
+        
+        // === 显示标题 "IPA Test" ===
+        const char* title = "IPA Test";
+        for (int i = 0; title[i] != '\0'; i++) {
+            uint16_t unicode = (uint16_t)title[i];
+            if (getCharGlyphFromPSRAM(font, unicode, glyph_buffer)) {
+                display.drawBitmap(x, y, glyph_buffer, font_size, font_size, GxEPD_BLACK);
+                x += font_size;
+            }
+        }
+        
+        // === 显示 ASCII "Hello!" ===
+        x = 10;
+        y += font_size + 5;
+        const char* ascii_text = "Hello!";
+        for (int i = 0; ascii_text[i] != '\0'; i++) {
+            uint16_t unicode = (uint16_t)ascii_text[i];
+            if (getCharGlyphFromPSRAM(font, unicode, glyph_buffer)) {
+                display.drawBitmap(x, y, glyph_buffer, font_size, font_size, GxEPD_BLACK);
+                x += font_size;
+            }
+        }
+        
+        // === 显示 IPA 音标 ===
+        // schwa ə (U+0259)
+        x = 10;
+        y += font_size + 5;
+        
+        // 测试每个IPA字符
+        ESP_LOGI(TAG, "开始测试IPA字符:");
+        
+        const uint16_t ipa_chars[] = {
+            0x0259,  // ə schwa
+            0x0020,  // space
+            0x0283,  // ʃ esh
+            0x0020,  // space
+            0x0292,  // ʒ ezh
+            0x0020,  // space
+            0x03B8,  // θ theta (不在IPA范围,可能不显示)
+            0x0000   // 结束符
+        };
+        
+        for (int i = 0; ipa_chars[i] != 0; i++) {
+            uint16_t unicode = ipa_chars[i];
+            bool got_glyph = getCharGlyphFromPSRAM(font, unicode, glyph_buffer);
+            
+            ESP_LOGI(TAG, "  字符 U+%04X: %s", unicode, got_glyph ? "找到" : "未找到");
+            
+            if (got_glyph) {
+                // 检查字模是否全为0
+                bool all_zero = true;
+                int non_zero_count = 0;
+                for (uint32_t j = 0; j < glyph_size; j++) {
+                    if (glyph_buffer[j] != 0) {
+                        all_zero = false;
+                        non_zero_count++;
+                    }
+                }
+                
+                if (all_zero) {
+                    ESP_LOGW(TAG, "    ❌ 警告: 字模数据全为0 (字体文件中该字符为空白)");
+                } else {
+                    ESP_LOGI(TAG, "    ✅ 字模数据正常 (非零字节数: %d/%u, 前4字节: %02X %02X %02X %02X)", 
+                             non_zero_count, glyph_size,
+                             glyph_buffer[0], glyph_buffer[1], glyph_buffer[2], glyph_buffer[3]);
+                }
+                
+                display.drawBitmap(x, y, glyph_buffer, font_size, font_size, GxEPD_BLACK);
+                x += font_size;
+            } else {
+                ESP_LOGW(TAG, "    字符不在字体中");
+            }
+        }
+        
+        // === 显示更多IPA ===
+        x = 10;
+        y += font_size + 5;
+        const uint16_t ipa_chars2[] = {
+            0x0250,  // ɐ turned a
+            0x0020,  // space
+            0x0251,  // ɑ alpha
+            0x0020,  // space  
+            0x0252,  // ɒ turned alpha
+            0x0020,  // space
+            0x0254,  // ɔ open o
+            0x0000   // 结束符
+        };
+        
+        for (int i = 0; ipa_chars2[i] != 0; i++) {
+            if (getCharGlyphFromPSRAM(font, ipa_chars2[i], glyph_buffer)) {
+                display.drawBitmap(x, y, glyph_buffer, font_size, font_size, GxEPD_BLACK);
+                x += font_size;
+            }
+        }
+        
+        // === 显示字体信息 ===
+        x = 10;
+        y += font_size + 10;
+        char info_text[32];
+        snprintf(info_text, sizeof(info_text), "Font:%dx%d", font_size, font_size);
+        for (int i = 0; info_text[i] != '\0'; i++) {
+            uint16_t unicode = (uint16_t)info_text[i];
+            if (getCharGlyphFromPSRAM(font, unicode, glyph_buffer)) {
+                display.drawBitmap(x, y, glyph_buffer, font_size, font_size, GxEPD_BLACK);
+                x += font_size;
+            }
+        }
+        
+    } while (display.nextPage());
+    
+    free(glyph_buffer);
+    
+    ESP_LOGI(TAG, "=== IPA 音标字体测试完成 ===");
+    ESP_LOGI(TAG, "如果音标显示不正确，请检查:");
+    ESP_LOGI(TAG, "1. SD卡中是否有 %s.bin 文件", font_name);
+    ESP_LOGI(TAG, "2. 字体文件是否包含 IPA 字符范围 (0x0250-0x02AF)");
+    ESP_LOGI(TAG, "3. 字体生成时是否使用了 char_range='english_ipa' 参数");
+    
+    vTaskDelay(5000 / portTICK_PERIOD_MS);
+    display.hibernate();
+}
 // 显示主界面（使用已填充的图标数据）
 void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, int show_border) {
     // 计算缩放比例
@@ -994,7 +1220,7 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
                     }
                 }
             }
-            
+            switchToPSRAMFont("comic_sans_ms_v3_20x20");
             // 显示该矩形内的所有动态文本组（text_roll）
             if (rect->text_roll_count > 0) {
                 for (int j = 0; j < rect->text_roll_count; j++) {
@@ -1018,12 +1244,9 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
                         ESP_LOGI("MAIN", "  显示动态文本: 位置(%d,%d) 内容[%s]", 
                                 scaled_x, scaled_y, current_text);
                         
-                        // 注意：GXEPD2的文本显示需要设置光标和字体
-                        display.setCursor(scaled_x, scaled_y);
-                        display.setFont();  // 使用默认字体
-                        display.setTextColor(GxEPD_BLACK);
-                        display.print(current_text);
-                        ESP_LOGI("TEXT_DISPLAY", "文本已显示: (%d,%d) \"%s\"", scaled_x, scaled_y, current_text);
+                        ESP_LOGI("TEXT_DISPLAY", "准备显示文本: (%d,%d) \"%s\"", scaled_x, scaled_y, current_text);
+                        drawEnglishText(display, scaled_x, scaled_y, current_text, GxEPD_BLACK);
+                        ESP_LOGI("TEXT_DISPLAY", "文本已显示(使用中文字库): (%d,%d) \"%s\"", scaled_x, scaled_y, current_text);
                     } else {
                         ESP_LOGW("MAIN", "  动态文本内容错误或为空，跳过");
                     }
@@ -1070,9 +1293,74 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
         }
     }
     //   displayImageFromSD("/test.bin",0,0,display);
-    displayImageFromSPIFFS("/book.bin", 0, 0, display);
+    //displayImageFromSPIFFS("/book.bin", 0, 0, display);
+    
+   // ===== 测试1: 使用20x20缓存字库显示中文文本 =====
+        // 使用常用字列表中确定存在的字符进行测试
+        // ESP_LOGI(TAG, "测试中文字体显示(20x20)...");
+        // // 切换到中文仿宋字体
+        // if (switchToPSRAMFont("fangsong_gb2312_20x20")) {
+        //     drawChineseTextWithCache(display, 10, 10, "的一是了我不人在", GxEPD_BLACK);
+        //     drawChineseTextWithCache(display, 10, 40, "他有这个上中大到", GxEPD_BLACK);
+        //     drawChineseTextWithCache(display, 10, 70, "说你为子和也得会", GxEPD_BLACK);
+        // }
+        
+        // // ===== 测试1.5: Comic Sans PSRAM 英文字体测试 (使用字体名称切换) =====
+        // ESP_LOGI(TAG, "测试Comic Sans英文字体显示(从PSRAM)...");
+        // // 切换到 Comic Sans 20x20 字体
+        // if (switchToPSRAMFont("comic_sans_ms_v3_20x20")) {
+        //     drawEnglishText(display, 10, 110, "Hello World!", GxEPD_BLACK);
+        //     drawEnglishText(display, 10, 140, "ABC abc 123", GxEPD_BLACK);
+        //     drawEnglishText(display, 10, 170, "Test PSRAM", GxEPD_BLACK);
+        // }
+        
+        // // ===== 测试2: 中英文混合显示 =====
+        // ESP_LOGI(TAG, "测试中英文混合显示...");
+        // // 切换回中文字体
+        // if (switchToPSRAMFont("fangsong_gb2312_20x20")) {
+        //     drawChineseTextWithCache(display, 10, 210, "世界", GxEPD_BLACK);
+        // }
+        
+        // // ===== 测试3: 32x32字体测试 =====
+        // ESP_LOGI(TAG, "测试32x32字体显示...");
+        // //drawChineseTextWithCache(display, 10, 240, "大字测试", GxEPD_BLACK, 28);    // 28x28中文
+        // if (switchToPSRAMFont("comic_sans_ms_bold_32x32")) {
+        //     drawEnglishText(display, 10 + 150, 210, "BIG", GxEPD_BLACK);           // 28x28英文 Bold
+        // }
+        // test_ipa_phonetic_font();
+
     // 执行单次刷新
     display.nextPage();
+    
+    // ===== 测试4: 单词本显示测试 =====
+    // 注释掉上面的测试，取消注释下面的代码来测试单词本显示
+    
+    ESP_LOGI(TAG, "========== 单词本显示测试 ==========");
+    
+    // 1. 初始化单词本缓存（从SD卡加载）
+    if (initWordBookCache("/ecdict.mini.csv")) {
+        ESP_LOGI(TAG, "✅ 单词本缓存初始化成功");
+        
+        // 2. 在墨水屏上显示3个单词（含完整信息：单词、词性、音标、翻译）
+        // 注意：每个单词约占60-70px高度，建议显示3-4个
+        testDisplayWordsOnScreen(display, 3);
+        
+        // 可选：打印到串口查看详细信息
+        // printWordsFromCache(3);
+    } else {
+        ESP_LOGE(TAG, "❌ 单词本缓存初始化失败");
+        
+        // 显示错误信息
+        display.setFullWindow();
+        display.firstPage();
+        do {
+            if (switchToPSRAMFont("fangsong_gb2312_20x20")) {
+                drawChineseTextWithCache(display, 10, 10, "错误：", GxEPD_BLACK);
+                drawChineseTextWithCache(display, 10, 40, "无法加载单词本", GxEPD_BLACK);
+            }
+        } while (display.nextPage());
+    }
+    
     
     // 等待屏幕完成刷新
     vTaskDelay(100 / portTICK_PERIOD_MS);
@@ -2038,6 +2326,50 @@ void ink_screen_init()
     } else {
         ESP_LOGI(TAG, "✅ SD 卡初始化成功");
     }
+
+    // ===== 加载字体到 PSRAM (全量加载方案 - 包括 fangsong) =====
+    ESP_LOGI(TAG, "========== 步骤 1: 加载完整字体到 PSRAM (包括fangsong) ==========");
+    
+    // 方案 A: 全自动扫描加载（包括 fangsong）
+    int psram_fonts_loaded = initFullFontsInPSRAM(true);  // true = 加载所有字体包括fangsong
+    
+    // 方案 B: 手动加载特定 fangsong 字体（可选，如果方案A失败）
+    // if (psram_fonts_loaded == 0) {
+    //     ESP_LOGW(TAG, "自动扫描失败，尝试手动加载 fangsong...");
+    //     if (loadSpecificFontToPSRAM("/sd/fangsong_gb2312_20x20.bin", 20)) {
+    //         psram_fonts_loaded++;
+    //         ESP_LOGI(TAG, "✅ 手动加载 fangsong 20x20 成功");
+    //     }
+    // }
+    
+    if (psram_fonts_loaded > 0) {
+        ESP_LOGI(TAG, "✅ 成功加载 %d 个字体到 PSRAM", psram_fonts_loaded);
+        
+        // 打印已加载的字体列表
+        ESP_LOGI(TAG, "已加载的 PSRAM 字体列表:");
+        for (int i = 0; i < getPSRAMFontCount(); i++) {
+            const FullFontData* font = getPSRAMFontByIndex(i);
+            if (font && font->is_loaded) {
+                ESP_LOGI(TAG, "  [%d] %s (%dx%d, %.2f KB)", 
+                         i, font->font_name, font->font_size, font->font_size,
+                         font->size / 1024.0);
+            }
+        }
+    } else {
+        ESP_LOGW(TAG, "⚠️ 未加载任何字体到 PSRAM");
+    }
+    
+     // 3. 初始化单词本缓存
+    if (initWordBookCache("/ecdict.mini.csv")) {
+        ESP_LOGI("TEST", "缓存初始化成功");
+        
+        // 2. 读取并打印前10个单词
+        printWordsFromCache(8);
+        
+        // 3. 继续读取下10个单词
+      //  printWordsFromCache(10);
+    }
+
     // ===== 步骤 1: 初始化墨水屏专用的 SPI3 (HSPI) =====
     ESP_LOGI(TAG, "初始化墨水屏专用 SPI3 (SCK=48, MOSI=47)...");
     // 注意: EPD_SPI 是全局变量，在文件顶部定义

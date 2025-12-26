@@ -1,304 +1,380 @@
-// #include "word_book.h"
-// #include <FS.h>
-// #include "../../Grbl.h"
-// WordEntry entry;
-// // 休眠模式显示的数据
-//  WordEntry sleep_mode_entry;
-//  bool has_sleep_data = false;
-// static const char *TAG = "word_book.cpp";
+#include "word_book.h"
+#include <FS.h>
+#include "esp_heap_caps.h"
+#include "../../Grbl.h"
 
-// void safeDisplayWordEntry(const WordEntry& entry, uint16_t x, uint16_t y) {
-//     // ESP_LOGI("DISPLAY", "Start displaying word entry...");
-    
-//     // if(entry.word.length() == 0) {
-//     //     ESP_LOGE("DISPLAY", "Word field is empty");
-//     //     return;
-//     // }
-    
-//     // uint16_t current_y = y;
-//     // uint16_t line_height_word = 30;    // 单词和音标行高
-//     // uint16_t line_height_text = 20;    // 句子和翻译行高
-//     // uint16_t screen_width = 416;
-//     // uint16_t right_margin = 10;
-//     // uint16_t max_word_width = screen_width - x - right_margin;
+WordEntry entry;
+// 休眠模式显示的数据
+WordEntry sleep_mode_entry;
+bool has_sleep_data = false;
+static const char *TAG = "word_book.cpp";
 
-//     // // 第一行：单词（支持自动换行）
-//     // ESP_LOGI("DISPLAY", "Display the word: %s", entry.word.c_str());
+// 全局单词本缓存实例
+WordBookCache g_wordbook_cache;
+
+// ============ WordBookCache 类实现 ============
+
+WordBookCache::WordBookCache() 
+    : cache_(nullptr)
+    , cache_size_(0)
+    , current_line_(1)  // 从第1行开始（跳过标题行）
+    , current_index_(0)
+    , total_lines_(0)
+    , is_initialized_(false)
+    , csv_file_path_("")
+{
+}
+
+WordBookCache::~WordBookCache() {
+    if (cache_) {
+        // 释放PSRAM内存
+        heap_caps_free(cache_);
+        cache_ = nullptr;
+    }
+}
+
+bool WordBookCache::init(const char* csv_path, int cache_size) {
+    if (is_initialized_) {
+        ESP_LOGW(TAG, "单词本缓存已初始化");
+        return true;
+    }
     
-//     // // 计算单词是否需要换行
-//     // uint16_t word_width = calculateTextWidth(entry.word.c_str(), 24);
-//     // esp_task_wdt_reset();
+    if (!csv_path || cache_size <= 0) {
+        ESP_LOGE(TAG, "无效参数");
+        return false;
+    }
     
-//     // if (word_width <= max_word_width) {
-//     //     // 单词可以在一行显示
-//     //     updateDisplayWithString(x, current_y, (uint8_t*)entry.word.c_str(), 24, BLACK);
-//     //     current_y += line_height_word;  // 移动到下一行
-//     // } else {
-//     //     // 单词需要换行显示
-//     //     current_y = displayEnglishWrapped(x, current_y, entry.word.c_str(), 24, BLACK, 
-//     //                                     max_word_width, line_height_word);
-//     //     // displayEnglishWrapped 返回最后一行文本的底部Y坐标
-//     //     // 不需要再额外增加行高
-//     // }
+    csv_file_path_ = String(csv_path);
+    cache_size_ = cache_size;
     
-//     // // 音标处理
-//     // if(entry.phonetic.length() > 0) {
-//     //     esp_task_wdt_reset();
-//     //     String formattedPhonetic = formatPhonetic(entry.phonetic);
-//     //     uint16_t phonetic_width = calculateTextWidth(formattedPhonetic.c_str(), 24);
-//     //     uint16_t icon_width = 16;
-//     //     uint16_t icon_height = 16;
-//     //     uint16_t icon_offset_y = -16;  // 图标向上偏移16像素
+    // 检查文件是否存在并计算总行数
+    File file = SD.open(csv_path);
+    if (!file) {
+        ESP_LOGE(TAG, "无法打开CSV文件: %s", csv_path);
+        return false;
+    }
+    
+    total_lines_ = countLines(file);
+    file.close();
+    
+    if (total_lines_ <= 1) {
+        ESP_LOGE(TAG, "文件内容不足（总行数: %d）", total_lines_);
+        return false;
+    }
+    
+    ESP_LOGI(TAG, "CSV文件总行数: %d (包含标题行)", total_lines_);
+    
+    // 从PSRAM分配缓存内存
+    cache_ = (WordEntry*)heap_caps_malloc(cache_size_ * sizeof(WordEntry), MALLOC_CAP_SPIRAM);
+    if (!cache_) {
+        ESP_LOGE(TAG, "PSRAM内存分配失败 (%d 字节)", cache_size_ * sizeof(WordEntry));
+        return false;
+    }
+    
+    // 初始化缓存中的WordEntry对象
+    for (int i = 0; i < cache_size_; i++) {
+        new (&cache_[i]) WordEntry();
+    }
+    
+    ESP_LOGI(TAG, "✅ 单词本缓存初始化成功");
+    ESP_LOGI(TAG, "   - 文件路径: %s", csv_path);
+    ESP_LOGI(TAG, "   - 缓存大小: %d 条", cache_size_);
+    ESP_LOGI(TAG, "   - 内存占用: %d 字节 (PSRAM)", cache_size_ * sizeof(WordEntry));
+    ESP_LOGI(TAG, "   - 有效行数: %d 行", total_lines_ - 1);
+    
+    is_initialized_ = true;
+    
+    // 预加载第一批单词
+    return preloadNextBatch();
+}
+
+bool WordBookCache::preloadNextBatch() {
+    if (!is_initialized_ || !cache_) {
+        ESP_LOGE(TAG, "缓存未初始化");
+        return false;
+    }
+    
+    File file = SD.open(csv_file_path_.c_str());
+    if (!file) {
+        ESP_LOGE(TAG, "无法打开CSV文件");
+        return false;
+    }
+    
+    ESP_LOGI(TAG, "========== 开始预加载单词 ==========");
+    ESP_LOGI(TAG, "从第 %d 行开始加载 %d 条单词", current_line_, cache_size_);
+    
+    int loaded = 0;
+    file.seek(0);
+    int line_num = 0;
+    
+    // 跳过标题行和之前的行
+    while (file.available() && line_num < current_line_) {
+        file.readStringUntil('\n');
+        line_num++;
+    }
+    
+    // 加载指定数量的单词
+    while (file.available() && loaded < cache_size_) {
+        String line = file.readStringUntil('\n');
         
-//     //     // 计算可用空间和动态间距
-//     //     uint16_t available_space = screen_width - right_margin - (x + word_width);
-//     //     uint16_t min_spacing = 15;   // 最小间距
-//     //     uint16_t max_spacing = 80;  // 最大间距
-//     //     uint16_t spacing = min_spacing;
-        
-//     //     // 如果有充足空间，增加间距
-//     //     if (available_space > phonetic_width + icon_width + min_spacing + 20) {
-//     //         // 计算动态间距：可用空间的1/3，但不超出最大间距
-//     //         spacing = (available_space - phonetic_width - icon_width) / 3;
-//     //         if (spacing > max_spacing) {
-//     //             spacing = max_spacing;
-//     //         }
-//     //     }
-        
-//     //     ESP_LOGI("DISPLAY", "Word width: %d, Phonetic width: %d, Available space: %d, Used spacing: %d", 
-//     //             word_width, phonetic_width, available_space, spacing);
-        
-//     //     // 检查音标是否可以与单词同行显示（仅当单词没有换行时）
-//     //     bool word_fits_one_line = (word_width <= max_word_width);
-//     //     bool canDisplayInline = word_fits_one_line && 
-//     //                            (x + word_width + spacing + phonetic_width + icon_width) <= (screen_width - right_margin);
-        
-//     //     if (canDisplayInline) {
-//     //         // 同行显示音标（在单词右侧，使用动态间距）
-//     //         uint16_t phonetic_x = x + word_width + spacing;
+        if (line.length() > 0) {
+            parseCSVLine(line, cache_[loaded]);
             
-//     //         // 图标显示在音标正上方偏右
-//     //         uint16_t icon_x = phonetic_x + phonetic_width - icon_width + 2; // 偏右2像素
-//     //         uint16_t icon_y = y + icon_offset_y; // 向上偏移
+            ESP_LOGD(TAG, "[%d/%d] 加载: %s", loaded + 1, cache_size_, 
+                     cache_[loaded].word.c_str());
             
-//     //         EPD_ShowPicture(icon_x, icon_y, icon_width, icon_height, (uint8_t *)ZHONGJINGYUAN_3_7_HORN, BLACK);
-//     //         updateDisplayWithString(phonetic_x, y, (uint8_t*)formattedPhonetic.c_str(), 24, BLACK);
-//     //         // 音标与单词同行，Y坐标保持不变
+            loaded++;
+            current_line_++;
             
-//     //         ESP_LOGI("DISPLAY", "The phonetic transcription shows, spacing: %d", spacing);
-//     //     } else {
-//     //         // 换行显示音标 - 靠右显示，图标在音标正上方偏右
-//     //         uint16_t phonetic_x = screen_width - right_margin - phonetic_width;
-            
-//     //         // 图标显示在音标正上方偏右
-//     //         uint16_t icon_x = phonetic_x + phonetic_width - icon_width + 2; // 偏右2像素
-//     //         uint16_t icon_y = current_y + icon_offset_y; // 向上偏移
-            
-//     //         EPD_ShowPicture(icon_x, icon_y, icon_width, icon_height, (uint8_t *)ZHONGJINGYUAN_3_7_HORN, BLACK);
-//     //         updateDisplayWithString(phonetic_x, current_y, (uint8_t*)formattedPhonetic.c_str(), 24, BLACK);
-//     //         current_y += line_height_word;  // 移动到音标下方
-            
-//     //         ESP_LOGI("DISPLAY", "Phonetic wrapped display");
-//     //     }
-//     // } else {
-//     //     // 没有音标，确保Y坐标正确推进
-//     //     if (word_width <= max_word_width) {
-//     //         // 单词单行显示，Y坐标已经在上面推进过了
-//     //     } else {
-//     //         // 单词多行显示，current_y 已经在 displayEnglishWrapped 中正确设置
-//     //         // 但可能需要增加一些间距
-//     //         current_y += 5; // 增加小间距
-//     //     }
-//     // }
+            // 如果到达文件末尾，循环回到开头
+            if (current_line_ >= total_lines_) {
+                ESP_LOGI(TAG, "已到达文件末尾，循环回到第1行");
+                current_line_ = 1;  // 重新从第1行开始（跳过标题）
+                file.close();
+                file = SD.open(csv_file_path_.c_str());
+                if (!file) {
+                    ESP_LOGE(TAG, "重新打开文件失败");
+                    break;
+                }
+                
+                // 跳过标题行
+                if (file.available()) {
+                    file.readStringUntil('\n');
+                }
+            }
+        }
+    }
     
-//     // // 句子和翻译显示 - 确保有足够的间距
-//     // bool hasDefinition = entry.definition.length() > 0;
-//     // bool hasTranslation = entry.translation.length() > 0;
+    file.close();
     
-//     // // 在显示句子和翻译前增加间距
-//     // if (hasDefinition || hasTranslation) {
-//     //     current_y += 10; // 增加段落间距
-//     // }
+    // 重置缓存索引
+    current_index_ = 0;
     
-//     // esp_task_wdt_reset();
+    ESP_LOGI(TAG, "✅ 预加载完成: %d/%d 条单词", loaded, cache_size_);
+    ESP_LOGI(TAG, "   - 当前SD卡位置: 第 %d 行", current_line_);
+    ESP_LOGI(TAG, "========================================");
     
-//     // if(hasDefinition) {
-//     //     ESP_LOGI("DISPLAY", "Display sentence: %s", entry.definition.c_str());
+    return loaded > 0;
+}
+
+WordEntry* WordBookCache::getCurrentWord() {
+    if (!is_initialized_ || !cache_ || current_index_ < 0 || current_index_ >= cache_size_) {
+        return nullptr;
+    }
+    
+    return &cache_[current_index_];
+}
+
+bool WordBookCache::moveNext() {
+    if (!is_initialized_) {
+        return false;
+    }
+    
+    current_index_++;
+    
+    // 如果缓存已读完，预加载下一批
+    if (current_index_ >= cache_size_) {
+        ESP_LOGI(TAG, "缓存已读完，预加载下一批...");
+        return preloadNextBatch();
+    }
+    
+    return true;
+}
+
+void WordBookCache::reset() {
+    current_line_ = 1;  // 从第1行开始（跳过标题）
+    current_index_ = 0;
+    
+    if (is_initialized_) {
+        preloadNextBatch();
+    }
+}
+
+// ============ 便捷函数 ============
+
+bool initWordBookCache(const char* csv_path) {
+    return g_wordbook_cache.init(csv_path, WORDBOOK_PRELOAD_SIZE);
+}
+
+WordEntry* getNextWord() {
+    WordEntry* current = g_wordbook_cache.getCurrentWord();
+    if (current) {
+        g_wordbook_cache.moveNext();
+    }
+    return current;
+}
+
+// ============ WordBookCache 类的私有工具函数实现 ============
+
+int WordBookCache::countLines(File &file) {
+  int count = 0;
+  file.seek(0);
+  while (file.available()) {
+    if (file.read() == '\n') count++;
+  }
+  file.seek(0);
+  return count;
+}
+
+void WordBookCache::parseCSVLine(String line, WordEntry &entry) {
+  int fieldCount = 0;
+  String field = "";
+  bool inQuotes = false;
+  char lastChar = 0;
+  
+  for (int i = 0; i < line.length(); i++) {
+    char c = line[i];
+    
+    if (lastChar != '\\' && c == '"') {
+      inQuotes = !inQuotes;
+    } else if (c == ',' && !inQuotes) {
+      // 字段结束
+      assignField(fieldCount, field, entry);
+      field = "";
+      fieldCount++;
+    } else {
+      field += c;
+    }
+    lastChar = c;
+  }
+  
+  // 处理最后一个字段
+  if (fieldCount < 5) {
+    assignField(fieldCount, field, entry);
+  }
+}
+
+void WordBookCache::assignField(int fieldCount, String &field, WordEntry &entry) {
+  // 移除字段两端的引号（如果存在）
+  if (field.length() >= 2 && field[0] == '"' && field[field.length()-1] == '"') {
+    field = field.substring(1, field.length()-1);
+  }
+  
+  switch (fieldCount) {
+    case 0: entry.word = field; break;
+    case 1: entry.phonetic = field; break;
+    case 2: entry.definition = field; break;
+    case 3: 
+      // translation 字段：只保留前2个释义
+      entry.translation = extractFirstNMeanings(field, 2);
+      break;
+    case 4: entry.pos = field; break;
+  }
+}
+
+/**
+ * @brief 从翻译字段中提取前N个释义
+ * @param translation 完整的翻译文本（可能包含多行，用\n分隔）
+ * @param count 需要提取的释义数量
+ * @return 提取后的文本
+ */
+String WordBookCache::extractFirstNMeanings(const String& translation, int count) {
+  if (translation.length() == 0 || count <= 0) {
+    return "";
+  }
+  
+  String result = "";
+  int meaningCount = 0;
+  int startPos = 0;
+  
+  // 查找每一行（以\n分隔）
+  for (int i = 0; i < translation.length() && meaningCount < count; i++) {
+    if (translation[i] == '\n' || i == translation.length() - 1) {
+      // 提取一行
+      int endPos = (i == translation.length() - 1) ? i + 1 : i;
+      String line = translation.substring(startPos, endPos);
+      line.trim();  // 去除首尾空格
+      
+      // 只过滤掉空行，保留所有标记（包括 [网络]、[医]、[化] 等）
+      if (line.length() > 0) {
+        if (result.length() > 0) {
+          result += "\n";  // 添加换行符
+        }
+        result += line;
+        meaningCount++;
+      }
+      
+      startPos = i + 1;
+    }
+  }
+  
+  // 如果没有找到有效释义，返回原始文本的前部分
+  if (meaningCount == 0 && translation.length() > 0) {
+    int cutPos = translation.indexOf('\n');
+    if (cutPos > 0 && cutPos < 100) {
+      return translation.substring(0, cutPos);
+    } else if (translation.length() > 100) {
+      return translation.substring(0, 100) + "...";
+    } else {
+      return translation;
+    }
+  }
+  
+  return result;
+}
+
+// ============ 调试/测试函数 ============
+
+/**
+ * @brief 从缓存中读取指定数量的单词并打印到串口
+ * @param count 要读取的单词数量
+ */
+void printWordsFromCache(int count) {
+    ESP_LOGI(TAG, "========== 开始读取缓存单词 ==========");
+    
+    if (!g_wordbook_cache.isInitialized()) {
+        ESP_LOGE(TAG, "❌ 单词本缓存未初始化，请先调用 initWordBookCache()");
+        return;
+    }
+    
+    ESP_LOGI(TAG, "✅ 缓存已初始化");
+    ESP_LOGI(TAG, "   - 缓存大小: %d 条", g_wordbook_cache.getCacheSize());
+    ESP_LOGI(TAG, "   - 总行数: %d 行", g_wordbook_cache.getTotalLines());
+    ESP_LOGI(TAG, "   - 当前行号: %d", g_wordbook_cache.getCurrentLine());
+    ESP_LOGI(TAG, "");
+    
+    int success_count = 0;
+    
+    for (int i = 0; i < count; i++) {
+        WordEntry* word = getNextWord();
         
-//     //     // 英语句子按字符自动换行
-//     //     current_y = displayEnglishWrapped(x, current_y, entry.definition.c_str(), 16, BLACK, 
-//     //                                     screen_width - x - right_margin, line_height_text);
+        if (!word) {
+            ESP_LOGE(TAG, "❌ 获取第 %d 个单词失败", i + 1);
+            break;
+        }
         
-//     //     // 在句子和翻译之间增加间距
-//     //     if(hasTranslation) {
-//     //         current_y += 8;
-            
-//     //         ESP_LOGI("DISPLAY", "Display translation: %s", entry.translation.c_str());
-//     //         // 预处理翻译文本，转换中文标点
-//     //         String processedTranslation = convertChinesePunctuationsInString(entry.translation);
-//     //         // 翻译也支持自动换行
-//     //         current_y = displayWrappedText(x, current_y, processedTranslation.c_str(), 16, BLACK, 
-//     //                                  screen_width - x - right_margin, line_height_text);
-//     //     }
-//     // } else if(hasTranslation) {
-//     //     ESP_LOGI("DISPLAY", "Display translation: %s", entry.translation.c_str());
-//     //     // 预处理翻译文本，转换中文标点
-//     //     String processedTranslation = convertChinesePunctuationsInString(entry.translation);
-//     //     // 翻译支持自动换行
-//     //     current_y = displayWrappedText(x, current_y, processedTranslation.c_str(), 16, BLACK, 
-//     //                              screen_width - x - right_margin, line_height_text);
-//     // }
+        // 打印单词信息
+        ESP_LOGI(TAG, "━━━━━━━━━━━━━━ 单词 %d/%d ━━━━━━━━━━━━━━", i + 1, count);
+        ESP_LOGI(TAG, "📖 Word:       %s", word->word.c_str());
+        
+        if (word->phonetic.length() > 0) {
+            ESP_LOGI(TAG, "🔊 Phonetic:   /%s/", word->phonetic.c_str());
+        }
+        
+        if (word->definition.length() > 0) {
+            ESP_LOGI(TAG, "📝 Definition: %s", word->definition.c_str());
+        }
+        
+        if (word->translation.length() > 0) {
+            // 处理多行翻译
+            String trans = word->translation;
+            trans.replace("\n", " | ");  // 用 | 分隔多个释义
+            ESP_LOGI(TAG, "🇨🇳 Translation: %s", trans.c_str());
+        }
+        
+        if (word->pos.length() > 0) {
+            ESP_LOGI(TAG, "📌 POS:        %s", word->pos.c_str());
+        }
+        
+        ESP_LOGI(TAG, "");
+        success_count++;
+        
+        // 避免刷屏太快，稍微延迟
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
     
-//     // esp_task_wdt_reset();
-//     // ESP_LOGI("DISPLAY", "Word entry display completed, final Y coordinate: %d", current_y);
-// }
-
-// int countLines(File &file) {
-//   int count = 0;
-//   file.seek(0);
-//   while (file.available()) {
-//     if (file.read() == '\n') count++;
-//   }
-//   file.seek(0);
-//   return count;
-// }
-
-// WordEntry readLineAtPosition(File &file, int lineNumber) {
-//   file.seek(0);
-//   int currentLine = 0;
-//   WordEntry entry;
-  
-//   while (file.available() && currentLine <= lineNumber) {
-//     String line = file.readStringUntil('\n');
-//     if (currentLine == lineNumber) {
-//       parseCSVLine(line, entry);
-//       break;
-//     }
-//     currentLine++;
-//   }
-  
-//   return entry;
-// }
-
-// void parseCSVLine(String line, WordEntry &entry) {
-//   int fieldCount = 0;
-//   String field = "";
-//   bool inQuotes = false;
-//   char lastChar = 0;
-  
-//   for (int i = 0; i < line.length(); i++) {
-//     char c = line[i];
-    
-//     if (lastChar != '\\' && c == '"') {
-//       inQuotes = !inQuotes;
-//     } else if (c == ',' && !inQuotes) {
-//       // 字段结束
-//       assignField(fieldCount, field, entry);
-//       field = "";
-//       fieldCount++;
-//     } else {
-//       field += c;
-//     }
-//     lastChar = c;
-//   }
-  
-//   // 处理最后一个字段
-//   if (fieldCount < 5) {
-//     assignField(fieldCount, field, entry);
-//   }
-// }
-
-// void assignField(int fieldCount, String &field, WordEntry &entry) {
-//   // 移除字段两端的引号（如果存在）
-//   if (field.length() >= 2 && field[0] == '"' && field[field.length()-1] == '"') {
-//     field = field.substring(1, field.length()-1);
-//   }
-  
-//   switch (fieldCount) {
-//     case 0: entry.word = field; break;
-//     case 1: entry.phonetic = field; break;
-//     case 2: entry.definition = field; break;
-//     case 3: entry.translation = field; break;
-//     case 4: entry.pos = field; break;
-//   }
-// }
-
-// void printWordEntry(WordEntry &entry, int lineNumber) {
-//   ESP_LOGI(TAG, "line number: %d", lineNumber);
-//   ESP_LOGI(TAG, "word: %s", entry.word.c_str());
-//   if (entry.phonetic.length() > 0) {
-//     ESP_LOGI(TAG, "symbol: %s", entry.phonetic.c_str());
-//   }
-  
-//   if (entry.definition.length() > 0) {
-//     ESP_LOGI(TAG, "English Definition: %s", entry.definition.c_str());
-//   }
-  
-//   if (entry.translation.length() > 0) {
-//     ESP_LOGI(TAG, "chinese Definition: %s", entry.translation.c_str());
-//   }
-  
-//   if (entry.pos.length() > 0) {
-//     ESP_LOGI(TAG, "part of speech: %s", entry.pos.c_str());
-//   }
-  
-//   ESP_LOGI(TAG, "----------------------------------------");
-// }
-
-// void readAndPrintWords() {
-//   File file = SD.open("/ecdict.mini.csv");
-//   if (!file) {
-//     ESP_LOGE(TAG, "Unable to open CSV file");
-//     return;
-//   }
-  
-//   // 读取前几行作为示例
-//   ESP_LOGI(TAG, "Display first 5 words");
-//   int lineCount = 0;
-  
-//   while (file.available() && lineCount < 5) {
-//     String line = file.readStringUntil('\n');
-//     if (line.length() > 0) {
-//       WordEntry entry;
-//       parseCSVLine(line, entry);
-//       printWordEntry(entry, lineCount);
-//       lineCount++;
-//     }
-//   }
-  
-//   file.close();
-  
-//   ESP_LOGI(TAG, "Start displaying random word");
-// }
-
-// void readAndPrintRandomWord() {
-//   SDState state = get_sd_state(true);
-//   if (state != SDState::Idle) {
-//       if (state == SDState::NotPresent) {
-//          ESP_LOGE(TAG, "No SD Card");
-//       } else {
-//           ESP_LOGE(TAG, "SD Card Busy");
-//       }
-//   }
-//   File file = SD.open("/ecdict.mini.csv");
-//   if (!file) {
-//     ESP_LOGE(TAG, "Unable to open CSV file");
-//     return;
-//   }
-  
-//   // 计算总行数
-//   int totalLines = countLines(file);
-//   if (totalLines <= 1) {
-//     ESP_LOGE(TAG, "Insufficient file content");
-//     file.close();
-//     return;
-//   }
-  
-//   // 随机选择一行（跳过标题行）
-//   int randomLine = random(1, totalLines);
-//   entry = readLineAtPosition(file, randomLine);
-//   file.close();
-  
-//   ESP_LOGI(TAG, "Random word");
-//   printWordEntry(entry, randomLine);
-// }
+    ESP_LOGI(TAG, "========== 读取完成 ==========");
+    ESP_LOGI(TAG, "✅ 成功读取: %d/%d 个单词", success_count, count);
+    ESP_LOGI(TAG, "   - 当前行号: %d", g_wordbook_cache.getCurrentLine());
+    ESP_LOGI(TAG, "   - 总行数: %d", g_wordbook_cache.getTotalLines());
+}

@@ -28,14 +28,12 @@ set(srcs Grbl_Esp32/src/Grbl.cpp
     Grbl_Esp32/src/BL_add/ink_screen/ink_screen.cpp
     Grbl_Esp32/src/BL_add/ink_screen/web_layout.cpp
     Grbl_Esp32/src/BL_add/ink_screen/sd_font_loader.cpp
-    Grbl_Esp32/src/BL_add/ink_screen/chinese_text_display.cpp
     Grbl_Esp32/src/BL_add/ink_screen/image_loader.cpp
     Grbl_Esp32/src/BL_add/ota/ota_update.cpp
     Grbl_Esp32/src/BL_add/ink_screen/word_book.cpp
     Grbl_Esp32/src/BL_add/ink_screen/wordbook_interface.cpp
     Grbl_Esp32/src/BL_add/ink_screen/sleep_interface.cpp
-    Grbl_Esp32/src/BL_add/ink_screen/ttf_font_manager.cpp
-    Grbl_Esp32/src/BL_add/ink_screen/multi_font_manager.cpp
+    Grbl_Esp32/src/BL_add/ink_screen/chinese_font_cache.cpp
      )
 
 # Always included headers
@@ -45,4 +43,4 @@ set(includes Grbl_Esp32
 idf_component_register(SRCS ${srcs}
                        INCLUDE_DIRS ${includes}
                        REQUIRES soc driver hal arduino_esp32 ESP32SSDP arduinoWebSockets newlib
-                       esp_http_server EPD GXEPD2 AdafruitGFX)
+                       esp_http_server EPD GXEPD2 AdafruitGFX esp_hw_support)

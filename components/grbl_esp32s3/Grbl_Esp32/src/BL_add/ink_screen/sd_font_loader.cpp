@@ -76,7 +76,7 @@ bool SDFontLoader::init(const char* bin_path, int font_size) {
 
 bool SDFontLoader::getCharGlyph(uint16_t unicode, uint8_t* out_buffer) {
     if (!is_initialized_ || !out_buffer) {
-        ESP_LOGE(TAG, "Not initialized or invalid buffer");
+        ESP_LOGE(TAG, "Not initialized or invalid buffer for unicode 0x%04X", unicode);
         return false;
     }
     
@@ -88,7 +88,7 @@ bool SDFontLoader::getCharGlyph(uint16_t unicode, uint8_t* out_buffer) {
         // 偏移 = (ASCII码 - 0x20) * 字模大小
         offset = (unicode - 0x0020) * glyph_size_;
     } else if (unicode >= 0x4E00 && unicode <= 0x9FA5) {
-        // GB2312中文字符
+        // GB2312中文字符 (按Unicode顺序存储)
         // 偏移 = (Unicode - 0x4E00) * 字模大小
         offset = (unicode - 0x4E00) * glyph_size_;
     } else {
@@ -96,54 +96,40 @@ bool SDFontLoader::getCharGlyph(uint16_t unicode, uint8_t* out_buffer) {
         return false;
     }
     
-    // 检查文件指针，如果为NULL则重新打开
-    if (!font_file_) {
-        ESP_LOGW(TAG, "Font file pointer is NULL for unicode 0x%04X, attempting to reopen: %s", unicode, font_path_);
-        font_file_ = fopen(font_path_, "rb");
-        if (!font_file_) {
-            ESP_LOGE(TAG, "Failed to reopen font file: %s", font_path_);
-            return false;
-        }
-        ESP_LOGI(TAG, "Font file reopened successfully for unicode 0x%04X", unicode);
+    // ⚠️ 每次读取都重新打开文件，避免文件指针状态问题
+    // 这样虽然效率稍低，但能保证可靠性
+    FILE* temp_file = fopen(font_path_, "rb");
+    if (!temp_file) {
+        ESP_LOGE(TAG, "Failed to open font file: %s for unicode 0x%04X", font_path_, unicode);
+        return false;
     }
     
-    // 定位文件
-    if (fseek(font_file_, offset, SEEK_SET) != 0) {
-        int err = ferror(font_file_);
-        ESP_LOGE(TAG, "Failed to seek to offset %d for unicode 0x%04X, ferror=%d", offset, unicode, err);
-        
-        // 尝试重新打开文件后重试
-        if (font_file_) {
-            fclose(font_file_);
-            font_file_ = nullptr;
-        }
-        font_file_ = fopen(font_path_, "rb");
-        if (!font_file_) {
-            ESP_LOGE(TAG, "Failed to reopen font file after seek error: %s", font_path_);
-            return false;
-        }
-        
-        ESP_LOGI(TAG, "Font file reopened, retrying seek to offset %d for unicode 0x%04X", offset, unicode);
-        if (fseek(font_file_, offset, SEEK_SET) != 0) {
-            int retry_err = ferror(font_file_);
-            ESP_LOGE(TAG, "Seek still failed after reopening, offset=%d, unicode=0x%04X, ferror=%d", offset, unicode, retry_err);
-            return false;
-        }
+    // 获取文件大小
+    fseek(temp_file, 0, SEEK_END);
+    long file_size = ftell(temp_file);
+    
+    // 检查偏移是否超出文件范围
+    if ((long)(offset + glyph_size_) > file_size) {
+        ESP_LOGE(TAG, "Offset out of range: offset=%u, glyph_size=%d, file_size=%ld, unicode=0x%04X", 
+                 offset, glyph_size_, file_size, unicode);
+        fclose(temp_file);
+        return false;
+    }
+    
+    // 定位到目标位置
+    if (fseek(temp_file, offset, SEEK_SET) != 0) {
+        ESP_LOGE(TAG, "Failed to seek to offset %u for unicode 0x%04X", offset, unicode);
+        fclose(temp_file);
+        return false;
     }
     
     // 读取字模数据
-    size_t bytes_read = fread(out_buffer, 1, glyph_size_, font_file_);
+    size_t bytes_read = fread(out_buffer, 1, glyph_size_, temp_file);
+    fclose(temp_file);  // 立即关闭文件
+    
     if (bytes_read != glyph_size_) {
-        ESP_LOGE(TAG, "Failed to read glyph data for unicode 0x%04X, expected %d bytes, got %d", unicode, glyph_size_, bytes_read);
-        
-        // 如果读取失败，也尝试重新打开文件
-        if (ferror(font_file_)) {
-            ESP_LOGW(TAG, "File error detected, attempting to reopen");
-            if (font_file_) {
-                fclose(font_file_);
-                font_file_ = nullptr;
-            }
-        }
+        ESP_LOGE(TAG, "Failed to read glyph data for unicode 0x%04X, expected %d bytes, got %d, offset=%u, file_size=%ld", 
+                 unicode, glyph_size_, bytes_read, offset, file_size);
         return false;
     }
     

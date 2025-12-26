@@ -66,4 +66,7 @@ private:
     bool is_initialized_;
 };
 
+// ===== PSRAM 字体功能已移至 chinese_font_cache.h =====
+// FullFontData 结构体和所有 PSRAM 字体函数已移至 chinese_font_cache.h/cpp
+
 #endif // SD_FONT_LOADER_H
