@@ -427,26 +427,49 @@ bool initWordBookTextCache() {
             g_wordbook_translation_ptrs[i] = g_wordbook_translation_cache[i];
         }
         
-        // 按\n分割，提取第一个和第二个释义
-        int first_newline = trans_full.indexOf('\n');
+        // 按 \n 分割（注意：CSV中是字面量反斜杠+n，在String中需要查找两个连续字符）
         String trans1 = "";
         String trans2 = "";
+        
+        // 手动查找 反斜杠+n 的位置
+        int first_newline = -1;
+        for (int j = 0; j < trans_full.length() - 1; j++) {
+            if (trans_full[j] == '\\' && trans_full[j+1] == 'n') {
+                first_newline = j;
+                break;
+            }
+        }
+        
+        // 调试：打印原始翻译内容
+        ESP_LOGI(TAG, "原始翻译[%d]: [%s], 长度:%d, 首个\\n位置:%d", 
+                 i, trans_full.c_str(), trans_full.length(), first_newline);
         
         if (first_newline != -1) {
             trans1 = trans_full.substring(0, first_newline);
             trans1.trim();
             
-            // 查找第二个\n
-            int second_newline = trans_full.indexOf('\n', first_newline + 1);
+            // 查找第二个 \n
+            int second_newline = -1;
+            for (int j = first_newline + 2; j < trans_full.length() - 1; j++) {
+                if (trans_full[j] == '\\' && trans_full[j+1] == 'n') {
+                    second_newline = j;
+                    break;
+                }
+            }
+            
             if (second_newline != -1) {
-                trans2 = trans_full.substring(first_newline + 1, second_newline);
+                trans2 = trans_full.substring(first_newline + 2, second_newline);
             } else {
-                trans2 = trans_full.substring(first_newline + 1);
+                trans2 = trans_full.substring(first_newline + 2);
             }
             trans2.trim();
+            
+            ESP_LOGI(TAG, "  -> 释义1: [%s]", trans1.c_str());
+            ESP_LOGI(TAG, "  -> 释义2: [%s]", trans2.c_str());
         } else {
-            // 没有\n，整个作为第一个释义
+            // 没有 \n，整个作为第一个释义
             trans1 = trans_full;
+            ESP_LOGI(TAG, "  -> 未找到\\n，全部作为释义1: [%s]", trans1.c_str());
         }
         
         // 分配第一个释义

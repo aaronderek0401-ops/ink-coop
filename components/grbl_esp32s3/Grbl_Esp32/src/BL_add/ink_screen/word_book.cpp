@@ -264,8 +264,9 @@ void WordBookCache::assignField(int fieldCount, String &field, WordEntry &entry)
     case 1: entry.phonetic = field; break;
     case 2: entry.definition = field; break;
     case 3: 
-      // translation 字段：只保留前2个释义
-      entry.translation = extractFirstNMeanings(field, 2);
+      // translation 字段：保留原始内容（包括\n），由后续代码自行处理
+      entry.translation = field;
+      entry.translation.trim();
       break;
     case 4: entry.pos = field; break;
   }
