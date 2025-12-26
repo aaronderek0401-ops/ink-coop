@@ -10,7 +10,7 @@
             "width_": 0.8,
             "height_": 0.12,
             "focus_mode": 0,
-            "focus_icon": "nail",
+            "focus_icon": "horn",
             "on_confirm_action": "open_menu",
             "icon_count": 0,
             "icons": [],
@@ -35,17 +35,17 @@
             "width_": 0.2,
             "height_": 0.12,
             "focus_mode": 0,
-            "focus_icon": "nail",
+            "focus_icon": "horn",
             "on_confirm_action": "open_menu",
             "icon_count": 2,
             "icons": [
                 {
-                    "icon_name": "nail",
+                    "icon_name": "game",
                     "rel_x": 0.2,
                     "rel_y": 0.4
                 },
                 {
-                    "icon_name": "nail",
+                    "icon_name": "settings",
                     "rel_x": 0.7,
                     "rel_y": 0.4
                 }
@@ -63,7 +63,7 @@
             "width_": 0.2,
             "height_": 0.16,
             "focus_mode": 0,
-            "focus_icon": "nail",
+            "focus_icon": "horn",
             "on_confirm_action": "open_menu",
             "icon_count": 0,
             "icons": [],
@@ -88,7 +88,7 @@
             "width_": 0.16,
             "height_": 0.16,
             "focus_mode": 0,
-            "focus_icon": "nail",
+            "focus_icon": "horn",
             "on_confirm_action": "open_menu",
             "icon_count": 0,
             "icons": [],
@@ -113,7 +113,7 @@
             "width_": 0.16,
             "height_": 0.16,
             "focus_mode": 0,
-            "focus_icon": "nail",
+            "focus_icon": "horn",
             "on_confirm_action": "open_menu",
             "icon_count": 0,
             "icons": [],
@@ -138,12 +138,12 @@
             "width_": 1,
             "height_": 0.09,
             "focus_mode": 0,
-            "focus_icon": "nail",
+            "focus_icon": "horn",
             "on_confirm_action": "open_menu",
             "icon_count": 1,
             "icons": [
                 {
-                    "icon_name": "nail",
+                    "icon_name": "folder",
                     "rel_x": 0.26602561657245344,
                     "rel_y": 0.8549378006546585
                 }
@@ -161,7 +161,7 @@
             "width_": 0.8,
             "height_": 0.09,
             "focus_mode": 0,
-            "focus_icon": "nail",
+            "focus_icon": "horn",
             "on_confirm_action": "open_menu",
             "icon_count": 0,
             "icons": [],
@@ -186,7 +186,7 @@
             "width_": 0.8,
             "height_": 0.09,
             "focus_mode": 0,
-            "focus_icon": "nail",
+            "focus_icon": "horn",
             "on_confirm_action": "open_menu",
             "icon_count": 0,
             "icons": [],
@@ -211,7 +211,7 @@
             "width_": 0.8,
             "height_": 0.09,
             "focus_mode": 0,
-            "focus_icon": "nail",
+            "focus_icon": "horn",
             "on_confirm_action": "open_menu",
             "icon_count": 0,
             "icons": [],

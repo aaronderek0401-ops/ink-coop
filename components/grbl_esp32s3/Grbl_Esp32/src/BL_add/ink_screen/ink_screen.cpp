@@ -65,6 +65,37 @@ static int g_parent_focus_index_backup = 0;  // 进入子数组前的母数组�
 int g_global_icon_count = 0;     // 已分配的全局图标计数
 
 IconPosition g_icon_positions[MAX_GLOBAL_ICONS];
+
+// ==================== 图标缓存系统 ====================
+// 图标缓存结构（用于预加载到PSRAM）
+typedef struct {
+    const char* filename;      // 文件名（用于调试）
+    uint8_t* data;            // 图标位图数据（存储在PSRAM）
+    uint32_t width;           // 图标宽度
+    uint32_t height;          // 图标高度
+    bool loaded;              // 是否已加载
+} IconCache;
+
+// ==================== 图标名称到索引映射 ====================
+typedef struct {
+    const char* name;
+    int index;
+} IconMapping;
+
+static const IconMapping icon_mappings[] = {
+    {"book", 0},          // 书籍 -> /book.bin
+    {"game", 1},          // 游戏 -> /game.bin
+    {"settings", 2},      // 设置 -> /settings.bin
+    {"folder", 3},         // 文件夹 -> /folder.bin
+    {"horn", 4}         // 喇叭 -> /horn.bin
+};
+
+// 自动计算图标数量
+#define ICON_CACHE_COUNT (sizeof(icon_mappings) / sizeof(icon_mappings[0]))
+
+// 全局图标缓存数组（自动适应icon_mappings数量）
+static IconCache g_icon_cache[ICON_CACHE_COUNT] = {0};
+
 const char *TAG = "ink_screen.cpp";
 static TaskHandle_t _eventTaskHandle = NULL;
 uint8_t inkScreenTestFlag = 0;
@@ -124,34 +155,6 @@ void jsonLayoutFocusNext();
 void jsonLayoutFocusPrev();  
 void jsonLayoutConfirm();
 
-// ==================== 图标名称到索引映射 ====================
-typedef struct {
-    const char* name;
-    int index;
-} IconMapping;
-
-static const IconMapping icon_mappings[] = {
-    {"big", 0},           // 大图标
-    {"folder", 1},        // 文件夹
-    {"file", 2},          // 文件
-    {"settings", 3},      // 设置
-    {"home", 4},          // 首页
-    {"search", 5},        // 搜索
-    {"nail", 6},          // 钉子
-    {"lock", 7},          // 锁
-    {"horn", 8},          // 喇叭
-    {"battery", 9},      // 电池
-    {"wifi_off", 10},     // WiFi断开
-    {"wifi_on", 11},      // WiFi连接
-    {"underline", 12},    // 下划线
-    {"word", 13},         // 单词
-    {"separate", 14},     // 分隔线
-    {"horn_small", 15},   // 小喇叭
-    {"book", 16},          // 书籍
-    {"jpg_bw", 17}     // 黑白图片
-    // {"definition", 21}    // 定义
-};
-
 // 通过图标名称获取索引
 int getIconIndexByName(const char* name) {
     if (!name) return -1;
@@ -198,11 +201,129 @@ const uint8_t* getIconDataByIndex(int icon_index) {
     return g_available_icons[icon_index].data;
 }
 
+
+// 通过图标索引获取图标文件名（用于从SPIFFS加载）
+const char* getIconFileNameByIndex(int icon_index) {
+    // 图标索引到文件名的映射表
+    static const char* icon_files[] = {
+        "/book.bin",          // 0
+        "/game.bin",          // 1
+        "/settings.bin",      // 2
+        "/folder.bin",        // 3
+        "/horn.bin"          // 4
+    };
+    
+    // 检查索引有效性
+    if (icon_index < 0 || icon_index >= sizeof(icon_files)/sizeof(icon_files[0])) {
+        ESP_LOGW("ICON", "无效图标索引: %d, 使用默认图标", icon_index);
+        return "/book.bin";  // 返回默认图标文件（索引0）
+    }
+    
+    return icon_files[icon_index];
+}
+
+/**
+ * @brief 从SD卡预加载所有图标到PSRAM缓存
+ * @return true 全部成功或部分成功, false 全部失败
+ */
+bool preloadIconsFromSD() {
+    ESP_LOGI("ICON_CACHE", "开始预加载图标到PSRAM...");
+    
+    int success_count = 0;
+    
+    // 自动遍历所有icon_mappings中定义的图标
+    for (int i = 0; i < ICON_CACHE_COUNT; i++) {
+        // 根据icon_mappings生成文件路径
+        const char* icon_file = getIconFileNameByIndex(i);
+        
+        // 获取图片信息
+        uint32_t width, height;
+        if (!getImageInfo(icon_file, &width, &height)) {
+            ESP_LOGW("ICON_CACHE", "无法获取图标%d信息: %s", i, icon_file);
+            continue;
+        }
+        
+        // 计算需要的缓冲区大小
+        uint32_t buffer_size = ((width + 7) / 8) * height;
+        
+        // 在PSRAM中分配内存
+        uint8_t* buffer = (uint8_t*)heap_caps_malloc(buffer_size, MALLOC_CAP_SPIRAM);
+        if (!buffer) {
+            ESP_LOGE("ICON_CACHE", "PSRAM分配失败: %d bytes for icon %d", buffer_size, i);
+            // 尝试使用内部RAM作为备用
+            buffer = (uint8_t*)malloc(buffer_size);
+            if (!buffer) {
+                ESP_LOGE("ICON_CACHE", "内存分配完全失败: icon %d", i);
+                continue;
+            }
+            ESP_LOGW("ICON_CACHE", "使用内部RAM (PSRAM不足)");
+        }
+        
+        // 加载图片数据到缓冲区
+        if (loadImageToBuffer(icon_file, buffer, &width, &height)) {
+            g_icon_cache[i].filename = icon_file;
+            g_icon_cache[i].data = buffer;
+            g_icon_cache[i].width = width;
+            g_icon_cache[i].height = height;
+            g_icon_cache[i].loaded = true;
+            success_count++;
+            ESP_LOGI("ICON_CACHE", "✅ 预加载图标%d成功: %s (%dx%d, %d bytes)", 
+                    i, icon_file, width, height, buffer_size);
+        } else {
+            free(buffer);
+            ESP_LOGE("ICON_CACHE", "❌ 加载图标%d失败: %s", i, icon_file);
+        }
+    }
+    
+    ESP_LOGI("ICON_CACHE", "预加载完成: %d/%d 个图标成功加载", success_count, ICON_CACHE_COUNT);
+    return success_count > 0;
+}
+
+/**
+ * @brief 从缓存获取图标数据
+ * @param icon_index 图标索引 (0-3)
+ * @param width 输出参数 - 图标宽度
+ * @param height 输出参数 - 图标高度
+ * @return 图标数据指针，失败返回nullptr
+ */
+const uint8_t* getIconDataFromCache(int icon_index, uint32_t* width, uint32_t* height) {
+    if (icon_index < 0 || icon_index >= ICON_CACHE_COUNT) {
+        ESP_LOGW("ICON_CACHE", "无效的图标索引: %d (范围: 0-%d)", icon_index, ICON_CACHE_COUNT-1);
+        return nullptr;
+    }
+    
+    if (!g_icon_cache[icon_index].loaded) {
+        ESP_LOGW("ICON_CACHE", "图标%d未加载到缓存", icon_index);
+        return nullptr;
+    }
+    
+    *width = g_icon_cache[icon_index].width;
+    *height = g_icon_cache[icon_index].height;
+    return g_icon_cache[icon_index].data;
+}
+
+/**
+ * @brief 释放所有图标缓存（关机时调用）
+ */
+void freeIconCache() {
+    ESP_LOGI("ICON_CACHE", "释放图标缓存...");
+    for (int i = 0; i < ICON_CACHE_COUNT; i++) {
+        if (g_icon_cache[i].loaded && g_icon_cache[i].data) {
+            free(g_icon_cache[i].data);
+            g_icon_cache[i].data = nullptr;
+            g_icon_cache[i].loaded = false;
+            ESP_LOGI("ICON_CACHE", "释放图标%d缓存", i);
+        }
+    }
+}
+
 // ================== 图标数组定义 ==================
-// 定义各种动画的图标序列
-static const int cat_jump_sequence[] = {7, 8, 9, 10};
-static const int cat_walk_sequence[] = {11, 12, 13, 14};
+// 定义各种动画的图标序列（索引对应: 0=book, 1=game, 2=settings, 3=folder）
+static const int cat_jump_sequence[] = {0, 1, 2, 3};  // 依次显示: book -> game -> settings -> folder
+static const int cat_walk_sequence[] = {3, 2, 1, 0};  // 依次显示: folder -> settings -> game -> book
 // 可以添加更多动画序列...
+
+
 
 // 图标数组注册表
 typedef struct {
@@ -1169,10 +1290,17 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
                                 icon_index, icon_x, icon_y, icon_info->width, icon_info->height,
                                 scaled_x, scaled_y, scaled_w, scaled_h);
                         
-                        // 使用drawBitmap显示图标
-                        // display.drawBitmap(scaled_x, scaled_y, 
-                        //                  icon_info->data, icon_info->width, icon_info->height,
-                        //                  GxEPD_BLACK);
+                        // 优先从缓存读取，失败则从SD卡加载
+                        uint32_t cache_width, cache_height;
+                        const uint8_t* cached_data = getIconDataFromCache(icon_index, &cache_width, &cache_height);
+                        if (cached_data) {
+                            display.drawBitmap(scaled_x, scaled_y, cached_data, cache_width, cache_height, GxEPD_BLACK);
+                            ESP_LOGD("MAIN", "  从缓存显示图标%d", icon_index);
+                        } else {
+                            const char* icon_file = getIconFileNameByIndex(icon_index);
+                            displayImageFromSD(icon_file, scaled_x, scaled_y, display);
+                            ESP_LOGW("MAIN", "  从SD卡加载图标%d (缓存未命中)", icon_index);
+                        }
                     } else {
                         ESP_LOGW("MAIN", "  图标索引%d超出范围[0-21]，跳过", icon_index);
                     }
@@ -1211,10 +1339,17 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
                                 current_icon_index, icon_x, icon_y, icon_info->width, icon_info->height,
                                 scaled_x, scaled_y);
                         
-                        // 使用drawBitmap显示动态图标
-                        display.drawBitmap(scaled_x, scaled_y, 
-                                         icon_info->data, icon_info->width, icon_info->height,
-                                         GxEPD_BLACK);
+                          // 优先从缓存读取，失败则从SD卡加载
+                        uint32_t cache_width, cache_height;
+                        const uint8_t* cached_data = getIconDataFromCache(current_icon_index, &cache_width, &cache_height);
+                        if (cached_data) {
+                            display.drawBitmap(scaled_x, scaled_y, cached_data, cache_width, cache_height, GxEPD_BLACK);
+                            ESP_LOGD("MAIN", "  从缓存显示动态图标%d", current_icon_index);
+                        } else {
+                            const char* icon_file = getIconFileNameByIndex(current_icon_index);
+                            displayImageFromSD(icon_file, scaled_x, scaled_y, display);
+                            ESP_LOGW("MAIN", "  从SD卡加载动态图标%d (缓存未命中)", current_icon_index);
+                        }
                     } else {
                         ESP_LOGW("MAIN", "  动态图标索引%d超出范围[0-20]，跳过", current_icon_index);
                     }
@@ -1804,10 +1939,16 @@ void drawFocusCursor(RectInfo *rects, int rect_count, int focus_index, float glo
         ESP_LOGI("FOCUS", "使用默认焦点图标: NAIL");
     }
     
-    // 获取焦点图标的实际尺寸和数据
-    int icon_width, icon_height;
-    getIconSizeByIndex(focus_icon_index, &icon_width, &icon_height);
-    const uint8_t* focus_icon_data = getIconDataByIndex(focus_icon_index);
+    // 优先从缓存获取焦点图标数据
+    uint32_t icon_width, icon_height;
+    const uint8_t* focus_icon_data = getIconDataFromCache(focus_icon_index, &icon_width, &icon_height);
+    bool use_cache = (focus_icon_data != nullptr);
+    
+    if (!use_cache) {
+        // 缓存未命中，需要从SD卡加载时获取尺寸
+        getIconSizeByIndex(focus_icon_index, (int*)&icon_width, (int*)&icon_height);
+        ESP_LOGW("FOCUS", "焦点图标%d缓存未命中，将从SD卡加载", focus_icon_index);
+    }
     
     // 支持不同模式的焦点显示：从矩形自身的 focus_mode 字段读取
     // mode == FOCUS_MODE_DEFAULT : 默认（使用指定的焦点图标）
@@ -1818,20 +1959,35 @@ void drawFocusCursor(RectInfo *rects, int rect_count, int focus_index, float glo
         // 在右下角显示焦点图标
         int icon_x = display_x + display_width;
         int icon_y = display_y + display_height - icon_height;
-        display.drawBitmap(icon_x, icon_y, focus_icon_data, icon_width, icon_height, GxEPD_BLACK);
+        if (use_cache) {
+            display.drawBitmap(icon_x, icon_y, focus_icon_data, icon_width, icon_height, GxEPD_BLACK);
+        } else {
+            const char* icon_file = getIconFileNameByIndex(focus_icon_index);
+            displayImageFromSD(icon_file, icon_x, icon_y, display);
+        }
         ESP_LOGI("FOCUS", "BORDER模式: 图标位置(%d,%d) 尺寸%dx%d", icon_x, icon_y, icon_width, icon_height);
 
     } else if (mode_to_use == FOCUS_MODE_CORNERS) {
         // 在右上角显示焦点图标
         int icon_x = display_x + display_width;
         int icon_y = display_y;
-        display.drawBitmap(icon_x, icon_y, focus_icon_data, icon_width, icon_height, GxEPD_BLACK);
+        if (use_cache) {
+            display.drawBitmap(icon_x, icon_y, focus_icon_data, icon_width, icon_height, GxEPD_BLACK);
+        } else {
+            const char* icon_file = getIconFileNameByIndex(focus_icon_index);
+            displayImageFromSD(icon_file, icon_x, icon_y, display);
+        }
         ESP_LOGI("FOCUS", "CORNERS模式: 图标位置(%d,%d) 尺寸%dx%d", icon_x, icon_y, icon_width, icon_height);
     } else if (mode_to_use == FOCUS_MODE_DEFAULT) {
         // 默认模式：使用指定的焦点图标居中显示在矩形左侧中间
         int icon_x = display_x;
         int icon_y = display_y;
-        display.drawBitmap(icon_x, icon_y, focus_icon_data, icon_width, icon_height, GxEPD_BLACK);
+        if (use_cache) {
+            display.drawBitmap(icon_x, icon_y, focus_icon_data, icon_width, icon_height, GxEPD_BLACK);
+        } else {
+            const char* icon_file = getIconFileNameByIndex(focus_icon_index);
+            displayImageFromSD(icon_file, icon_x, icon_y, display);
+        }
         ESP_LOGI("FOCUS", "DEFAULT模式: 图标位置(%d,%d) 尺寸%dx%d", icon_x, icon_y, icon_width, icon_height);
     }
     
@@ -2405,8 +2561,15 @@ void ink_screen_init()
     ESP_LOGI(TAG, "display.nextPage() 完成，等待屏幕刷新...");
     vTaskDelay(1000 / portTICK_PERIOD_MS);  // 等待屏幕完成刷新
     ESP_LOGI(TAG, "首次全屏刷新完成");
+        // ===== 步骤 6: 预加载图标到PSRAM =====
+    ESP_LOGI(TAG, "� [DEBUG] 6. 开始预加载图标到PSRAM...");
+    if (preloadIconsFromSD()) {
+        ESP_LOGI(TAG, "✅ 图标预加载完成");
+    } else {
+        ESP_LOGW(TAG, "⚠️ 图标预加载失败或部分失败");
+    }
     
-    ESP_LOGI(TAG, "🔥 [DEBUG] 6. 初始化简化完成，准备创建任务");
+    ESP_LOGI(TAG, "� [DEBUG] 7. 初始化简化完成，准备创建任务");
     
     ESP_LOGI(TAG, "✅ 墨水屏初始化完成，现在只支持JSON布局系统");
     // 注：移除 Uart0.printf() 避免 UART 驱动问题
@@ -2852,6 +3015,7 @@ bool loadAndDisplayFromFile(const char* file_path) {
     bool parsing_rect = false;
     bool in_icons = false;
     bool in_text_roll = false;
+    bool in_group_array = false;  // 标记是否在Group数组中
     int current_icon = 0;
     int current_text_roll = 0;
     char temp_icon_name[32] = {0};
@@ -2938,24 +3102,52 @@ bool loadAndDisplayFromFile(const char* file_path) {
                 sscanf(line_buffer, " \"text_count\" : %d", &temp_rect.text_count);
             }
             else if (strstr(line_buffer, "\"Group\"")) {
-                // 解析Group数组（简化版：直接从字符串中提取数字）
-                // 格式: "Group": [4, 5]
-                temp_rect.group_count = 0;
-                char* bracket_start = strchr(line_buffer, '[');
-                char* bracket_end = strchr(line_buffer, ']');
-                if (bracket_start && bracket_end && bracket_end > bracket_start) {
-                    char group_str[64] = {0};
-                    int len = bracket_end - bracket_start - 1;
-                    if (len > 0 && len < 63) {
-                        strncpy(group_str, bracket_start + 1, len);
-                        group_str[len] = '\0';
-                        
-                        // 解析数字（简单的逗号分隔）
-                        char* token = strtok(group_str, ", ");
-                        while (token && temp_rect.group_count < 8) {
-                            temp_rect.group_indices[temp_rect.group_count] = atoi(token);
+              // 检测Group数组开始
+                if (strstr(line_buffer, "[")) {
+                    in_group_array = true;
+                    temp_rect.group_count = 0;
+                    
+                    // 检查是否在同一行结束 "Group": [1, 2]
+                    char* bracket_end = strchr(line_buffer, ']');
+                    if (bracket_end) {
+                        // 单行数组，按原逻辑处理
+                        char* bracket_start = strchr(line_buffer, '[');
+                        if (bracket_start && bracket_end > bracket_start) {
+                            char group_str[64] = {0};
+                            int len = bracket_end - bracket_start - 1;
+                            if (len > 0 && len < 63) {
+                                strncpy(group_str, bracket_start + 1, len);
+                                group_str[len] = '\0';
+                                char* token = strtok(group_str, ", ");
+                                while (token && temp_rect.group_count < 8) {
+                                    temp_rect.group_indices[temp_rect.group_count] = atoi(token);
+                                    temp_rect.group_count++;
+                                    token = strtok(NULL, ", ");
+                                }
+                            }
+                        }
+                        in_group_array = false;
+                    }
+                }
+            }
+            // 在Group数组中，逐行读取数字
+            else if (in_group_array) {
+                // 检测数组结束
+                if (strstr(line_buffer, "]")) {
+                    in_group_array = false;
+                    ESP_LOGI("CACHE", "矩形%d Group数组解析完成，共%d个元素", current_rect, temp_rect.group_count);
+                } else {
+                    // 提取当前行的数字
+                    char* p = line_buffer;
+                    while (*p && temp_rect.group_count < 8) {
+                        if (isdigit(*p)) {
+                            int num = atoi(p);
+                            temp_rect.group_indices[temp_rect.group_count] = num;
                             temp_rect.group_count++;
-                            token = strtok(NULL, ", ");
+                            // 跳过当前数字
+                            while (*p && isdigit(*p)) p++;
+                        } else {
+                            p++;
                         }
                     }
                 }
@@ -3140,7 +3332,11 @@ void jsonLayoutConfirm() {
     int current = getCurrentFocusRect();
     if (current >= 0 && current < g_json_rect_count) {
         RectInfo* rect = &g_json_rects[current];
-        
+        // 调试信息：打印矩形详细信息
+        ESP_LOGI("JSON", "确认操作：矩形%d", current);
+        ESP_LOGI("JSON", "  is_mother='%s'", rect->is_mother);
+        ESP_LOGI("JSON", "  group_count=%d", rect->group_count);
+        ESP_LOGI("JSON", "  g_in_sub_array=%d", g_in_sub_array);
         // 先触发回调
         if (rect->onConfirm != nullptr) {
             rect->onConfirm(rect, current);
@@ -3150,16 +3346,26 @@ void jsonLayoutConfirm() {
         }
         
         // 回调后处理子母数组切换逻辑
+        bool need_redraw = false;
         if (!g_in_sub_array) {
             // 当前在母数组模式，检查是否需要进入子数组
             if (strcmp(rect->is_mother, "mom") == 0 && rect->group_count > 0) {
                 ESP_LOGI("JSON", "进入矩形%d的子数组", current);
-                enterSubArray();
+                if (enterSubArray()) {
+                    need_redraw = true;
+                }
             }
         } else {
-            // 当前在子数组模式，退出到母数组
-            ESP_LOGI("JSON", "从子数组退出到母数组");
-            exitSubArray();
+                // 当前在子数组模式，退出到母数组
+                ESP_LOGI("JSON", "从子数组退出到母数组");
+                exitSubArray();
+                need_redraw = true;
+            }
+        
+        // 如果发生了子母数组切换，重绘界面
+        if (need_redraw) {
+            ESP_LOGI("JSON", "子母数组切换完成，重绘界面");
+            redrawJsonLayout();
         }
     }
 }
@@ -3264,6 +3470,7 @@ bool loadScreenToMemory(const char* file_path, RectInfo** out_rects,
     bool parsing_rect = false;
     bool in_icons = false;
     bool in_text_roll = false;
+    bool in_group_array = false;  // 新增：标记是否在Group数组中
     int current_icon = 0;
     int current_text_roll = 0;
     char temp_icon_name[32] = {0};
@@ -3353,20 +3560,52 @@ bool loadScreenToMemory(const char* file_path, RectInfo** out_rects,
                 sscanf(line_buffer, " \"text_count\" : %d", &temp_rect.text_count);
             }
             else if (strstr(line_buffer, "\"Group\"")) {
-                temp_rect.group_count = 0;
-                char* bracket_start = strchr(line_buffer, '[');
-                char* bracket_end = strchr(line_buffer, ']');
-                if (bracket_start && bracket_end && bracket_end > bracket_start) {
-                    char group_str[64] = {0};
-                    int len = bracket_end - bracket_start - 1;
-                    if (len > 0 && len < 63) {
-                        strncpy(group_str, bracket_start + 1, len);
-                        group_str[len] = '\0';
-                        char* token = strtok(group_str, ", ");
-                        while (token && temp_rect.group_count < 8) {
-                            temp_rect.group_indices[temp_rect.group_count] = atoi(token);
+                // 检测Group数组开始
+                if (strstr(line_buffer, "[")) {
+                    in_group_array = true;
+                    temp_rect.group_count = 0;
+                    
+                    // 检查是否在同一行结束 "Group": [1, 2]
+                    char* bracket_end = strchr(line_buffer, ']');
+                    if (bracket_end) {
+                        // 单行数组，按原逻辑处理
+                        char* bracket_start = strchr(line_buffer, '[');
+                        if (bracket_start && bracket_end > bracket_start) {
+                            char group_str[64] = {0};
+                            int len = bracket_end - bracket_start - 1;
+                            if (len > 0 && len < 63) {
+                                strncpy(group_str, bracket_start + 1, len);
+                                group_str[len] = '\0';
+                                char* token = strtok(group_str, ", ");
+                                while (token && temp_rect.group_count < 8) {
+                                    temp_rect.group_indices[temp_rect.group_count] = atoi(token);
+                                    temp_rect.group_count++;
+                                    token = strtok(NULL, ", ");
+                                }
+                            }
+                        }
+                        in_group_array = false;
+                    }
+                }
+            }
+            // 在Group数组中，逐行读取数字
+            else if (in_group_array) {
+                // 检测数组结束
+                if (strstr(line_buffer, "]")) {
+                    in_group_array = false;
+                    ESP_LOGI("CACHE", "矩形%d Group数组解析完成，共%d个元素", current_rect, temp_rect.group_count);
+                } else {
+                    // 提取当前行的数字
+                    char* p = line_buffer;
+                    while (*p && temp_rect.group_count < 8) {
+                        if (isdigit(*p)) {
+                            int num = atoi(p);
+                            temp_rect.group_indices[temp_rect.group_count] = num;
                             temp_rect.group_count++;
-                            token = strtok(NULL, ", ");
+                            // 跳过当前数字
+                            while (*p && isdigit(*p)) p++;
+                        } else {
+                            p++;
                         }
                     }
                 }
@@ -3444,14 +3683,22 @@ bool loadScreenToMemory(const char* file_path, RectInfo** out_rects,
                 }
             }
             
-            // 检测矩形对象结束
-            if (strstr(line_buffer, "}") && strstr(line_buffer, ",") == NULL) {
-                rects[current_rect] = temp_rect;
-                current_rect++;
-                parsing_rect = false;
-                in_icons = false;
-                in_text_roll = false;
-                ESP_LOGI("CACHE", "✅ 矩形[%d]解析完成", current_rect);
+            // 检测矩形对象结束（可能是 }, 或者 }）
+            if (parsing_rect && strstr(line_buffer, "}")) {
+                // 检查是否是矩形对象的结束括号（不是数组的结束）
+                char* trimmed = line_buffer;
+                while (*trimmed && isspace(*trimmed)) trimmed++;
+                if (*trimmed == '}') {
+                    rects[current_rect] = temp_rect;
+                    ESP_LOGI("CACHE", "✅ 矩形[%d]解析完成", current_rect);
+                    current_rect++;
+                    parsing_rect = false;
+                    in_icons = false;
+                    in_text_roll = false;
+                    temp_rect = {};  // 重置temp_rect
+                    current_icon = 0;
+                    current_text_roll = 0;
+                }
             }
         }
     }
