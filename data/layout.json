@@ -1,28 +1,32 @@
 {
-    "rect_count": 5,
+    "rect_count": 6,
     "rectangles": [
         {
             "index": 0,
             "is_mother": "mom",
-            "Group": [
-                1,
-                2,
-                3,
-                4
-            ],
+            "Group": [],
             "x_": 0,
             "y_": 0,
             "width_": 0.8,
-            "height_": 0.12,
+            "height_": 0.16,
             "focus_mode": 0,
             "focus_icon": "horn",
-            "on_confirm_action": "open_menu",
+            "on_confirm_action": "next_word",
             "icon_count": 0,
             "icons": [],
             "icon_roll": [],
             "text_count": 0,
             "texts": [],
-            "text_roll": []
+            "text_roll": [
+                {
+                    "text_arr": "wordbook_word",
+                    "idx": "$wordbook_idx",
+                    "font": "comic_sans_ms_bold_32x32",
+                    "rel_x": 0.3535656745617206,
+                    "rel_y": 0.19675917095608184,
+                    "auto_roll": false
+                }
+            ]
         },
         {
             "index": 1,
@@ -39,7 +43,16 @@
             "icon_roll": [],
             "text_count": 0,
             "texts": [],
-            "text_roll": []
+            "text_roll": [
+                {
+                    "text_arr": "wordbook_word",
+                    "idx": "$wordbook_idx",
+                    "font": "comic_sans_ms_v3_20x20",
+                    "rel_x": 0.1690703905545748,
+                    "rel_y": 0.34722216924031574,
+                    "auto_roll": false
+                }
+            ]
         },
         {
             "index": 2,
@@ -56,14 +69,23 @@
             "icon_roll": [],
             "text_count": 0,
             "texts": [],
-            "text_roll": []
+            "text_roll": [
+                {
+                    "text_arr": "wordbook_phonetic",
+                    "idx": "$wordbook_idx",
+                    "font": "comic_sans_ms_phonetic_20x20",
+                    "rel_x": 0.15224346747765174,
+                    "rel_y": 0.34722216924031574,
+                    "auto_roll": false
+                }
+            ]
         },
         {
             "index": 3,
             "is_mother": "son",
-            "x_": 0.1,
-            "y_": 0.6,
-            "width_": 0.2,
+            "x_": 0.5,
+            "y_": 0.45,
+            "width_": 0.4,
             "height_": 0.2,
             "focus_mode": 0,
             "focus_icon": "horn",
@@ -73,14 +95,23 @@
             "icon_roll": [],
             "text_count": 0,
             "texts": [],
-            "text_roll": []
+            "text_roll": [
+                {
+                    "text_arr": "wordbook_translation_1",
+                    "idx": "$wordbook_idx",
+                    "font": "fangsong_gb2312_20x20",
+                    "rel_x": 0.07612173373882587,
+                    "rel_y": 0.5069443384806315,
+                    "auto_roll": false
+                }
+            ]
         },
         {
             "index": 4,
             "is_mother": "son",
-            "x_": 0.5,
+            "x_": 0.1,
             "y_": 0.6,
-            "width_": 0.4,
+            "width_": 0.19,
             "height_": 0.3,
             "focus_mode": 0,
             "focus_icon": "horn",
@@ -89,14 +120,40 @@
             "icons": [
                 {
                     "icon_name": "book",
-                    "rel_x": 0.3826121183542105,
-                    "rel_y": 0.16203689575195312
+                    "rel_x": 0.11470972285096942,
+                    "rel_y": 0.14351844787597656
                 }
             ],
             "icon_roll": [],
             "text_count": 0,
             "texts": [],
             "text_roll": []
+        },
+        {
+            "index": 5,
+            "is_mother": "son",
+            "x_": 0.5,
+            "y_": 0.7,
+            "width_": 0.4,
+            "height_": 0.2,
+            "focus_mode": 0,
+            "focus_icon": "nail",
+            "on_confirm_action": "open_menu",
+            "icon_count": 0,
+            "icons": [],
+            "icon_roll": [],
+            "text_count": 0,
+            "texts": [],
+            "text_roll": [
+                {
+                    "text_arr": "wordbook_translation_2",
+                    "idx": "$wordbook_idx",
+                    "font": "fangsong_gb2312_20x20",
+                    "rel_x": 0.07612173373882587,
+                    "rel_y": 0.5069443384806315,
+                    "auto_roll": false
+                }
+            ]
         }
     ]
 }
