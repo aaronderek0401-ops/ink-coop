@@ -352,13 +352,17 @@ static const char* status_text_sequence[] = {"sss", "运行中", "完成", "错�
 // 单词各字段的文本缓存（存储格式化的字符串）
 static char* g_wordbook_word_cache[WORDBOOK_CACHE_COUNT] = {nullptr};       // 单词本身
 static char* g_wordbook_phonetic_cache[WORDBOOK_CACHE_COUNT] = {nullptr};   // 音标
-static char* g_wordbook_translation_cache[WORDBOOK_CACHE_COUNT] = {nullptr}; // 翻译
+static char* g_wordbook_translation_cache[WORDBOOK_CACHE_COUNT] = {nullptr}; // 翻译（完整）
+static char* g_wordbook_translation1_cache[WORDBOOK_CACHE_COUNT] = {nullptr}; // 第一个释义
+static char* g_wordbook_translation2_cache[WORDBOOK_CACHE_COUNT] = {nullptr}; // 第二个释义
 static char* g_wordbook_pos_cache[WORDBOOK_CACHE_COUNT] = {nullptr};        // 词性
 
 // 单词指针数组（供text_arrays使用）
 static const char* g_wordbook_word_ptrs[WORDBOOK_CACHE_COUNT] = {nullptr};
 static const char* g_wordbook_phonetic_ptrs[WORDBOOK_CACHE_COUNT] = {nullptr};
 static const char* g_wordbook_translation_ptrs[WORDBOOK_CACHE_COUNT] = {nullptr};
+static const char* g_wordbook_translation1_ptrs[WORDBOOK_CACHE_COUNT] = {nullptr};
+static const char* g_wordbook_translation2_ptrs[WORDBOOK_CACHE_COUNT] = {nullptr};
 static const char* g_wordbook_pos_ptrs[WORDBOOK_CACHE_COUNT] = {nullptr};
 
 // 单词本是否已初始化
@@ -411,16 +415,70 @@ bool initWordBookTextCache() {
             g_wordbook_phonetic_ptrs[i] = g_wordbook_phonetic_cache[i];
         }
         
-        // === 分配并格式化：翻译（已在extractFirstNMeanings中处理） ===
-        // extractFirstNMeanings已经将"\n"替换为空格，并只保留前2个释义
-        String trans_clean = word->translation;
-        trans_clean.trim();
+        // === 分配并格式化：翻译（按\n分割，提取前两个释义） ===
+        String trans_full = word->translation;
+        trans_full.trim();
         
-        int trans_len = trans_clean.length() + 10;
+        // 完整翻译
+        int trans_len = trans_full.length() + 10;
         g_wordbook_translation_cache[i] = (char*)heap_caps_malloc(trans_len, MALLOC_CAP_SPIRAM);
         if (g_wordbook_translation_cache[i]) {
-            snprintf(g_wordbook_translation_cache[i], trans_len, "%s", trans_clean.c_str());
+            snprintf(g_wordbook_translation_cache[i], trans_len, "%s", trans_full.c_str());
             g_wordbook_translation_ptrs[i] = g_wordbook_translation_cache[i];
+        }
+        
+        // 按\n分割，提取第一个和第二个释义
+        int first_newline = trans_full.indexOf('\n');
+        String trans1 = "";
+        String trans2 = "";
+        
+        if (first_newline != -1) {
+            trans1 = trans_full.substring(0, first_newline);
+            trans1.trim();
+            
+            // 查找第二个\n
+            int second_newline = trans_full.indexOf('\n', first_newline + 1);
+            if (second_newline != -1) {
+                trans2 = trans_full.substring(first_newline + 1, second_newline);
+            } else {
+                trans2 = trans_full.substring(first_newline + 1);
+            }
+            trans2.trim();
+        } else {
+            // 没有\n，整个作为第一个释义
+            trans1 = trans_full;
+        }
+        
+        // 分配第一个释义
+        if (trans1.length() > 0) {
+            int trans1_len = trans1.length() + 10;
+            g_wordbook_translation1_cache[i] = (char*)heap_caps_malloc(trans1_len, MALLOC_CAP_SPIRAM);
+            if (g_wordbook_translation1_cache[i]) {
+                snprintf(g_wordbook_translation1_cache[i], trans1_len, "%s", trans1.c_str());
+                g_wordbook_translation1_ptrs[i] = g_wordbook_translation1_cache[i];
+            }
+        } else {
+            g_wordbook_translation1_cache[i] = (char*)heap_caps_malloc(10, MALLOC_CAP_SPIRAM);
+            if (g_wordbook_translation1_cache[i]) {
+                snprintf(g_wordbook_translation1_cache[i], 10, "-");
+                g_wordbook_translation1_ptrs[i] = g_wordbook_translation1_cache[i];
+            }
+        }
+        
+        // 分配第二个释义
+        if (trans2.length() > 0) {
+            int trans2_len = trans2.length() + 10;
+            g_wordbook_translation2_cache[i] = (char*)heap_caps_malloc(trans2_len, MALLOC_CAP_SPIRAM);
+            if (g_wordbook_translation2_cache[i]) {
+                snprintf(g_wordbook_translation2_cache[i], trans2_len, "%s", trans2.c_str());
+                g_wordbook_translation2_ptrs[i] = g_wordbook_translation2_cache[i];
+            }
+        } else {
+            g_wordbook_translation2_cache[i] = (char*)heap_caps_malloc(10, MALLOC_CAP_SPIRAM);
+            if (g_wordbook_translation2_cache[i]) {
+                snprintf(g_wordbook_translation2_cache[i], 10, "-");
+                g_wordbook_translation2_ptrs[i] = g_wordbook_translation2_cache[i];
+            }
         }
         
         // === 分配并格式化：词性 ===
@@ -485,6 +543,18 @@ void freeWordBookTextCache() {
             g_wordbook_translation_ptrs[i] = nullptr;
         }
         
+        if (g_wordbook_translation1_cache[i]) {
+            heap_caps_free(g_wordbook_translation1_cache[i]);
+            g_wordbook_translation1_cache[i] = nullptr;
+            g_wordbook_translation1_ptrs[i] = nullptr;
+        }
+        
+        if (g_wordbook_translation2_cache[i]) {
+            heap_caps_free(g_wordbook_translation2_cache[i]);
+            g_wordbook_translation2_cache[i] = nullptr;
+            g_wordbook_translation2_ptrs[i] = nullptr;
+        }
+        
         if (g_wordbook_pos_cache[i]) {
             heap_caps_free(g_wordbook_pos_cache[i]);
             g_wordbook_pos_cache[i] = nullptr;
@@ -517,13 +587,33 @@ const char* getWordBookPhonetic(int index) {
 }
 
 /**
- * @brief 获取单词翻译
+ * @brief 获取单词翻译（完整）
  */
 const char* getWordBookTranslation(int index) {
     if (!g_wordbook_text_initialized) return "Not Init";
     if (index < 0 || index >= WORDBOOK_CACHE_COUNT) return "ERR";
     if (!g_wordbook_translation_ptrs[index]) return "NULL";
     return g_wordbook_translation_ptrs[index];
+}
+
+/**
+ * @brief 获取单词第一个释义
+ */
+const char* getWordBookTranslation1(int index) {
+    if (!g_wordbook_text_initialized) return "";
+    if (index < 0 || index >= WORDBOOK_CACHE_COUNT) return "";
+    if (!g_wordbook_translation1_ptrs[index]) return "-";
+    return g_wordbook_translation1_ptrs[index];
+}
+
+/**
+ * @brief 获取单词第二个释义
+ */
+const char* getWordBookTranslation2(int index) {
+    if (!g_wordbook_text_initialized) return "";
+    if (index < 0 || index >= WORDBOOK_CACHE_COUNT) return "";
+    if (!g_wordbook_translation2_ptrs[index]) return "-";
+    return g_wordbook_translation2_ptrs[index];
 }
 
 /**
@@ -559,7 +649,9 @@ static const TextArrayEntry g_text_arrays[] = {
     {"status_text", "$status_idx", status_text_sequence, sizeof(status_text_sequence)/sizeof(status_text_sequence[0])},
     {"wordbook_word", "$wordbook_idx", g_wordbook_word_ptrs, WORDBOOK_CACHE_COUNT},           // 单词本身
     {"wordbook_phonetic", "$wordbook_idx", g_wordbook_phonetic_ptrs, WORDBOOK_CACHE_COUNT},   // 音标
-    {"wordbook_translation", "$wordbook_idx", g_wordbook_translation_ptrs, WORDBOOK_CACHE_COUNT}, // 翻译
+    {"wordbook_translation", "$wordbook_idx", g_wordbook_translation_ptrs, WORDBOOK_CACHE_COUNT}, // 完整翻译
+    {"wordbook_translation_1", "$wordbook_idx", g_wordbook_translation1_ptrs, WORDBOOK_CACHE_COUNT}, // 第一个释义
+    {"wordbook_translation_2", "$wordbook_idx", g_wordbook_translation2_ptrs, WORDBOOK_CACHE_COUNT}, // 第二个释义
     {"wordbook_pos", "$wordbook_idx", g_wordbook_pos_ptrs, WORDBOOK_CACHE_COUNT},            // 词性
     // 新增文本数组只需要在这里添加一行即可！
 };
