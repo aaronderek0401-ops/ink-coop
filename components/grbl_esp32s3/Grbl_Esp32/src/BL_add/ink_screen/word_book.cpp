@@ -251,7 +251,16 @@ void WordBookCache::assignField(int fieldCount, String &field, WordEntry &entry)
   }
   
   switch (fieldCount) {
-    case 0: entry.word = field; break;
+    case 0: 
+      // 清理单词：去除前导单引号、减号和其他特殊字符
+      entry.word = field; 
+      entry.word.trim();
+      // 循环去除前导的特殊字符（单引号、减号等）
+      while (entry.word.length() > 0 && 
+             (entry.word[0] == '\'' || entry.word[0] == '-')) {
+        entry.word = entry.word.substring(1);
+      }
+      break;
     case 1: entry.phonetic = field; break;
     case 2: entry.definition = field; break;
     case 3: 
@@ -277,30 +286,40 @@ String WordBookCache::extractFirstNMeanings(const String& translation, int count
   int meaningCount = 0;
   int startPos = 0;
   
-  // 查找每一行（以\n分隔）
+  // 查找每一行（以字面字符串"\n"分隔，注意这是两个字符：反斜杠+n）
   for (int i = 0; i < translation.length() && meaningCount < count; i++) {
-    if (translation[i] == '\n' || i == translation.length() - 1) {
+    // 检查是否是字面的"\n"（两个字符）
+    bool isNewline = false;
+    if (i < translation.length() - 1 && translation[i] == '\\' && translation[i+1] == 'n') {
+      isNewline = true;
+    }
+    
+    if (isNewline || i == translation.length() - 1) {
       // 提取一行
-      int endPos = (i == translation.length() - 1) ? i + 1 : i;
+      int endPos = isNewline ? i : (i + 1);
       String line = translation.substring(startPos, endPos);
       line.trim();  // 去除首尾空格
       
       // 只过滤掉空行，保留所有标记（包括 [网络]、[医]、[化] 等）
       if (line.length() > 0) {
         if (result.length() > 0) {
-          result += "\n";  // 添加换行符
+          result += " ";  // 用空格分隔多个释义，而不是换行符
         }
         result += line;
         meaningCount++;
       }
       
-      startPos = i + 1;
+      if (isNewline) {
+        startPos = i + 2;  // 跳过"\n"（两个字符）
+        i++;  // 额外跳过'n'
+      }
     }
   }
   
   // 如果没有找到有效释义，返回原始文本的前部分
   if (meaningCount == 0 && translation.length() > 0) {
-    int cutPos = translation.indexOf('\n');
+    // 查找字面的"\n"
+    int cutPos = translation.indexOf("\\n");
     if (cutPos > 0 && cutPos < 100) {
       return translation.substring(0, cutPos);
     } else if (translation.length() > 100) {

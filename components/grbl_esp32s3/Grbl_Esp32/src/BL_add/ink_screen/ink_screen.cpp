@@ -346,6 +346,206 @@ static const char* message_remind_sequence[] = {"ss1", "提醒2", "提醒3", "�
 static const char* status_text_sequence[] = {"sss", "运行中", "完成", "错误"};
 // 可以添加更多文本序列...
 
+// ================== 单词本文本缓存（PSRAM）==================
+#define WORDBOOK_CACHE_COUNT 5  // 缓存的单词数量
+
+// 单词各字段的文本缓存（存储格式化的字符串）
+static char* g_wordbook_word_cache[WORDBOOK_CACHE_COUNT] = {nullptr};       // 单词本身
+static char* g_wordbook_phonetic_cache[WORDBOOK_CACHE_COUNT] = {nullptr};   // 音标
+static char* g_wordbook_translation_cache[WORDBOOK_CACHE_COUNT] = {nullptr}; // 翻译
+static char* g_wordbook_pos_cache[WORDBOOK_CACHE_COUNT] = {nullptr};        // 词性
+
+// 单词指针数组（供text_arrays使用）
+static const char* g_wordbook_word_ptrs[WORDBOOK_CACHE_COUNT] = {nullptr};
+static const char* g_wordbook_phonetic_ptrs[WORDBOOK_CACHE_COUNT] = {nullptr};
+static const char* g_wordbook_translation_ptrs[WORDBOOK_CACHE_COUNT] = {nullptr};
+static const char* g_wordbook_pos_ptrs[WORDBOOK_CACHE_COUNT] = {nullptr};
+
+// 单词本是否已初始化
+static bool g_wordbook_text_initialized = false;
+
+/**
+ * @brief 初始化单词本文本缓存（开机时调用）
+ * @return true 成功，false 失败
+ */
+bool initWordBookTextCache() {
+    if (g_wordbook_text_initialized) {
+        ESP_LOGW(TAG, "单词本文本缓存已初始化");
+        return true;
+    }
+    
+    ESP_LOGI(TAG, "========== 初始化单词本文本缓存 ==========");
+    
+    // 1. 初始化单词本缓存（从SD卡加载）
+    if (!initWordBookCache("/ecdict.mini.csv")) {
+        ESP_LOGE(TAG, "❌ 单词本缓存初始化失败");
+        return false;
+    }
+    
+    // 2. 加载前5个单词并分别格式化各个字段
+    int loaded_count = 0;
+    for (int i = 0; i < WORDBOOK_CACHE_COUNT; i++) {
+        WordEntry* word = getNextWord();
+        if (!word) {
+            ESP_LOGW(TAG, "只加载了 %d 个单词", i);
+            break;
+        }
+        
+        // === 分配并格式化：单词本身 ===
+        int word_len = word->word.length() + 10;
+        g_wordbook_word_cache[i] = (char*)heap_caps_malloc(word_len, MALLOC_CAP_SPIRAM);
+        if (g_wordbook_word_cache[i]) {
+            snprintf(g_wordbook_word_cache[i], word_len, "%s", word->word.c_str());
+            g_wordbook_word_ptrs[i] = g_wordbook_word_cache[i];
+        }
+        
+        // === 分配并格式化：音标（带方括号） ===
+        int phonetic_len = word->phonetic.length() + 10;
+        g_wordbook_phonetic_cache[i] = (char*)heap_caps_malloc(phonetic_len, MALLOC_CAP_SPIRAM);
+        if (g_wordbook_phonetic_cache[i]) {
+            if (word->phonetic.length() > 0) {
+                snprintf(g_wordbook_phonetic_cache[i], phonetic_len, "[%s]", word->phonetic.c_str());
+            } else {
+                g_wordbook_phonetic_cache[i][0] = '\0';  // 设置为空字符串
+            }
+            g_wordbook_phonetic_ptrs[i] = g_wordbook_phonetic_cache[i];
+        }
+        
+        // === 分配并格式化：翻译（已在extractFirstNMeanings中处理） ===
+        // extractFirstNMeanings已经将"\n"替换为空格，并只保留前2个释义
+        String trans_clean = word->translation;
+        trans_clean.trim();
+        
+        int trans_len = trans_clean.length() + 10;
+        g_wordbook_translation_cache[i] = (char*)heap_caps_malloc(trans_len, MALLOC_CAP_SPIRAM);
+        if (g_wordbook_translation_cache[i]) {
+            snprintf(g_wordbook_translation_cache[i], trans_len, "%s", trans_clean.c_str());
+            g_wordbook_translation_ptrs[i] = g_wordbook_translation_cache[i];
+        }
+        
+        // === 分配并格式化：词性 ===
+        int pos_len = word->pos.length() + 20;
+        g_wordbook_pos_cache[i] = (char*)heap_caps_malloc(pos_len, MALLOC_CAP_SPIRAM);
+        if (g_wordbook_pos_cache[i]) {
+            if (word->pos.length() > 0) {
+                snprintf(g_wordbook_pos_cache[i], pos_len, "%s", word->pos.c_str());
+            } else {
+                g_wordbook_pos_cache[i][0] = '\0';  // 词性为空时设置为空字符串
+            }
+            g_wordbook_pos_ptrs[i] = g_wordbook_pos_cache[i];
+        }
+        
+        loaded_count++;
+        
+        ESP_LOGI(TAG, "  [%d] %s %s - %s", i, 
+                 g_wordbook_word_ptrs[i], 
+                 g_wordbook_phonetic_ptrs[i],
+                 g_wordbook_pos_ptrs[i] ? g_wordbook_pos_ptrs[i] : "(no pos)");
+    }
+    
+    if (loaded_count > 0) {
+        g_wordbook_text_initialized = true;
+        ESP_LOGI(TAG, "✅ 单词本文本缓存初始化成功：%d/%d 个单词", 
+                 loaded_count, WORDBOOK_CACHE_COUNT);
+        
+        #if CONFIG_ESP32S3_SPIRAM_SUPPORT || CONFIG_SPIRAM
+        size_t free_psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+        ESP_LOGI(TAG, "   PSRAM剩余: %u 字节", free_psram);
+        #endif
+        
+        return true;
+    } else {
+        ESP_LOGE(TAG, "❌ 未能加载任何单词");
+        return false;
+    }
+}
+
+/**
+ * @brief 释放单词本文本缓存（关机时调用）
+ */
+void freeWordBookTextCache() {
+    if (!g_wordbook_text_initialized) return;
+    
+    for (int i = 0; i < WORDBOOK_CACHE_COUNT; i++) {
+        if (g_wordbook_word_cache[i]) {
+            heap_caps_free(g_wordbook_word_cache[i]);
+            g_wordbook_word_cache[i] = nullptr;
+            g_wordbook_word_ptrs[i] = nullptr;
+        }
+        
+        if (g_wordbook_phonetic_cache[i]) {
+            heap_caps_free(g_wordbook_phonetic_cache[i]);
+            g_wordbook_phonetic_cache[i] = nullptr;
+            g_wordbook_phonetic_ptrs[i] = nullptr;
+        }
+        
+        if (g_wordbook_translation_cache[i]) {
+            heap_caps_free(g_wordbook_translation_cache[i]);
+            g_wordbook_translation_cache[i] = nullptr;
+            g_wordbook_translation_ptrs[i] = nullptr;
+        }
+        
+        if (g_wordbook_pos_cache[i]) {
+            heap_caps_free(g_wordbook_pos_cache[i]);
+            g_wordbook_pos_cache[i] = nullptr;
+            g_wordbook_pos_ptrs[i] = nullptr;
+        }
+    }
+    
+    g_wordbook_text_initialized = false;
+    ESP_LOGI(TAG, "单词本文本缓存已释放");
+}
+
+/**
+ * @brief 获取单词本身
+ */
+const char* getWordBookWord(int index) {
+    if (!g_wordbook_text_initialized) return "Not Init";
+    if (index < 0 || index >= WORDBOOK_CACHE_COUNT) return "ERR";
+    if (!g_wordbook_word_ptrs[index]) return "NULL";
+    return g_wordbook_word_ptrs[index];
+}
+
+/**
+ * @brief 获取单词音标
+ */
+const char* getWordBookPhonetic(int index) {
+    if (!g_wordbook_text_initialized) return "";
+    if (index < 0 || index >= WORDBOOK_CACHE_COUNT) return "";
+    if (!g_wordbook_phonetic_ptrs[index]) return "";
+    return g_wordbook_phonetic_ptrs[index];
+}
+
+/**
+ * @brief 获取单词翻译
+ */
+const char* getWordBookTranslation(int index) {
+    if (!g_wordbook_text_initialized) return "Not Init";
+    if (index < 0 || index >= WORDBOOK_CACHE_COUNT) return "ERR";
+    if (!g_wordbook_translation_ptrs[index]) return "NULL";
+    return g_wordbook_translation_ptrs[index];
+}
+
+/**
+ * @brief 获取单词词性
+ */
+const char* getWordBookPos(int index) {
+    if (!g_wordbook_text_initialized) return "";
+    if (index < 0 || index >= WORDBOOK_CACHE_COUNT) return "";
+    if (!g_wordbook_pos_ptrs[index]) return "";
+    return g_wordbook_pos_ptrs[index];
+}
+
+/**
+ * @brief 获取单词本文本指针（用于text_roll）
+ * @param index 单词索引 (0-4)
+ * @return 单词文本指针，失败返回"ERR"
+ * @deprecated 请使用 getWordBookWord/Phonetic/Translation/Pos
+ */
+const char* getWordBookText(int index) {
+    return getWordBookWord(index);  // 默认返回单词本身
+}
+
 // 文本数组注册表
 typedef struct {
     const char* name;        // 数组名称 (用于JSON中的"text_arr")
@@ -357,6 +557,10 @@ typedef struct {
 static const TextArrayEntry g_text_arrays[] = {
     {"message_remind", "$message_idx", message_remind_sequence, sizeof(message_remind_sequence)/sizeof(message_remind_sequence[0])},
     {"status_text", "$status_idx", status_text_sequence, sizeof(status_text_sequence)/sizeof(status_text_sequence[0])},
+    {"wordbook_word", "$wordbook_idx", g_wordbook_word_ptrs, WORDBOOK_CACHE_COUNT},           // 单词本身
+    {"wordbook_phonetic", "$wordbook_idx", g_wordbook_phonetic_ptrs, WORDBOOK_CACHE_COUNT},   // 音标
+    {"wordbook_translation", "$wordbook_idx", g_wordbook_translation_ptrs, WORDBOOK_CACHE_COUNT}, // 翻译
+    {"wordbook_pos", "$wordbook_idx", g_wordbook_pos_ptrs, WORDBOOK_CACHE_COUNT},            // 词性
     // 新增文本数组只需要在这里添加一行即可！
 };
 static const int g_text_arrays_count = sizeof(g_text_arrays) / sizeof(g_text_arrays[0]);
@@ -1355,7 +1559,7 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
                     }
                 }
             }
-            switchToPSRAMFont("comic_sans_ms_v3_20x20");
+            switchToPSRAMFont("fangsong_gb2312_20x20");
             // 显示该矩形内的所有动态文本组（text_roll）
             if (rect->text_roll_count > 0) {
                 for (int j = 0; j < rect->text_roll_count; j++) {
@@ -1379,9 +1583,58 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
                         ESP_LOGI("MAIN", "  显示动态文本: 位置(%d,%d) 内容[%s]", 
                                 scaled_x, scaled_y, current_text);
                         
-                        ESP_LOGI("TEXT_DISPLAY", "准备显示文本: (%d,%d) \"%s\"", scaled_x, scaled_y, current_text);
-                        drawEnglishText(display, scaled_x, scaled_y, current_text, GxEPD_BLACK);
-                        ESP_LOGI("TEXT_DISPLAY", "文本已显示(使用中文字库): (%d,%d) \"%s\"", scaled_x, scaled_y, current_text);
+                        // === 根据text_roll配置选择字体 ===
+                        const char* font_name = nullptr;
+                        
+                        // 如果JSON中配置了字体，直接使用
+                        if (text_roll->font[0] != '\0') {
+                            font_name = text_roll->font;
+                            ESP_LOGI("TEXT_DISPLAY", "使用JSON配置的字体: %s", font_name);
+                        } else {
+                            // 如果没有配置字体，根据text_arr类型自动选择（向后兼容）
+                            font_name = "comic_sans_ms_v3_20x20";  // 默认英文字体
+                            
+                            if (strstr(text_roll->text_arr, "wordbook_word") != nullptr) {
+                                // 单词：使用英文字体
+                                font_name = "comic_sans_ms_v3_20x20";
+                                ESP_LOGD("TEXT_DISPLAY", "自动选择英文字体显示单词");
+                            } 
+                            else if (strstr(text_roll->text_arr, "wordbook_phonetic") != nullptr) {
+                                // 音标：使用音标字体（IPA字符）
+                                font_name = "comic_sans_ms_phonetic_20x20";
+                                ESP_LOGD("TEXT_DISPLAY", "自动选择音标字体显示音标");
+                            } 
+                            else if (strstr(text_roll->text_arr, "wordbook_translation") != nullptr) {
+                                // 翻译：使用中文字体
+                                font_name = "fangsong_gb2312_20x20";
+                                ESP_LOGD("TEXT_DISPLAY", "自动选择中文字体显示翻译");
+                            }
+                            else if (strstr(text_roll->text_arr, "wordbook_pos") != nullptr) {
+                                // 词性：使用英文字体（词性通常是英文缩写）
+                                font_name = "comic_sans_ms_v3_20x20";
+                                ESP_LOGD("TEXT_DISPLAY", "自动选择英文字体显示词性");
+                            }
+                        }
+                        
+                        // 切换到对应字体
+                        if (switchToPSRAMFont(font_name)) {
+                            ESP_LOGI("TEXT_DISPLAY", "准备显示文本 [%s]: (%d,%d) \"%s\"", 
+                                     font_name, scaled_x, scaled_y, current_text);
+                            
+                            // 根据字体类型选择绘制函数
+                            if (strcmp(font_name, "fangsong_gb2312_20x20") == 0) {
+                                // 中文字体：使用中文绘制函数
+                                drawChineseTextWithCache(display, scaled_x, scaled_y, current_text, GxEPD_BLACK);
+                            } else {
+                                // 英文/音标字体：使用英文绘制函数
+                                drawEnglishText(display, scaled_x, scaled_y, current_text, GxEPD_BLACK);
+                            }
+                            
+                            ESP_LOGI("TEXT_DISPLAY", "文本已显示: (%d,%d) \"%s\"", 
+                                     scaled_x, scaled_y, current_text);
+                        } else {
+                            ESP_LOGW("TEXT_DISPLAY", "字体切换失败: %s", font_name);
+                        }
                     } else {
                         ESP_LOGW("MAIN", "  动态文本内容错误或为空，跳过");
                     }
@@ -1473,28 +1726,28 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
     ESP_LOGI(TAG, "========== 单词本显示测试 ==========");
     
     // 1. 初始化单词本缓存（从SD卡加载）
-    if (initWordBookCache("/ecdict.mini.csv")) {
-        ESP_LOGI(TAG, "✅ 单词本缓存初始化成功");
+    // if (initWordBookCache("/ecdict.mini.csv")) {
+    //     ESP_LOGI(TAG, "✅ 单词本缓存初始化成功");
         
-        // 2. 在墨水屏上显示3个单词（含完整信息：单词、词性、音标、翻译）
-        // 注意：每个单词约占60-70px高度，建议显示3-4个
-        testDisplayWordsOnScreen(display, 3);
+    //     // 2. 在墨水屏上显示3个单词（含完整信息：单词、词性、音标、翻译）
+    //     // 注意：每个单词约占60-70px高度，建议显示3-4个
+    //     testDisplayWordsOnScreen(display, 3);
         
-        // 可选：打印到串口查看详细信息
-        // printWordsFromCache(3);
-    } else {
-        ESP_LOGE(TAG, "❌ 单词本缓存初始化失败");
+    //     // 可选：打印到串口查看详细信息
+    //     // printWordsFromCache(3);
+    // } else {
+    //     ESP_LOGE(TAG, "❌ 单词本缓存初始化失败");
         
-        // 显示错误信息
-        display.setFullWindow();
-        display.firstPage();
-        do {
-            if (switchToPSRAMFont("fangsong_gb2312_20x20")) {
-                drawChineseTextWithCache(display, 10, 10, "错误：", GxEPD_BLACK);
-                drawChineseTextWithCache(display, 10, 40, "无法加载单词本", GxEPD_BLACK);
-            }
-        } while (display.nextPage());
-    }
+    //     // 显示错误信息
+    //     display.setFullWindow();
+    //     display.firstPage();
+    //     do {
+    //         if (switchToPSRAMFont("fangsong_gb2312_20x20")) {
+    //             drawChineseTextWithCache(display, 10, 10, "错误：", GxEPD_BLACK);
+    //             drawChineseTextWithCache(display, 10, 40, "无法加载单词本", GxEPD_BLACK);
+    //         }
+    //     } while (display.nextPage());
+    // }
     
     
     // 等待屏幕完成刷新
@@ -2515,15 +2768,30 @@ void ink_screen_init()
         ESP_LOGW(TAG, "⚠️ 未加载任何字体到 PSRAM");
     }
     
-     // 3. 初始化单词本缓存
-    if (initWordBookCache("/ecdict.mini.csv")) {
-        ESP_LOGI("TEST", "缓存初始化成功");
+    // ===== 步骤 2: 初始化单词本文本缓存（用于text_roll显示）=====
+    ESP_LOGI(TAG, "========== 步骤 2: 初始化单词本文本缓存 ==========");
+    
+    if (initWordBookTextCache()) {
+        ESP_LOGI(TAG, "✅ 单词本文本缓存初始化成功");
         
-        // 2. 读取并打印前10个单词
-        printWordsFromCache(8);
+        // 打印已加载的单词信息
+        ESP_LOGI(TAG, "已缓存的单词列表:");
+        for (int i = 0; i < WORDBOOK_CACHE_COUNT; i++) {
+            ESP_LOGI(TAG, "  [$wordbook_idx=%d]", i);
+            ESP_LOGI(TAG, "    word:        %s", getWordBookWord(i));
+            ESP_LOGI(TAG, "    phonetic:    %s", getWordBookPhonetic(i));
+            ESP_LOGI(TAG, "    translation: %s", getWordBookTranslation(i));
+            ESP_LOGI(TAG, "    pos:         %s", getWordBookPos(i));
+        }
         
-        // 3. 继续读取下10个单词
-      //  printWordsFromCache(10);
+        ESP_LOGI(TAG, "");
+        ESP_LOGI(TAG, "JSON配置示例:");
+        ESP_LOGI(TAG, "  {\"text_arr\": \"wordbook_word\", \"idx\": \"$wordbook_idx\"}        // 显示单词");
+        ESP_LOGI(TAG, "  {\"text_arr\": \"wordbook_phonetic\", \"idx\": \"$wordbook_idx\"}   // 显示音标");
+        ESP_LOGI(TAG, "  {\"text_arr\": \"wordbook_translation\", \"idx\": \"$wordbook_idx\"} // 显示翻译");
+        ESP_LOGI(TAG, "  {\"text_arr\": \"wordbook_pos\", \"idx\": \"$wordbook_idx\"}        // 显示词性");
+    } else {
+        ESP_LOGW(TAG, "⚠️ 单词本文本缓存初始化失败");
     }
 
     // ===== 步骤 1: 初始化墨水屏专用的 SPI3 (HSPI) =====
@@ -2868,6 +3136,7 @@ bool loadAndDisplayFromJSON(const char* json_str) {
                 cJSON* idx = cJSON_GetObjectItem(text_roll_item, "idx");
                 cJSON* rel_x = cJSON_GetObjectItem(text_roll_item, "rel_x");
                 cJSON* rel_y = cJSON_GetObjectItem(text_roll_item, "rel_y");
+                cJSON* font = cJSON_GetObjectItem(text_roll_item, "font");
                 cJSON* auto_roll = cJSON_GetObjectItem(text_roll_item, "auto_roll");
 
                 if (text_arr && cJSON_IsString(text_arr) &&
@@ -2884,6 +3153,14 @@ bool loadAndDisplayFromJSON(const char* json_str) {
                     strncpy(text_roll->idx, idx->valuestring, sizeof(text_roll->idx) - 1);
                     text_roll->idx[sizeof(text_roll->idx) - 1] = '\0';
                     
+                    // 解析font字段，如果没有则为空（将使用默认字体逻辑）
+                    if (font && cJSON_IsString(font)) {
+                        strncpy(text_roll->font, font->valuestring, sizeof(text_roll->font) - 1);
+                        text_roll->font[sizeof(text_roll->font) - 1] = '\0';
+                    } else {
+                        text_roll->font[0] = '\0';  // 空字符串表示使用默认字体
+                    }
+                    
                     text_roll->rel_x = (float)rel_x->valuedouble;
                     text_roll->rel_y = (float)rel_y->valuedouble;
                     
@@ -2893,8 +3170,9 @@ bool loadAndDisplayFromJSON(const char* json_str) {
                         text_roll->auto_roll = cJSON_IsTrue(auto_roll);
                     }
                     
-                    ESP_LOGI("JSON", "解析动态文本组%d: arr=%s, idx=%s, pos=(%.2f,%.2f), auto_roll=%s", 
+                    ESP_LOGI("JSON", "解析动态文本组%d: arr=%s, idx=%s, font=%s, pos=(%.2f,%.2f), auto_roll=%s", 
                             text_roll_count, text_roll->text_arr, text_roll->idx, 
+                            text_roll->font[0] ? text_roll->font : "auto",
                             text_roll->rel_x, text_roll->rel_y, text_roll->auto_roll ? "true" : "false");
                     
                     text_roll_count++;
@@ -3204,6 +3482,11 @@ bool loadAndDisplayFromFile(const char* file_path) {
                 else if (strstr(line_buffer, "\"idx\"")) {
                     if (current_text_roll < 4) {
                         sscanf(line_buffer, " \"idx\" : \"%15[^\"]\"", temp_rect.text_rolls[current_text_roll].idx);
+                    }
+                }
+                else if (strstr(line_buffer, "\"font\"")) {
+                    if (current_text_roll < 4) {
+                        sscanf(line_buffer, " \"font\" : \"%31[^\"]\"", temp_rect.text_rolls[current_text_roll].font);
                     }
                 }
                 else if (strstr(line_buffer, "\"rel_x\"")) {
@@ -3658,6 +3941,11 @@ bool loadScreenToMemory(const char* file_path, RectInfo** out_rects,
                 else if (strstr(line_buffer, "\"idx\"")) {
                     if (current_text_roll < 4) {
                         sscanf(line_buffer, " \"idx\" : \"%15[^\"]\"", temp_rect.text_rolls[current_text_roll].idx);
+                    }
+                }
+                else if (strstr(line_buffer, "\"font\"")) {
+                    if (current_text_roll < 4) {
+                        sscanf(line_buffer, " \"font\" : \"%31[^\"]\"", temp_rect.text_rolls[current_text_roll].font);
                     }
                 }
                 else if (strstr(line_buffer, "\"rel_x\"")) {
