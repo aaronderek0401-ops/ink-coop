@@ -94,7 +94,7 @@ typedef struct {
     float rel_y;           // 文本在矩形内的垂直相对位置 (0.0-1.0)
     char text_arr[32];     // 文本数组名称 (如: "message_remind")
     char idx[16];          // 索引变量名称 (如: "$message_idx")
-    char font[32];         // 字体名称 (如: "fangsong_gb2312_20x20", "comic_sans_ms_v3_20x20", "comic_sans_ms_phonetic_20x20")
+    char font[32];         // 字体名称 (如: "chinese_translate_font", "english_sentence_font", "english_phonetic_font")
     bool auto_roll;        // 是否自动滚动 (true=自动100ms切换, false=固定)
 } TextRollInRect;
 //用到

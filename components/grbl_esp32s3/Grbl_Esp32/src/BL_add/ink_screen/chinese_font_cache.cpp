@@ -886,7 +886,7 @@ bool loadFullFontToPSRAM(FullFontData* font_data, const char* file_path) {
     strncpy(font_data->file_path, file_path, sizeof(font_data->file_path) - 1);
     font_data->is_loaded = true;
     
-    // 从文件路径提取字体名称 (去掉路径和.bin扩展名)
+    // 从文件路径提取字体名称 (去掉路径、.bin扩展名和字号后缀)
     const char* filename = strrchr(file_path, '/');
     if (filename) {
         filename++; // 跳过 '/'
@@ -895,9 +895,28 @@ bool loadFullFontToPSRAM(FullFontData* font_data, const char* file_path) {
     }
     strncpy(font_data->font_name, filename, sizeof(font_data->font_name) - 1);
     font_data->font_name[sizeof(font_data->font_name) - 1] = '\0';
+    
+    // 去掉 .bin 扩展名
     char* dot = strrchr(font_data->font_name, '.');
     if (dot && strcmp(dot, ".bin") == 0) {
-        *dot = '\0';  // 去掉 .bin
+        *dot = '\0';
+    }
+    
+    // 去掉字号后缀 (例如: chinese_translate_font_20 -> chinese_translate_font)
+    char* last_underscore = strrchr(font_data->font_name, '_');
+    if (last_underscore) {
+        // 检查下划线后面是否全是数字
+        bool all_digits = true;
+        for (char* ptr = last_underscore + 1; *ptr != '\0'; ptr++) {
+            if (!isdigit(*ptr)) {
+                all_digits = false;
+                break;
+            }
+        }
+        // 如果是数字，去掉这个后缀
+        if (all_digits && *(last_underscore + 1) != '\0') {
+            *last_underscore = '\0';
+        }
     }
     
     // 计算字符参数
@@ -1072,20 +1091,44 @@ const FullFontData* getPSRAMFontByIndex(int index) {
 
 /**
  * @brief 从文件名解析字体尺寸
+ * 格式: "font_name_32.bin" - 查找最后一个下划线后的数字
  */
 int parseFontSizeFromFilename(const char* filename) {
-    const char* p = strstr(filename, "x");
-    if (p && p > filename) {
-        const char* start = p - 1;
-        while (start > filename && isdigit(*(start - 1))) {
-            start--;
-        }
-        int first_size = atoi(start);
-        int second_size = atoi(p + 1);
-        if (first_size == second_size && first_size > 0 && first_size <= 64) {
-            return first_size;
+    size_t len = strlen(filename);
+    
+    // 去掉 .bin 后缀
+    const char* name_end = filename + len;
+    if (len > 4 && strcmp(filename + len - 4, ".bin") == 0) {
+        name_end = filename + len - 4;
+    }
+    
+    // 查找最后一个下划线后的数字 (例如: english_word_font_32.bin)
+    const char* last_underscore = nullptr;
+    for (const char* ptr = filename; ptr < name_end; ptr++) {
+        if (*ptr == '_') {
+            last_underscore = ptr;
         }
     }
+    
+    if (last_underscore && last_underscore < name_end - 1) {
+        const char* num_start = last_underscore + 1;
+        // 检查下划线后面是否全是数字
+        bool all_digits = true;
+        for (const char* ptr = num_start; ptr < name_end; ptr++) {
+            if (!isdigit(*ptr)) {
+                all_digits = false;
+                break;
+            }
+        }
+        
+        if (all_digits && num_start < name_end) {
+            int font_size = atoi(num_start);
+            if (font_size > 0 && font_size <= 64) {
+                return font_size;
+            }
+        }
+    }
+    
     return 0;
 }
 
@@ -1116,10 +1159,12 @@ bool shouldLoadToPSRAM(const char* filename) {
 
 /**
  * @brief 扫描SD卡并加载字体到PSRAM
+ * @param load_all_fonts 是否加载所有字体（包括中文字体）
+ * @return 成功加载的字体数量
  */
 int initFullFontsInPSRAM(bool load_all_fonts) {
     ESP_LOGI(TAG, "========== 开始扫描 SD 卡字体文件 ==========");
-    ESP_LOGI(TAG, "模式: %s", load_all_fonts ? "加载所有字体(包括fangsong)" : "只加载非fangsong字体");
+    ESP_LOGI(TAG, "模式: %s", load_all_fonts ? "加载所有字体(包括中文)" : "只加载英文字体");
     
     DIR* dir = opendir("/sd");
     if (!dir) {
@@ -1132,76 +1177,103 @@ int initFullFontsInPSRAM(bool load_all_fonts) {
     int scanned_count = 0;
     
     struct FontFileInfo {
-        char path[64];
+        char path[128];
+        char name[128];
         int size;
-        bool is_fangsong;  // 新增：标记是否为 fangsong
+        bool is_chinese;
     };
     
     FontFileInfo font_files[MAX_PSRAM_FONTS];
     int font_file_count = 0;
     
+    // ========== 扫描 SD 卡，查找 chinese_ 或 english_ 开头的字体 ==========
     while ((entry = readdir(dir)) != NULL && font_file_count < MAX_PSRAM_FONTS) {
         if (entry->d_type == DT_DIR) continue;
         
         const char* name = entry->d_name;
         size_t len = strlen(name);
-        if (len < 4 || strcmp(name + len - 4, ".bin") != 0) continue;
+        
+        // 检查文件名长度，防止缓冲区溢出（必须放在最前面）
+        if (len > 120 || len < 4) {
+            if (len >= 4 && strcmp(name + len - 4, ".bin") == 0) {
+                ESP_LOGW(TAG, "跳过 (文件名过长): %.50s...", name);
+            }
+            continue;
+        }
+        
+        // 必须是 .bin 文件
+        if (strcmp(name + len - 4, ".bin") != 0) continue;
         
         scanned_count++;
         
+        // 检查是否以 chinese_ 或 english_ 开头
+        bool is_chinese_font = (strncmp(name, "chinese_", 8) == 0);
+        bool is_english_font = (strncmp(name, "english_", 8) == 0);
+        
+        if (!is_chinese_font && !is_english_font) {
+            ESP_LOGD(TAG, "跳过 (不是 chinese_/english_ 字体): %s", name);
+            continue;
+        }
+        
+        // 如果不加载中文字体，跳过 chinese_
+        if (!load_all_fonts && is_chinese_font) {
+            ESP_LOGI(TAG, "跳过 (中文字体): %s", name);
+            continue;
+        }
+        
+        // 尝试从文件名解析字号
         int font_size = parseFontSizeFromFilename(name);
         if (font_size == 0) {
-            ESP_LOGD(TAG, "跳过 (无法识别尺寸): %s", name);
-            continue;
+            // 如果无法解析字号，尝试打开文件读取
+            char full_path[144];
+            // 安全的字符串拼接（len已确保<=120，加上"/sd/"共124字节，在144字节缓冲区内安全）
+            memcpy(full_path, "/sd/", 4);
+            memcpy(full_path + 4, name, len);
+            full_path[4 + len] = '\0';
+            
+            FILE* fp = fopen(full_path, "rb");
+            if (fp) {
+                // 假设是 20x20 字体（默认值）
+                font_size = 20;
+                fclose(fp);
+                ESP_LOGW(TAG, "无法从文件名解析字号，使用默认值 20: %s", name);
+            } else {
+                ESP_LOGW(TAG, "跳过 (无法打开): %s", name);
+                continue;
+            }
         }
         
-        bool should_load = shouldLoadToPSRAM(name);
-        bool is_fangsong = (strstr(name, "fangsong") != nullptr || strstr(name, "fang_song") != nullptr);
+        // 添加到字体列表（len已确保<=120，所以这里是安全的）
+        memcpy(font_files[font_file_count].path, "/sd/", 4);
+        memcpy(font_files[font_file_count].path + 4, name, len);
+        font_files[font_file_count].path[4 + len] = '\0';
         
-        // 如果 load_all_fonts=false, 跳过 fangsong
-        if (!load_all_fonts && is_fangsong) {
-            ESP_LOGI(TAG, "跳过 (使用缓存系统): %s", name);
-            continue;
-        }
-        
-        if (!should_load) {
-            ESP_LOGI(TAG, "跳过 (不符合加载条件): %s", name);
-            continue;
-        }
-        
-        if (strlen(name) > 58) {
-            ESP_LOGW(TAG, "字体文件名过长，跳过: %s", name);
-            continue;
-        }
-        
-        #pragma GCC diagnostic push
-        #pragma GCC diagnostic ignored "-Wformat-truncation"
-        snprintf(font_files[font_file_count].path, sizeof(font_files[0].path), "/sd/%s", name);
-        #pragma GCC diagnostic pop
+        memcpy(font_files[font_file_count].name, name, len);
+        font_files[font_file_count].name[len] = '\0';
         font_files[font_file_count].size = font_size;
-        font_files[font_file_count].is_fangsong = is_fangsong;
+        font_files[font_file_count].is_chinese = is_chinese_font;
         font_file_count++;
         
-        ESP_LOGI(TAG, "发现字体: %s (%dx%d) → PSRAM %s", name, font_size, font_size,
-                 is_fangsong ? "[中文]" : "[英文]");
+        ESP_LOGI(TAG, "发现字体 [%d]: %s (%dx%d) %s", 
+                 font_file_count, name, font_size, font_size,
+                 is_chinese_font ? "[中文]" : "[英文]");
     }
     
     closedir(dir);
     
-    ESP_LOGI(TAG, "扫描完成: 共扫描 %d 个 .bin 文件, 发现 %d 个需要加载到 PSRAM", 
+    ESP_LOGI(TAG, "扫描完成: 共扫描 %d 个 .bin 文件, 发现 %d 个字体", 
              scanned_count, font_file_count);
     
     if (font_file_count == 0) {
-        ESP_LOGW(TAG, "没有找到需要加载到 PSRAM 的字体文件");
+        ESP_LOGW(TAG, "没有找到 chinese_/english_ 开头的字体文件");
         return 0;
     }
     
-    // ===== 优化：fangsong 优先加载 (大字库优先) =====
-    // 对字体文件排序：fangsong 排在前面
+    // ========== 优先级排序：中文字体优先 ==========
     for (int i = 0; i < font_file_count - 1; i++) {
         for (int j = i + 1; j < font_file_count; j++) {
-            if (!font_files[i].is_fangsong && font_files[j].is_fangsong) {
-                // 交换位置：把 fangsong 移到前面
+            if (!font_files[i].is_chinese && font_files[j].is_chinese) {
+                // 交换位置：把中文字体移到前面
                 FontFileInfo temp = font_files[i];
                 font_files[i] = font_files[j];
                 font_files[j] = temp;
@@ -1209,10 +1281,11 @@ int initFullFontsInPSRAM(bool load_all_fonts) {
         }
     }
     
+    // 最多加载 8 个字体
     int fonts_to_load = (font_file_count > MAX_PSRAM_FONTS) ? MAX_PSRAM_FONTS : font_file_count;
     
-    ESP_LOGI(TAG, "========== 开始加载字体到 PSRAM (最多%d个) ==========", fonts_to_load);
-    ESP_LOGI(TAG, "加载顺序: fangsong 优先, 然后是其他字体");
+    ESP_LOGI(TAG, "========== 开始加载字体到 PSRAM (最多 %d 个) ==========", fonts_to_load);
+    ESP_LOGI(TAG, "加载顺序: 中文字体优先, 然后是英文字体");
     
     for (int i = 0; i < fonts_to_load; i++) {
         FullFontData* target = &g_psram_fonts[i];
@@ -1227,18 +1300,31 @@ int initFullFontsInPSRAM(bool load_all_fonts) {
         memset(target->font_name, 0, sizeof(target->font_name));
         
         ESP_LOGI(TAG, "[%d/%d] 正在加载: %s %s...", 
-                 i+1, fonts_to_load, font_files[i].path,
-                 font_files[i].is_fangsong ? "[中文字库]" : "[英文字体]");
+                 i+1, fonts_to_load, font_files[i].name,
+                 font_files[i].is_chinese ? "[中文]" : "[英文]");
         
         if (loadFullFontToPSRAM(target, font_files[i].path)) {
             loaded_count++;
             g_psram_font_count++;
+            ESP_LOGI(TAG, "  ✅ 加载成功: %s → PSRAM 字体名称: %s", 
+                     font_files[i].name, target->font_name);
         } else {
-            ESP_LOGW(TAG, "❌ 加载失败: %s", font_files[i].path);
+            ESP_LOGW(TAG, "  ❌ 加载失败: %s", font_files[i].name);
         }
     }
     
     ESP_LOGI(TAG, "========== PSRAM 字体加载完成: %d/%d ==========", loaded_count, fonts_to_load);
+    
+    // 显示已加载的字体列表
+    ESP_LOGI(TAG, "========== 已加载的字体列表 ==========");
+    for (int i = 0; i < g_psram_font_count; i++) {
+        if (g_psram_fonts[i].is_loaded) {
+            ESP_LOGI(TAG, "  [%d] %s (%dx%d, %u 字符)", 
+                     i, g_psram_fonts[i].font_name, 
+                     g_psram_fonts[i].font_size, g_psram_fonts[i].font_size,
+                     g_psram_fonts[i].char_count);
+        }
+    }
     
     #if CONFIG_ESP32S3_SPIRAM_SUPPORT || CONFIG_SPIRAM
     size_t free_psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);

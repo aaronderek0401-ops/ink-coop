@@ -1310,7 +1310,7 @@ void test_ipa_phonetic_font()
     }
     
     // 1. 切换到音标字体 (注意文件名有空格)
-    const char* font_name = "comic_sans_ms_phonetic_20x20";  // 注意 phonetic 后有空格
+    const char* font_name = "english_phonetic_font";  // 注意 phonetic 后有空格
     ESP_LOGI(TAG, "尝试切换到字体: '%s'", font_name);
     
     const FullFontData* font = findPSRAMFontByName(font_name);
@@ -1717,7 +1717,7 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
                     }
                 }
             }
-            switchToPSRAMFont("fangsong_gb2312_20x20");
+            switchToPSRAMFont("chinese_translate_font");
             // 显示该矩形内的所有动态文本组（text_roll）
             if (rect->text_roll_count > 0) {
                 for (int j = 0; j < rect->text_roll_count; j++) {
@@ -1750,26 +1750,26 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
                             ESP_LOGI("TEXT_DISPLAY", "使用JSON配置的字体: %s", font_name);
                         } else {
                             // 如果没有配置字体，根据text_arr类型自动选择（向后兼容）
-                            font_name = "comic_sans_ms_v3_20x20";  // 默认英文字体
+                            font_name = "english_sentence_font";  // 默认英文字体
                             
                             if (strstr(text_roll->text_arr, "wordbook_word") != nullptr) {
                                 // 单词：使用英文字体
-                                font_name = "comic_sans_ms_v3_20x20";
+                                font_name = "english_sentence_font";
                                 ESP_LOGD("TEXT_DISPLAY", "自动选择英文字体显示单词");
                             } 
                             else if (strstr(text_roll->text_arr, "wordbook_phonetic") != nullptr) {
                                 // 音标：使用音标字体（IPA字符）
-                                font_name = "comic_sans_ms_phonetic_20x20";
+                                font_name = "english_phonetic_font";
                                 ESP_LOGD("TEXT_DISPLAY", "自动选择音标字体显示音标");
                             } 
                             else if (strstr(text_roll->text_arr, "wordbook_translation") != nullptr) {
                                 // 翻译：使用中文字体
-                                font_name = "fangsong_gb2312_20x20";
+                                font_name = "chinese_translate_font";
                                 ESP_LOGD("TEXT_DISPLAY", "自动选择中文字体显示翻译");
                             }
                             else if (strstr(text_roll->text_arr, "wordbook_pos") != nullptr) {
                                 // 词性：使用英文字体（词性通常是英文缩写）
-                                font_name = "comic_sans_ms_v3_20x20";
+                                font_name = "english_sentence_font";
                                 ESP_LOGD("TEXT_DISPLAY", "自动选择英文字体显示词性");
                             }
                         }
@@ -1780,7 +1780,7 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
                                      font_name, scaled_x, scaled_y, current_text);
                             
                             // 根据字体类型选择绘制函数
-                            if (strcmp(font_name, "fangsong_gb2312_20x20") == 0) {
+                            if (strcmp(font_name, "chinese_translate_font") == 0) {
                                 // 中文字体：使用中文绘制函数
                                 drawChineseTextWithCache(display, scaled_x, scaled_y, current_text, GxEPD_BLACK);
                             } else {
@@ -1845,7 +1845,7 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
         // 使用常用字列表中确定存在的字符进行测试
         // ESP_LOGI(TAG, "测试中文字体显示(20x20)...");
         // // 切换到中文仿宋字体
-        // if (switchToPSRAMFont("fangsong_gb2312_20x20")) {
+        // if (switchToPSRAMFont("chinese_translate_font")) {
         //     drawChineseTextWithCache(display, 10, 10, "的一是了我不人在", GxEPD_BLACK);
         //     drawChineseTextWithCache(display, 10, 40, "他有这个上中大到", GxEPD_BLACK);
         //     drawChineseTextWithCache(display, 10, 70, "说你为子和也得会", GxEPD_BLACK);
@@ -1854,7 +1854,7 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
         // // ===== 测试1.5: Comic Sans PSRAM 英文字体测试 (使用字体名称切换) =====
         // ESP_LOGI(TAG, "测试Comic Sans英文字体显示(从PSRAM)...");
         // // 切换到 Comic Sans 20x20 字体
-        // if (switchToPSRAMFont("comic_sans_ms_v3_20x20")) {
+        // if (switchToPSRAMFont("english_sentence_font")) {
         //     drawEnglishText(display, 10, 110, "Hello World!", GxEPD_BLACK);
         //     drawEnglishText(display, 10, 140, "ABC abc 123", GxEPD_BLACK);
         //     drawEnglishText(display, 10, 170, "Test PSRAM", GxEPD_BLACK);
@@ -1863,14 +1863,14 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
         // // ===== 测试2: 中英文混合显示 =====
         // ESP_LOGI(TAG, "测试中英文混合显示...");
         // // 切换回中文字体
-        // if (switchToPSRAMFont("fangsong_gb2312_20x20")) {
+        // if (switchToPSRAMFont("chinese_translate_font")) {
         //     drawChineseTextWithCache(display, 10, 210, "世界", GxEPD_BLACK);
         // }
         
         // // ===== 测试3: 32x32字体测试 =====
         // ESP_LOGI(TAG, "测试32x32字体显示...");
         // //drawChineseTextWithCache(display, 10, 240, "大字测试", GxEPD_BLACK, 28);    // 28x28中文
-        // if (switchToPSRAMFont("comic_sans_ms_bold_32x32")) {
+        // if (switchToPSRAMFont("english_word_font")) {
         //     drawEnglishText(display, 10 + 150, 210, "BIG", GxEPD_BLACK);           // 28x28英文 Bold
         // }
         // test_ipa_phonetic_font();
@@ -1900,7 +1900,7 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
     //     display.setFullWindow();
     //     display.firstPage();
     //     do {
-    //         if (switchToPSRAMFont("fangsong_gb2312_20x20")) {
+    //         if (switchToPSRAMFont("chinese_translate_font")) {
     //             drawChineseTextWithCache(display, 10, 10, "错误：", GxEPD_BLACK);
     //             drawChineseTextWithCache(display, 10, 40, "无法加载单词本", GxEPD_BLACK);
     //         }
@@ -2906,7 +2906,7 @@ void ink_screen_init()
     // 方案 B: 手动加载特定 fangsong 字体（可选，如果方案A失败）
     // if (psram_fonts_loaded == 0) {
     //     ESP_LOGW(TAG, "自动扫描失败，尝试手动加载 fangsong...");
-    //     if (loadSpecificFontToPSRAM("/sd/fangsong_gb2312_20x20.bin", 20)) {
+    //     if (loadSpecificFontToPSRAM("/sd/chinese_translate_font.bin", 20)) {
     //         psram_fonts_loaded++;
     //         ESP_LOGI(TAG, "✅ 手动加载 fangsong 20x20 成功");
     //     }

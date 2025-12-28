@@ -21,7 +21,7 @@
                 {
                     "text_arr": "wordbook_word",
                     "idx": "$wordbook_idx",
-                    "font": "comic_sans_ms_bold_32x32",
+                    "font": "english_word_font",
                     "rel_x": 0.3535656745617206,
                     "rel_y": 0.19675917095608184,
                     "auto_roll": false
@@ -47,7 +47,7 @@
                 {
                     "text_arr": "wordbook_word",
                     "idx": "$wordbook_idx",
-                    "font": "comic_sans_ms_v3_20x20",
+                    "font": "english_sentence_font",
                     "rel_x": 0.1690703905545748,
                     "rel_y": 0.34722216924031574,
                     "auto_roll": false
@@ -73,7 +73,7 @@
                 {
                     "text_arr": "wordbook_phonetic",
                     "idx": "$wordbook_idx",
-                    "font": "comic_sans_ms_phonetic_20x20",
+                    "font": "english_phonetic_font",
                     "rel_x": 0.15224346747765174,
                     "rel_y": 0.34722216924031574,
                     "auto_roll": false
@@ -99,7 +99,7 @@
                 {
                     "text_arr": "wordbook_translation_1",
                     "idx": "$wordbook_idx",
-                    "font": "fangsong_gb2312_20x20",
+                    "font": "chinese_translate_font",
                     "rel_x": 0.07612173373882587,
                     "rel_y": 0.5069443384806315,
                     "auto_roll": false
@@ -148,7 +148,7 @@
                 {
                     "text_arr": "wordbook_translation_2",
                     "idx": "$wordbook_idx",
-                    "font": "fangsong_gb2312_20x20",
+                    "font": "chinese_translate_font",
                     "rel_x": 0.07612173373882587,
                     "rel_y": 0.5069443384806315,
                     "auto_roll": false

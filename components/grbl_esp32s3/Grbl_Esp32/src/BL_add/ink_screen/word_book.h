@@ -99,7 +99,7 @@ void testDisplayWordsOnScreen(T& display, int word_count) {
         display.firstPage();
         do {
             // 切换到中文字体显示错误信息
-            if (switchToPSRAMFont("fangsong_gb2312_20x20")) {
+            if (switchToPSRAMFont("chinese_translate_font")) {
                 drawChineseTextWithCache(display, 10, 10, "错误：单词本未初始化", (uint16_t)0x0000);
             }
         } while (display.nextPage());
@@ -124,7 +124,7 @@ void testDisplayWordsOnScreen(T& display, int word_count) {
         int displayed = 0;
         
         // 显示标题
-        if (switchToPSRAMFont("comic_sans_ms_bold_32x32")) {
+        if (switchToPSRAMFont("english_word_font")) {
             drawEnglishText(display, x_left, y_position, "Word Book", (uint16_t)0x0000);
         }
         y_position += 35;
@@ -141,7 +141,7 @@ void testDisplayWordsOnScreen(T& display, int word_count) {
             int16_t current_y = y_position;
             
             // 第1行：序号 + 单词 + 词性 (英文)
-            if (switchToPSRAMFont("comic_sans_ms_v3_20x20")) {
+            if (switchToPSRAMFont("english_sentence_font")) {
                 String word_line = String(i + 1) + ". " + word->word;
                 
                 // 添加词性 (如果有)
@@ -155,7 +155,7 @@ void testDisplayWordsOnScreen(T& display, int word_count) {
             
             // 第2行：音标 (英文，如果有)
             if (word->phonetic.length() > 0) {
-                if (switchToPSRAMFont("comic_sans_ms_phonetic_20x20")) {
+                if (switchToPSRAMFont("english_phonetic_font")) {
                     ESP_LOGI(TAG_TEST, "显示音标: /%s/", word->phonetic.c_str());
                     String phonetic_line = "/" + word->phonetic + "/";
                     drawEnglishText(display, x_left + 15, current_y, phonetic_line.c_str(), (uint16_t)0x0000);
@@ -198,11 +198,11 @@ void testDisplayWordsOnScreen(T& display, int word_count) {
                         if (is_ascii != in_ascii && current_segment.length() > 0) {
                             // 切换字符类型，输出当前段
                             if (in_ascii) {
-                                if (switchToPSRAMFont("comic_sans_ms_v3_20x20")) {
+                                if (switchToPSRAMFont("english_sentence_font")) {
                                     x_offset = drawEnglishText(display, x_offset, current_y, current_segment.c_str(), (uint16_t)0x0000);
                                 }
                             } else {
-                                if (switchToPSRAMFont("fangsong_gb2312_20x20")) {
+                                if (switchToPSRAMFont("chinese_translate_font")) {
                                     x_offset = drawChineseTextWithCache(display, x_offset, current_y, current_segment.c_str(), (uint16_t)0x0000);
                                 }
                             }
@@ -216,18 +216,18 @@ void testDisplayWordsOnScreen(T& display, int word_count) {
                     // 输出最后一段
                     if (current_segment.length() > 0 && x_offset < 410) {
                         if (in_ascii) {
-                            if (switchToPSRAMFont("comic_sans_ms_v3_20x20")) {
+                            if (switchToPSRAMFont("english_sentence_font")) {
                                 drawEnglishText(display, x_offset, current_y, current_segment.c_str(), (uint16_t)0x0000);
                             }
                         } else {
-                            if (switchToPSRAMFont("fangsong_gb2312_20x20")) {
+                            if (switchToPSRAMFont("chinese_translate_font")) {
                                 drawChineseTextWithCache(display, x_offset, current_y, current_segment.c_str(), (uint16_t)0x0000);
                             }
                         }
                     }
                 } else if (has_ascii) {
                     // 仅包含ASCII，使用英文字体
-                    if (switchToPSRAMFont("comic_sans_ms_v3_20x20")) {
+                    if (switchToPSRAMFont("english_sentence_font")) {
                         drawEnglishText(display, x_offset, current_y, trans.c_str(), (uint16_t)0x0000);
                     }
                 }
