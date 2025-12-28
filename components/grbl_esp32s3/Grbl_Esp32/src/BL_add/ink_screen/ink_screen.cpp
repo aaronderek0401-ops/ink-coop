@@ -1018,69 +1018,6 @@ void clearDisplayArea(uint16_t start_x, uint16_t start_y, uint16_t end_x, uint16
     ESP_LOGI(TAG, "清除显示区域: (%d,%d)到(%d,%d)", start_x, start_y, end_x, end_y);
 }
 
-void EPD_ShowPictureScaled(uint16_t orig_x, uint16_t orig_y, 
-                           uint16_t orig_w, uint16_t orig_h,
-                           const uint8_t* BMP, uint16_t color) {
-    // 安全检查：图片数据不能为空
-    if (BMP == nullptr) {
-        ESP_LOGE(TAG, "EPD_ShowPictureScaled: BMP数据为空指针！位置(%d,%d) 尺寸%dx%d", 
-                orig_x, orig_y, orig_w, orig_h);
-        return;
-    }
-    
-    // 使用统一的缩放因子保持长宽比（按最小缩放因子适配到屏幕）
-    float scale_x = (float)display.width() / (float)416;
-    float scale_y = (float)display.height() / (float)240;
-    float scale = (scale_x < scale_y) ? scale_x : scale_y;
-                            
-    // 计算缩放后的位置和尺寸（统一缩放，保持比例）
-    uint16_t new_x = (uint16_t)(orig_x * scale);
-    uint16_t new_y = (uint16_t)(orig_y * scale);
-    uint16_t new_w = (uint16_t)(orig_w * scale);
-    uint16_t new_h = (uint16_t)(orig_h * scale);
-
-    // 确保最小尺寸
-    if (new_w < 4) new_w = 4;
-    if (new_h < 4) new_h = 4;
-
-    // 边界裁剪，避免越界写入
-    const uint16_t screen_w = display.width();
-    const uint16_t screen_h = display.height();
-    if (new_x >= screen_w || new_y >= screen_h) {
-        ESP_LOGW(TAG, "EPD_ShowPictureScaled: 位置(%d,%d)超出屏幕(%d,%d)，跳过绘制", new_x, new_y, screen_w, screen_h);
-        return;
-    }
-
-    if (new_x + new_w > screen_w) {
-        uint16_t clipped_w = screen_w - new_x;
-        ESP_LOGW(TAG, "EPD_ShowPictureScaled: 宽度裁剪 %d -> %d (屏幕宽度=%d)", new_w, clipped_w, screen_w);
-        new_w = clipped_w;
-    }
-
-    if (new_y + new_h > screen_h) {
-        uint16_t clipped_h = screen_h - new_y;
-        ESP_LOGW(TAG, "EPD_ShowPictureScaled: 高度裁剪 %d -> %d (屏幕高度=%d)", new_h, clipped_h, screen_h);
-        new_h = clipped_h;
-    }
-
-    if (new_w == 0 || new_h == 0) {
-        ESP_LOGW(TAG, "EPD_ShowPictureScaled: 裁剪后尺寸为0，跳过绘制");
-        return;
-    }
-
-    // 源图每列的字节数（源图按列存储，每字节8个垂直像素）
-    uint16_t src_bytes_per_col = (orig_h + 7) / 8;
-
-    // 使用drawBitmap进行缩放显示
-    // 对于GXEPD2，我们使用drawBitmap函数，它自动处理位图数据
-    // 注意：这个简化版本不做精确的像素级缩放，而是使用系统的图像缩放
-    // 更精确的方法需要使用drawBitmap的矩形形式
-    display.drawBitmap(new_x, new_y, BMP, orig_w, orig_h, GxEPD_BLACK);
-
-    ESP_LOGD(TAG, "Scaled icon: (%d,%d) %dx%d -> (%d,%d) %dx%d",
-             orig_x, orig_y, orig_w, orig_h, new_x, new_y, new_w, new_h);
-}
-
 /**
  * @brief 四舍五入浮点数到整数
  */
@@ -1564,15 +1501,95 @@ void test_ipa_phonetic_font()
     vTaskDelay(5000 / portTICK_PERIOD_MS);
     display.hibernate();
 }
+
+void drawPictureScaled(uint16_t orig_x, uint16_t orig_y, 
+                           uint16_t orig_w, uint16_t orig_h,
+                           const uint8_t* BMP, uint16_t color) {
+    // 安全检查：图片数据不能为空
+    if (BMP == nullptr) {
+        ESP_LOGE(TAG, "drawPictureScaled: BMP数据为空指针！位置(%d,%d) 尺寸%dx%d", 
+                orig_x, orig_y, orig_w, orig_h);
+        return;
+    }
+    
+    // 使用统一的缩放因子保持长宽比（按最小缩放因子适配到屏幕）
+    float scale_x = (float) setInkScreenSize.screenWidth / (float)416;
+    float scale_y = (float)setInkScreenSize.screenHeigt / (float)240;
+    float scale = (scale_x < scale_y) ? scale_x : scale_y;
+                            
+    // 计算缩放后的位置和尺寸（统一缩放，保持比例）
+    uint16_t new_x = (uint16_t)(orig_x * scale);
+    uint16_t new_y = (uint16_t)(orig_y * scale);
+    uint16_t new_w = (uint16_t)(orig_w * scale);
+    uint16_t new_h = (uint16_t)(orig_h * scale);
+
+    // 确保最小尺寸
+    if (new_w < 4) new_w = 4;
+    if (new_h < 4) new_h = 4;
+
+    // 边界裁剪，避免越界写入缓冲区
+    const uint16_t screen_w = setInkScreenSize.screenWidth;
+    const uint16_t screen_h = setInkScreenSize.screenHeigt;
+    if (new_x >= screen_w || new_y >= screen_h) {
+        ESP_LOGW(TAG, "drawPictureScaled: 位置(%d,%d)超出屏幕(%d,%d)，跳过绘制", new_x, new_y, screen_w, screen_h);
+        return;
+    }
+
+    if (new_x + new_w > screen_w) {
+        uint16_t clipped_w = screen_w - new_x;
+        ESP_LOGW(TAG, "drawPictureScaled: 宽度裁剪 %d -> %d (屏幕宽度=%d)", new_w, clipped_w, screen_w);
+        new_w = clipped_w;
+    }
+
+    if (new_y + new_h > screen_h) {
+        uint16_t clipped_h = screen_h - new_y;
+        ESP_LOGW(TAG, "drawPictureScaled: 高度裁剪 %d -> %d (屏幕高度=%d)", new_h, clipped_h, screen_h);
+        new_h = clipped_h;
+    }
+
+    if (new_w == 0 || new_h == 0) {
+        ESP_LOGW(TAG, "drawPictureScaled: 裁剪后尺寸为0，跳过绘制");
+        return;
+    }
+
+    // === 重要：BIN 格式是按行存储的（逐行扫描） ===
+    // 每行占用的字节数（向上取整到8的倍数）
+    uint16_t src_bytes_per_row = (orig_w + 7) / 8;
+
+    // 对目标区域每个像素进行最近邻采样
+    for (uint16_t dy = 0; dy < new_h; dy++) {
+        for (uint16_t dx = 0; dx < new_w; dx++) {
+            // 映射回源图坐标
+            uint16_t sx = dx * orig_w / new_w;
+            uint16_t sy = dy * orig_h / new_h;
+
+            // 计算源图中该像素的字节和位（按行存储）
+            uint32_t src_byte_idx = (uint32_t)sy * src_bytes_per_row + sx / 8;
+            uint8_t src_bit_pos = sx % 8;
+            uint8_t src_byte = BMP[src_byte_idx];
+
+            // 读取源像素（MSB first：bit 7 对应第 0 列）
+            bool pixel_on = (src_byte & (0x80 >> src_bit_pos)) != 0;
+
+            // 设置目标像素
+            display.drawPixel(new_x + dx, new_y + dy, pixel_on ? color : !color);
+        }
+    }
+
+    ESP_LOGD(TAG, "Scaled icon: (%d,%d) %dx%d -> (%d,%d) %dx%d",
+             orig_x, orig_y, orig_w, orig_h, new_x, new_y, new_w, new_h);
+}
+
+
 // 显示主界面（使用已填充的图标数据）
 void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, int show_border) {
-    // 计算缩放比例
-    float scale_x = (float)display.width() / 416.0f;
-    float scale_y = (float)display.height() / 240.0f;
+    // 计算缩放比例（统一使用 setInkScreenSize，与 drawPictureScaled 保持一致）
+    float scale_x = (float)setInkScreenSize.screenWidth / 416.0f;
+    float scale_y = (float)setInkScreenSize.screenHeigt / 240.0f;
     float global_scale = (scale_x < scale_y) ? scale_x : scale_y;
     
     ESP_LOGI("DISPLAY", "屏幕尺寸: %dx%d, 缩放比例: %.4f, 图标数量: %d", 
-            display.width(), display.height(), 
+            setInkScreenSize.screenWidth, setInkScreenSize.screenHeigt, 
             global_scale, g_global_icon_count);
     
     // 初始化显示 - 全屏刷新
@@ -1594,10 +1611,8 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
             else if (BATTERY_LEVEL >= 20) battery_icon = ZHONGJINGYUAN_3_7_BATTERY_1;
             else battery_icon = ZHONGJINGYUAN_3_7_BATTERY_0;
             
-            // 计算电池图标显示位置
-            int bat_display_x = (int)(battery_x * global_scale);
-            int bat_display_y = (int)(battery_y * global_scale);
-            display.drawBitmap(bat_display_x, bat_display_y, battery_icon, 36, 24, GxEPD_BLACK);
+            // 使用 drawPictureScaled 自动缩放电池图标（原始尺寸 36x24）
+            drawPictureScaled(battery_x, battery_y, 36, 24, battery_icon, GxEPD_BLACK);
         #endif
         
         // ==================== 遍历所有矩形，显示图标 ====================
@@ -1634,26 +1649,21 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
                         int icon_x = rect->x + (int)(icon->rel_x * rect->width);
                         int icon_y = rect->y + (int)(icon->rel_y * rect->height);
                         
-                        // 应用缩放
-                        int scaled_x = (int)(icon_x * global_scale);
-                        int scaled_y = (int)(icon_y * global_scale);
-                        int scaled_w = (int)(icon_info->width * global_scale);
-                        int scaled_h = (int)(icon_info->height * global_scale);
-                        
-                        ESP_LOGI("MAIN", "  显示图标%d: 原始位置(%d,%d) 尺寸%dx%d, 缩放后(%d,%d) %dx%d", 
-                                icon_index, icon_x, icon_y, icon_info->width, icon_info->height,
-                                scaled_x, scaled_y, scaled_w, scaled_h);
+                        ESP_LOGI("MAIN", "  显示图标%d: 原始位置(%d,%d) 尺寸%dx%d (使用drawPictureScaled自动缩放)", 
+                                icon_index, icon_x, icon_y, icon_info->width, icon_info->height);
                         
                         // 优先从缓存读取，失败则从SD卡加载
                         uint32_t cache_width, cache_height;
                         const uint8_t* cached_data = getIconDataFromCache(icon_index, &cache_width, &cache_height);
                         if (cached_data) {
-                            display.drawBitmap(scaled_x, scaled_y, cached_data, cache_width, cache_height, GxEPD_BLACK);
-                            ESP_LOGD("MAIN", "  从缓存显示图标%d", icon_index);
+                            // 使用 drawPictureScaled 自动根据屏幕尺寸缩放图标
+                            drawPictureScaled(icon_x, icon_y, cache_width, cache_height, cached_data, GxEPD_BLACK);
+                            ESP_LOGD("MAIN", "  从缓存显示图标%d (自动缩放)", icon_index);
                         } else {
+                            ESP_LOGW("MAIN", "  图标%d缓存未命中，从SD卡加载会导致无法缩放，建议预加载", icon_index);
+                            // 注意：displayImageFromSD 不支持缩放，这里只能显示原始尺寸
                             const char* icon_file = getIconFileNameByIndex(icon_index);
-                            displayImageFromSD(icon_file, scaled_x, scaled_y, display);
-                            ESP_LOGW("MAIN", "  从SD卡加载图标%d (缓存未命中)", icon_index);
+                            displayImageFromSD(icon_file, (int)(icon_x * global_scale), (int)(icon_y * global_scale), display);
                         }
                     } else {
                         ESP_LOGW("MAIN", "  图标索引%d超出范围[0-21]，跳过", icon_index);
@@ -1685,24 +1695,22 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
                         int icon_x = rect->x + (int)(icon_roll->rel_x * rect->width);
                         int icon_y = rect->y + (int)(icon_roll->rel_y * rect->height);
                         
-                        // 应用缩放
-                        int scaled_x = (int)(icon_x * global_scale);
-                        int scaled_y = (int)(icon_y * global_scale);
-                        
-                        ESP_LOGI("MAIN", "  显示动态图标%d: 原始位置(%d,%d) 尺寸%dx%d, 缩放后(%d,%d)", 
-                                current_icon_index, icon_x, icon_y, icon_info->width, icon_info->height,
-                                scaled_x, scaled_y);
+                        ESP_LOGI("MAIN", "  显示动态图标%d: 原始位置(%d,%d) 尺寸%dx%d (使用drawPictureScaled自动缩放)", 
+                                current_icon_index, icon_x, icon_y, icon_info->width, icon_info->height);
                         
                           // 优先从缓存读取，失败则从SD卡加载
                         uint32_t cache_width, cache_height;
                         const uint8_t* cached_data = getIconDataFromCache(current_icon_index, &cache_width, &cache_height);
                         if (cached_data) {
-                            display.drawBitmap(scaled_x, scaled_y, cached_data, cache_width, cache_height, GxEPD_BLACK);
-                            ESP_LOGD("MAIN", "  从缓存显示动态图标%d", current_icon_index);
+                            // 使用 drawPictureScaled 自动根据屏幕尺寸缩放图标
+                            drawPictureScaled(icon_x, icon_y, cache_width, cache_height, cached_data, GxEPD_BLACK);
+                            ESP_LOGD("MAIN", "  从缓存显示动态图标%d (自动缩放)", current_icon_index);
                         } else {
+                            ESP_LOGW("MAIN", "  动态图标%d缓存未命中，从SD卡加载会导致无法缩放", current_icon_index);
                             const char* icon_file = getIconFileNameByIndex(current_icon_index);
-                            displayImageFromSD(icon_file, scaled_x, scaled_y, display);
-                            ESP_LOGW("MAIN", "  从SD卡加载动态图标%d (缓存未命中)", current_icon_index);
+                            // 注意：displayImageFromSD 不支持缩放，这里只能显示原始尺寸
+                            float scale = (float)setInkScreenSize.screenWidth / 416.0f;
+                            displayImageFromSD(icon_file, (int)(icon_x * scale), (int)(icon_y * scale), display);
                         }
                     } else {
                         ESP_LOGW("MAIN", "  动态图标索引%d超出范围[0-20]，跳过", current_icon_index);
@@ -2359,39 +2367,42 @@ void drawFocusCursor(RectInfo *rects, int rect_count, int focus_index, float glo
     // mode == FOCUS_MODE_BORDER  : 绘制在边框位置
     FocusMode mode_to_use = rect->focus_mode;
     if (mode_to_use == FOCUS_MODE_BORDER) {
-        // 在右下角显示焦点图标
-        int icon_x = display_x + display_width;
-        int icon_y = display_y + display_height - icon_height;
+        // 在右下角显示焦点图标（原始坐标，由 drawPictureScaled 自动缩放）
+        int icon_x = rect->x + rect->width;
+        int icon_y = rect->y + rect->height - icon_height;
         if (use_cache) {
-            display.drawBitmap(icon_x, icon_y, focus_icon_data, icon_width, icon_height, GxEPD_BLACK);
+            drawPictureScaled(icon_x, icon_y, icon_width, icon_height, focus_icon_data, GxEPD_BLACK);
         } else {
+            ESP_LOGW("FOCUS", "焦点图标缓存未命中，无法使用drawPictureScaled");
             const char* icon_file = getIconFileNameByIndex(focus_icon_index);
-            displayImageFromSD(icon_file, icon_x, icon_y, display);
+            displayImageFromSD(icon_file, (int)(icon_x * global_scale), (int)(icon_y * global_scale), display);
         }
-        ESP_LOGI("FOCUS", "BORDER模式: 图标位置(%d,%d) 尺寸%dx%d", icon_x, icon_y, icon_width, icon_height);
+        ESP_LOGI("FOCUS", "BORDER模式: 原始位置(%d,%d) 尺寸%dx%d (自动缩放)", icon_x, icon_y, icon_width, icon_height);
 
     } else if (mode_to_use == FOCUS_MODE_CORNERS) {
-        // 在右上角显示焦点图标
-        int icon_x = display_x + display_width;
-        int icon_y = display_y;
+        // 在右上角显示焦点图标（原始坐标，由 drawPictureScaled 自动缩放）
+        int icon_x = rect->x + rect->width;
+        int icon_y = rect->y;
         if (use_cache) {
-            display.drawBitmap(icon_x, icon_y, focus_icon_data, icon_width, icon_height, GxEPD_BLACK);
+            drawPictureScaled(icon_x, icon_y, icon_width, icon_height, focus_icon_data, GxEPD_BLACK);
         } else {
+            ESP_LOGW("FOCUS", "焦点图标缓存未命中，无法使用drawPictureScaled");
             const char* icon_file = getIconFileNameByIndex(focus_icon_index);
-            displayImageFromSD(icon_file, icon_x, icon_y, display);
+            displayImageFromSD(icon_file, (int)(icon_x * global_scale), (int)(icon_y * global_scale), display);
         }
-        ESP_LOGI("FOCUS", "CORNERS模式: 图标位置(%d,%d) 尺寸%dx%d", icon_x, icon_y, icon_width, icon_height);
+        ESP_LOGI("FOCUS", "CORNERS模式: 原始位置(%d,%d) 尺寸%dx%d (自动缩放)", icon_x, icon_y, icon_width, icon_height);
     } else if (mode_to_use == FOCUS_MODE_DEFAULT) {
-        // 默认模式：使用指定的焦点图标居中显示在矩形左侧中间
-        int icon_x = display_x;
-        int icon_y = display_y;
+        // 默认模式：使用指定的焦点图标居中显示在矩形左侧中间（原始坐标，由 drawPictureScaled 自动缩放）
+        int icon_x = rect->x;
+        int icon_y = rect->y;
         if (use_cache) {
-            display.drawBitmap(icon_x, icon_y, focus_icon_data, icon_width, icon_height, GxEPD_BLACK);
+            drawPictureScaled(icon_x, icon_y, icon_width, icon_height, focus_icon_data, GxEPD_BLACK);
         } else {
+            ESP_LOGW("FOCUS", "焦点图标缓存未命中，无法使用drawPictureScaled");
             const char* icon_file = getIconFileNameByIndex(focus_icon_index);
-            displayImageFromSD(icon_file, icon_x, icon_y, display);
+            displayImageFromSD(icon_file, (int)(icon_x * global_scale), (int)(icon_y * global_scale), display);
         }
-        ESP_LOGI("FOCUS", "DEFAULT模式: 图标位置(%d,%d) 尺寸%dx%d", icon_x, icon_y, icon_width, icon_height);
+        ESP_LOGI("FOCUS", "DEFAULT模式: 原始位置(%d,%d) 尺寸%dx%d (自动缩放)", icon_x, icon_y, icon_width, icon_height);
     }
     
 
@@ -2798,51 +2809,51 @@ void ink_screen_show(void *args)
             {
                 clearDisplayArea(0, 0, setInkScreenSize.screenWidth, setInkScreenSize.screenHeigt);
 
-                ESP_LOGI(TAG,"############显示主界面（使用新图标布局系统）\r\n");
-                update_activity_time(); 
+                // ESP_LOGI(TAG,"############显示主界面（使用新图标布局系统）\r\n");
+                // update_activity_time(); 
                 
-                // 直接从矩形数据计算有效矩形数量
-                extern RectInfo rects[MAX_MAIN_RECTS];
-                int valid_rect_count = 0;
-                for (int i = 0; i < MAX_MAIN_RECTS; i++) {
-                    if (rects[i].width > 0 && rects[i].height > 0) {
-                        valid_rect_count++;
-                        ESP_LOGI("FOCUS", "有效矩形%d: (%d,%d) %dx%d", i, 
-                                rects[i].x, rects[i].y, 
-                                rects[i].width, rects[i].height);
-                    } else {
-                        ESP_LOGI("FOCUS", "无效矩形%d: (%d,%d) %dx%d", i, 
-                                rects[i].x, rects[i].y, 
-                                rects[i].width, rects[i].height);
-                        break; // 遇到第一个无效矩形就停止计数
-                    }
-                }
+                // // 直接从矩形数据计算有效矩形数量
+                // extern RectInfo rects[MAX_MAIN_RECTS];
+                // int valid_rect_count = 0;
+                // for (int i = 0; i < MAX_MAIN_RECTS; i++) {
+                //     if (rects[i].width > 0 && rects[i].height > 0) {
+                //         valid_rect_count++;
+                //         ESP_LOGI("FOCUS", "有效矩形%d: (%d,%d) %dx%d", i, 
+                //                 rects[i].x, rects[i].y, 
+                //                 rects[i].width, rects[i].height);
+                //     } else {
+                //         ESP_LOGI("FOCUS", "无效矩形%d: (%d,%d) %dx%d", i, 
+                //                 rects[i].x, rects[i].y, 
+                //                 rects[i].width, rects[i].height);
+                //         break; // 遇到第一个无效矩形就停止计数
+                //     }
+                // }
                 
-                ESP_LOGI("FOCUS", "检测到有效矩形数量: %d", valid_rect_count);
+                // ESP_LOGI("FOCUS", "检测到有效矩形数量: %d", valid_rect_count);
                 
-                // 使用实际检测到的有效矩形数量初始化焦点系统
-                initFocusSystem(valid_rect_count);
+                // // 使用实际检测到的有效矩形数量初始化焦点系统
+                // initFocusSystem(valid_rect_count);
                 
-                // 尝试从配置文件加载自定义的可焦点矩形列表（母数组）
-                if (loadFocusableRectsFromConfig("main")) {
-                    ESP_LOGI("FOCUS", "已从配置文件加载主界面焦点矩形列表");
-                } else {
-                    ESP_LOGI("FOCUS", "使用默认焦点配置（所有矩形都可焦点）");
-                }
+                // // 尝试从配置文件加载自定义的可焦点矩形列表（母数组）
+                // if (loadFocusableRectsFromConfig("main")) {
+                //     ESP_LOGI("FOCUS", "已从配置文件加载主界面焦点矩形列表");
+                // } else {
+                //     ESP_LOGI("FOCUS", "使用默认焦点配置（所有矩形都可焦点）");
+                // }
                 
-                // 加载子数组配置
-                if (loadAndApplySubArrayConfig("main")) {
-                    ESP_LOGI("FOCUS", "已从配置文件加载并应用主界面子数组配置");
-                } else {
-                    ESP_LOGI("FOCUS", "未加载主界面子数组配置或配置为空");
-                }
+                // // 加载子数组配置
+                // if (loadAndApplySubArrayConfig("main")) {
+                //     ESP_LOGI("FOCUS", "已从配置文件加载并应用主界面子数组配置");
+                // } else {
+                //     ESP_LOGI("FOCUS", "未加载主界面子数组配置或配置为空");
+                // }
                 
-                // 设置当前界面为主界面
-                g_screen_manager.current_screen = SCREEN_HOME;
+                // // 设置当前界面为主界面
+                // g_screen_manager.current_screen = SCREEN_HOME;
                 
-                // 显示主界面
-                displayScreen(SCREEN_HOME);
-                
+                // // 显示主界面
+                // displayScreen(SCREEN_HOME);
+                switchToScreen(0); 
                 interfaceIndex = 1;
 				inkScreenTestFlag = 0;
             }
