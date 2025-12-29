@@ -350,8 +350,8 @@ static const int g_icon_arrays_count = sizeof(g_icon_arrays) / sizeof(g_icon_arr
 
 // ================== 文本数组定义 ==================
 // 定义各种文本序列
-static const char* message_remind_sequence[] = {"ss1", "提醒2", "提醒3", "注意"};
-static const char* status_text_sequence[] = {"sss", "运行中", "完成", "错误"};
+static const char* message_remind_sequence[] = {"提醒2", "提醒3", "注意"};
+static const char* status_text_sequence[] = {"运行中", "完成", "错误"};
 // 可以添加更多文本序列...
 
 // ================== 提示信息缓存（PSRAM）==================
@@ -4498,7 +4498,7 @@ bool loadScreenToMemory(const char* file_path, RectInfo** out_rects,
                 }
                 else if (strstr(line_buffer, "\"idx\"")) {
                     if (current_text_roll < 4) {
-                        sscanf(line_buffer, " \"idx\" : \"%15[^\"]\"", temp_rect.text_rolls[current_text_roll].idx);
+                        sscanf(line_buffer, " \"idx\" : \"%31[^\"]\"", temp_rect.text_rolls[current_text_roll].idx);
                     }
                 }
                 else if (strstr(line_buffer, "\"font\"")) {
@@ -4582,6 +4582,7 @@ int preloadAllScreens() {
         "/spiffs/layout.json",
         "/spiffs/layout_1.json",
         "/spiffs/layout_clock.json",
+        "/spiffs/layout_clock_set.json",
     };
     int file_count = sizeof(json_files) / sizeof(json_files[0]);
     
