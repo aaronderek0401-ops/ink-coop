@@ -922,7 +922,6 @@ void onConfirmSwitchToLayout1(RectInfo* rect, int idx) {
 ActionEntry g_action_registry[] = {
     {"open_menu", "打开菜单", onConfirmOpenMenu},
     {"play_sound", "播放提示音", onConfirmPlaySound},
-    {"next_word", "下一个单词", onConfirmNextWord}
     {"next_word", "下一个单词", onConfirmNextWord},
     {"switch_to_layout_0", "切换到界面0", onConfirmSwitchToLayout0},
     {"switch_to_layout_1", "切换到界面1", onConfirmSwitchToLayout1}
