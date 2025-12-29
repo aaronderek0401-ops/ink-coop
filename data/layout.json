@@ -68,7 +68,7 @@
             "text_roll": [
                 {
                     "text_arr": "wordbook_word",
-                    "idx": "$wordbook_idex",
+                    "idx": "$wordbook_idx",
                     "font": "english_word_font",
                     "rel_x": 0.14652011158702138,
                     "rel_y": 0.3144442749023438,
@@ -111,7 +111,7 @@
             "text_roll": [
                 {
                     "text_arr": "wordbook_phonetic",
-                    "idx": "$wordbook_idex",
+                    "idx": "$wordbook_idx",
                     "font": "english_phonetic_font",
                     "rel_x": 0.18002128601074227,
                     "rel_y": 0.190740458170573,

@@ -37,20 +37,19 @@ void showPromptInfor(uint8_t *tempPrompt,bool isAllRefresh) {
     lastPromptContent[sizeof(lastPromptContent) - 1] = '\0';
     lastPrompt = tempPrompt;
 
-    if(isAllRefresh) {
-        display.init(0, true, 2, true);
-        display.clearScreen();
-        display.display(true);  //局刷之前先对E-Paper进行清屏操作
-        display.setPartialWindow(0, 0, display.width(), display.height());
-        display.fillRect(30, 10, 340, 30, GxEPD_WHITE);
-      //  updateDisplayWithString(30,10, tempPrompt,16,BLACK);
-        display.display();
-        display.display(true);
-        display.powerOff();
-        vTaskDelay(1000);
-    } else {
-        display.fillRect(30, 10, 340, 30, GxEPD_WHITE);
+    // if(isAllRefresh) {
+    //     display.init(0, true, 2, true);
+    //     display.clearScreen();
+    //     display.display(true);  //局刷之前先对E-Paper进行清屏操作
+    //     display.setPartialWindow(0, 0, display.width(), display.height());
+    //     display.fillRect(30, 10, 340, 30, GxEPD_WHITE);
+    //   //  updateDisplayWithString(30,10, tempPrompt,16,BLACK);
+    //     display.display();
+    //     display.display(true);
+    //     display.powerOff();
+    //     vTaskDelay(1000);
+    // } else {
+    //     display.fillRect(30, 10, 340, 30, GxEPD_WHITE);
     //    updateDisplayWithString(30,10, tempPrompt,16,BLACK);
-    }
-
+    // }
 }

@@ -1788,8 +1788,8 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
             int display_width = (int)(rect->width * global_scale + 0.5f);
             int display_height = (int)(rect->height * global_scale + 0.5f);
             
-            ESP_LOGI("MAIN", "--- 矩形%d: (%d,%d) %dx%d, 图标数:%d ---", 
-                    i, display_x, display_y, display_width, display_height, rect->icon_count);
+            ESP_LOGI("MAIN", "--- 矩形%d: (%d,%d) %dx%d, 图标数:%d, text_roll数:%d ---", 
+                    i, display_x, display_y, display_width, display_height, rect->icon_count, rect->text_roll_count);
             
             // 显示该矩形内的所有图标
             if (rect->icon_count > 0) {
