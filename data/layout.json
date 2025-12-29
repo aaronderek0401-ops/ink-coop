@@ -28,7 +28,7 @@
                     "idx": "$prompt_idx",
                     "font": "chinese_translate_font",
                     "rel_x": 0.3,
-                    "rel_y": 0,
+                    "rel_y": 0.2,
                     "auto_roll": false
                 }
             ]
@@ -134,7 +134,16 @@
             "icon_roll": [],
             "text_count": 0,
             "texts": [],
-            "text_roll": []
+            "text_roll": [
+                {
+                    "text_arr": "prompt_messages",
+                    "idx": "$prompt_idx",
+                    "font": "chinese_translate_font",
+                    "rel_x": 0.3,
+                    "rel_y": 0.2,
+                    "auto_roll": false
+                }
+            ]
         },
         {
             "index": 6,

@@ -22,6 +22,12 @@ void showPromptInfor(uint8_t *tempPrompt,bool isAllRefresh) {
     }
     
     const char* currentPrompt = (const char*)tempPrompt;
+    size_t prompt_len = strlen(currentPrompt);
+    
+    // 🔍 调试：打印接收到的数据
+    ESP_LOGI("PROMPT_SHOW", "收到提示长度: %d bytes", prompt_len);
+    ESP_LOGI("PROMPT_SHOW", "内容: [%s]", currentPrompt);
+    ESP_LOG_BUFFER_HEX("PROMPT_SHOW_HEX", tempPrompt, prompt_len < 50 ? prompt_len : 50);
     
     // 检查内容是否变化（比较字符串内容而不是指针）
     if (lastPrompt != nullptr && strcmp(currentPrompt, lastPromptContent) == 0) {

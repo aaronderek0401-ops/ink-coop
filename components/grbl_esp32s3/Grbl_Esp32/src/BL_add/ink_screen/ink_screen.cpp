@@ -368,6 +368,29 @@ static int g_prompt_total_count = 0;
 // 提示信息是否已初始化
 static bool g_prompt_initialized = false;
 
+// ================== 番茄钟状态管理 ==================
+static const char* g_pomodoro_state_texts[] = {"开始", "暂停"};
+static const char** g_pomodoro_state_ptrs = g_pomodoro_state_texts;
+static int g_pomodoro_state_idx = 0;  // 0=开始, 1=暂停
+static bool g_pomodoro_running = false;
+static int g_pomodoro_remaining_seconds = 180;  // 3分钟 = 180秒
+static char g_pomodoro_time_text[32] = "03:00";
+static const char* g_pomodoro_time_ptr = g_pomodoro_time_text;
+static const char** g_pomodoro_time_ptrs = &g_pomodoro_time_ptr;  // 指针数组
+static uint32_t g_pomodoro_last_update = 0;
+static uint32_t g_pomodoro_last_refresh = 0;
+
+// 番茄钟按钮文本
+static const char* g_pomodoro_reset_text[] = {"重置"};
+static const char** g_pomodoro_reset_ptrs = g_pomodoro_reset_text;
+static int g_pomodoro_reset_idx = 0;
+
+static const char* g_pomodoro_settings_text[] = {"设置"};
+static const char** g_pomodoro_settings_ptrs = g_pomodoro_settings_text;
+static int g_pomodoro_settings_idx = 0;
+
+static int g_pomodoro_time_idx = 0;
+
 // ================== 单词本文本缓存（PSRAM）==================
 #define WORDBOOK_CACHE_COUNT 5  // 缓存的单词数量
 
@@ -699,6 +722,10 @@ static const TextArrayEntry g_text_arrays[] = {
     {"wordbook_translation_2", "$wordbook_idx", g_wordbook_translation2_ptrs, WORDBOOK_CACHE_COUNT}, // 第二个释义
     {"wordbook_pos", "$wordbook_idx", g_wordbook_pos_ptrs, WORDBOOK_CACHE_COUNT},            // 词性
     {"prompt_messages", "$prompt_idx", g_prompt_ptrs, PROMPT_CACHE_COUNT},                   // 提示信息
+    {"pomodoro_state", "$pomodoro_state_idx", g_pomodoro_state_ptrs, 2},                     // 番茄钟状态
+    {"pomodoro_time_text", "$pomodoro_time_idx", g_pomodoro_time_ptrs, 1},                   // 番茄钟时间
+    {"pomodoro_reset_text", "$pomodoro_reset_idx", g_pomodoro_reset_ptrs, 1},                // 重置按钮
+    {"pomodoro_settings_text", "$pomodoro_settings_idx", g_pomodoro_settings_ptrs, 1},       // 设置按钮
     // 新增文本数组只需要在这里添加一行即可！
 };
 static const int g_text_arrays_count = sizeof(g_text_arrays) / sizeof(g_text_arrays[0]);
@@ -829,6 +856,152 @@ const char* getLatestPrompt() {
     
     int latest = (g_prompt_current_index - 1 + PROMPT_CACHE_COUNT) % PROMPT_CACHE_COUNT;
     return g_prompt_ptrs[latest];
+}
+
+// ==================== 番茄钟管理函数 ====================
+
+/**
+ * @brief 更新番茄钟时间显示文本
+ */
+void updatePomodoroTimeText() {
+    int minutes = g_pomodoro_remaining_seconds / 60;
+    int seconds = g_pomodoro_remaining_seconds % 60;
+    snprintf(g_pomodoro_time_text, sizeof(g_pomodoro_time_text), "%02d:%02d", minutes, seconds);
+}
+
+/**
+ * @brief 初始化番茄钟
+ */
+void initPomodoro() {
+    g_pomodoro_state_idx = 0;  // 开始状态
+    g_pomodoro_reset_idx = 0;
+    g_pomodoro_settings_idx = 0;
+    g_pomodoro_time_idx = 0;
+    g_pomodoro_running = false;
+    g_pomodoro_remaining_seconds = 180;  // 3分钟
+    updatePomodoroTimeText();
+    g_pomodoro_last_update = millis();
+    g_pomodoro_last_refresh = millis();
+    
+    // 同步所有番茄钟相关的文本动画索引
+    for (int i = 0; i < g_text_arrays_count; i++) {
+        if (strcmp(g_text_arrays[i].var_name, "$pomodoro_state_idx") == 0) {
+            g_text_animation_indices[i] = g_pomodoro_state_idx;
+        } else if (strcmp(g_text_arrays[i].var_name, "$pomodoro_reset_idx") == 0) {
+            g_text_animation_indices[i] = g_pomodoro_reset_idx;
+        } else if (strcmp(g_text_arrays[i].var_name, "$pomodoro_settings_idx") == 0) {
+            g_text_animation_indices[i] = g_pomodoro_settings_idx;
+        } else if (strcmp(g_text_arrays[i].var_name, "$pomodoro_time_idx") == 0) {
+            g_text_animation_indices[i] = g_pomodoro_time_idx;
+        }
+    }
+    
+    ESP_LOGI("POMODORO", "番茄钟已初始化: 3分钟");
+}
+
+/**
+ * @brief 番茄钟主循环更新
+ */
+void updatePomodoro() {
+    if (!g_pomodoro_running) {
+        return;
+    }
+    
+    uint32_t current_time = millis();
+    
+    // 每秒更新一次倒计时
+    if (current_time - g_pomodoro_last_update >= 1000) {
+        g_pomodoro_last_update = current_time;
+        
+        if (g_pomodoro_remaining_seconds > 0) {
+            g_pomodoro_remaining_seconds--;
+            updatePomodoroTimeText();
+            
+            ESP_LOGD("POMODORO", "剩余时间: %s", g_pomodoro_time_text);
+        } else {
+            // 倒计时结束
+            g_pomodoro_running = false;
+            g_pomodoro_state_idx = 0;  // 切换回"开始"状态
+            ESP_LOGI("POMODORO", "番茄钟完成!");
+            
+            // 立即刷新显示
+            if (g_json_rects && g_json_rect_count > 0) {
+                redrawJsonLayout();
+            }
+        }
+    }
+    
+    // 每20秒刷新一次屏幕
+    if (current_time - g_pomodoro_last_refresh >= 20000) {
+        g_pomodoro_last_refresh = current_time;
+        
+        if (g_json_rects && g_json_rect_count > 0) {
+            ESP_LOGI("POMODORO", "刷新屏幕显示: %s", g_pomodoro_time_text);
+            redrawJsonLayout();
+        }
+    }
+}
+
+/**
+ * @brief 番茄钟开始/暂停操作
+ */
+void pomodoroStartPause() {
+    g_pomodoro_running = !g_pomodoro_running;
+    g_pomodoro_state_idx = g_pomodoro_running ? 1 : 0;  // 1=暂停, 0=开始
+    
+    if (g_pomodoro_running) {
+        ESP_LOGI("POMODORO", "开始倒计时: %s", g_pomodoro_time_text);
+        g_pomodoro_last_update = millis();
+        g_pomodoro_last_refresh = millis();
+    } else {
+        ESP_LOGI("POMODORO", "暂停倒计时: %s", g_pomodoro_time_text);
+    }
+    
+    // 更新$pomodoro_state_idx索引
+    for (int i = 0; i < g_text_arrays_count; i++) {
+        if (strcmp(g_text_arrays[i].var_name, "$pomodoro_state_idx") == 0) {
+            g_text_animation_indices[i] = g_pomodoro_state_idx;
+            break;
+        }
+    }
+    
+    // 立即刷新屏幕
+    if (g_json_rects && g_json_rect_count > 0) {
+        redrawJsonLayout();
+    }
+}
+
+/**
+ * @brief 番茄钟重置操作
+ */
+void pomodoroReset() {
+    g_pomodoro_running = false;
+    g_pomodoro_state_idx = 0;  // 开始状态
+    g_pomodoro_remaining_seconds = 180;  // 重置为3分钟
+    updatePomodoroTimeText();
+    
+    ESP_LOGI("POMODORO", "番茄钟已重置");
+    
+    // 更新$pomodoro_state_idx索引
+    for (int i = 0; i < g_text_arrays_count; i++) {
+        if (strcmp(g_text_arrays[i].var_name, "$pomodoro_state_idx") == 0) {
+            g_text_animation_indices[i] = g_pomodoro_state_idx;
+            break;
+        }
+    }
+    
+    // 立即刷新屏幕
+    if (g_json_rects && g_json_rect_count > 0) {
+        redrawJsonLayout();
+    }
+}
+
+/**
+ * @brief 番茄钟设置操作（预留）
+ */
+void pomodoroSettings() {
+    ESP_LOGI("POMODORO", "打开设置界面（待实现）");
+    // TODO: 实现设置界面，允许调整时长等参数
 }
 
 // auto_roll定时器相关变量
@@ -1067,13 +1240,34 @@ void onConfirmSwitchToLayout1(RectInfo* rect, int idx) {
     }
 }
 
+// 番茄钟回调：开始/暂停
+void onConfirmPomodoroStartPause(RectInfo* rect, int idx) {
+    ESP_LOGI("POMODORO", "番茄钟开始/暂停按钮被按下");
+    pomodoroStartPause();
+}
+
+// 番茄钟回调：重置
+void onConfirmPomodoroReset(RectInfo* rect, int idx) {
+    ESP_LOGI("POMODORO", "番茄钟重置按钮被按下");
+    pomodoroReset();
+}
+
+// 番茄钟回调：设置
+void onConfirmPomodoroSettings(RectInfo* rect, int idx) {
+    ESP_LOGI("POMODORO", "番茄钟设置按钮被按下");
+    pomodoroSettings();
+}
+
 // 动作注册表
 ActionEntry g_action_registry[] = {
     {"open_menu", "打开菜单", onConfirmOpenMenu},
     {"play_sound", "播放提示音", onConfirmPlaySound},
     {"next_word", "下一个单词", onConfirmNextWord},
     {"switch_to_layout_0", "切换到界面0", onConfirmSwitchToLayout0},
-    {"switch_to_layout_1", "切换到界面1", onConfirmSwitchToLayout1}
+    {"switch_to_layout_1", "切换到界面1", onConfirmSwitchToLayout1},
+    {"pomodoro_start_pause", "番茄钟开始/暂停", onConfirmPomodoroStartPause},
+    {"pomodoro_reset", "番茄钟重置", onConfirmPomodoroReset},
+    {"pomodoro_settings", "番茄钟设置", onConfirmPomodoroSettings}
 };
 int g_action_registry_count = sizeof(g_action_registry) / sizeof(g_action_registry[0]);
 
@@ -1891,7 +2085,7 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
             }
             switchToPSRAMFont("chinese_translate_font");
             // 显示该矩形内的所有动态文本组（text_roll）
-            if (rect->text_roll_count > 0) {
+            if (rect->text_roll_count >= 0) {
                 for (int j = 0; j < rect->text_roll_count; j++) {
                     TextRollInRect* text_roll = &rect->text_rolls[j];
                     
@@ -3042,6 +3236,10 @@ void ink_screen_show(void *args)
 	//	updateDisplayWithWifiIcon();
         changeInkSreenSize();
        // ESP_LOGI(TAG,"ink_screen_show\r\n");
+       
+        // 更新番茄钟（在主循环中每次迭代都调用）
+        updatePomodoro();
+        
         vTaskDelay(100);
 	}
 }
@@ -3482,8 +3680,12 @@ bool loadAndDisplayFromJSON(const char* json_str) {
 
         // 解析动态文本组（text_roll）
         rect->text_roll_count = 0;
+        ESP_LOGI("JSON_DEBUG", "准备解析text_roll, text_rolls指针=%p, 是否为数组=%d", 
+                text_rolls, text_rolls ? cJSON_IsArray(text_rolls) : -1);
         if (text_rolls && cJSON_IsArray(text_rolls)) {
             int text_roll_count = 0;
+            int array_size = cJSON_GetArraySize(text_rolls);
+            ESP_LOGI("JSON_DEBUG", "text_roll数组大小=%d", array_size);
             cJSON* text_roll_item = NULL;
             cJSON_ArrayForEach(text_roll_item, text_rolls) {
                 if (text_roll_count >= 4) break; // 最多4个动态文本组
@@ -4378,7 +4580,8 @@ int preloadAllScreens() {
     // 手动定义要加载的文件列表（因为ESP32的SPIFFS不支持目录遍历）
     const char* json_files[] = {
         "/spiffs/layout.json",
-        "/spiffs/layout_1.json"
+        "/spiffs/layout_1.json",
+        "/spiffs/layout_clock.json",
     };
     int file_count = sizeof(json_files) / sizeof(json_files[0]);
     
@@ -4469,6 +4672,12 @@ bool switchToScreen(int screen_index) {
     
     // 保存布局数据供按键交互使用
     saveJsonLayoutForInteraction(cache->rects, cache->rect_count, cache->status_rect_index);
+    
+    // 如果是番茄钟界面，初始化番茄钟
+    if (strstr(cache->screen_name, "layout_clock") != nullptr) {
+        ESP_LOGI("POMODORO", "检测到番茄钟界面，初始化...");
+        initPomodoro();
+    }
     
     clearDisplayArea(0, 0, 416, 240);
 

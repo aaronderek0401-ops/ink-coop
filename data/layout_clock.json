@@ -1,0 +1,109 @@
+{
+    "rect_count": 4,
+    "rectangles": [
+        {
+            "index": 0,
+            "is_mother": "non",
+            "x_": 0.1,
+            "y_": 0.1,
+            "width_": 0.2,
+            "height_": 0.15,
+            "focus_mode": 1,
+            "focus_icon": "horn",
+            "on_confirm_action": "pomodoro_start_pause",
+            "icon_count": 0,
+            "icons": [],
+            "icon_roll": [],
+            "text_count": 0,
+            "texts": [],
+            "text_roll": [
+                {
+                    "rel_x": 0.1,
+                    "rel_y": 0.3,
+                    "text_arr": "pomodoro_state",
+                    "idx": "$pomodoro_state_idx",
+                    "font": "chinese_translate_font",
+                    "auto_roll": false
+                }
+            ]
+        },
+        {
+            "index": 1,
+            "is_mother": "non",
+            "x_": 0.4,
+            "y_": 0.1,
+            "width_": 0.2,
+            "height_": 0.15,
+            "focus_mode": 1,
+            "focus_icon": "horn",
+            "on_confirm_action": "onConfirmPomodoroReset",
+            "icon_count": 0,
+            "icons": [],
+            "icon_roll": [],
+            "text_count": 0,
+            "texts": [],
+            "text_roll": [
+                {
+                    "rel_x": 0.2,
+                    "rel_y": 0.3,
+                    "text_arr": "pomodoro_reset_text",
+                    "idx": "$pomodoro_reset_idx",
+                    "font": "chinese_translate_font",
+                    "auto_roll": false
+                }
+            ]
+        },
+        {
+            "index": 2,
+            "is_mother": "non",
+            "x_": 0.7,
+            "y_": 0.1,
+            "width_": 0.2,
+            "height_": 0.15,
+            "focus_mode": 1,
+            "focus_icon": "horn",
+            "on_confirm_action": "onConfirmPomodoroSettings",
+            "icon_count": 0,
+            "icons": [],
+            "icon_roll": [],
+            "text_count": 0,
+            "texts": [],
+            "text_roll": [
+                {
+                    "rel_x": 0.2,
+                    "rel_y": 0.3,
+                    "text_arr": "pomodoro_settings_text",
+                    "idx": "$pomodoro_settings_idx",
+                    "font": "chinese_translate_font",
+                    "auto_roll": false
+                }
+            ]
+        },
+        {
+            "index": 3,
+            "is_mother": "non",
+            "x_": 0.2,
+            "y_": 0.35,
+            "width_": 0.6,
+            "height_": 0.4,
+            "focus_mode": 0,
+            "focus_icon": "horn",
+            "on_confirm_action": "none",
+            "icon_count": 0,
+            "icons": [],
+            "icon_roll": [],
+            "text_count": 0,
+            "texts": [],
+            "text_roll": [
+                {
+                    "rel_x": 0.35,
+                    "rel_y": 0.4,
+                    "text_arr": "pomodoro_time_text",
+                    "idx": "$pomodoro_time_idx",
+                    "font": "english_sentence_font",
+                    "auto_roll": false
+                }
+            ]
+        }
+    ]
+}
