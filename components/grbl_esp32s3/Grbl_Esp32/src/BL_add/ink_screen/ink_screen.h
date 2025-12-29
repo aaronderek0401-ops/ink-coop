@@ -425,3 +425,30 @@ void freeAllScreenCache();
  * @return 当前界面索引，-1表示无界面
  */
 int getCurrentScreenIndex();
+
+// ==================== 提示信息缓存 API ====================
+/**
+ * @brief 初始化提示信息缓存
+ */
+void initPromptCache();
+
+/**
+ * @brief 添加新的提示信息到缓存（循环队列）
+ * @param prompt 提示信息文本
+ */
+void addPromptToCache(const char* prompt);
+
+/**
+ * @brief 释放提示信息缓存
+ */
+void freePromptCache();
+
+/**
+ * @brief 获取提示信息总数
+ */
+int getPromptCount();
+
+/**
+ * @brief 获取最新的提示信息
+ */
+const char* getLatestPrompt();

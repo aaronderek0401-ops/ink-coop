@@ -345,6 +345,20 @@ static const char* message_remind_sequence[] = {"ss1", "提醒2", "提醒3", "�
 static const char* status_text_sequence[] = {"sss", "运行中", "完成", "错误"};
 // 可以添加更多文本序列...
 
+// ================== 提示信息缓存（PSRAM）==================
+#define PROMPT_CACHE_COUNT 10  // 缓存最近10条提示信息
+
+// 提示信息缓存（存储动态传入的提示文本）
+static char* g_prompt_cache[PROMPT_CACHE_COUNT] = {nullptr};
+// 提示信息指针数组（供text_arrays使用）
+static const char* g_prompt_ptrs[PROMPT_CACHE_COUNT] = {nullptr};
+// 当前提示信息索引（循环写入）
+static int g_prompt_current_index = 0;
+// 提示信息总数
+static int g_prompt_total_count = 0;
+// 提示信息是否已初始化
+static bool g_prompt_initialized = false;
+
 // ================== 单词本文本缓存（PSRAM）==================
 #define WORDBOOK_CACHE_COUNT 5  // 缓存的单词数量
 
@@ -675,6 +689,7 @@ static const TextArrayEntry g_text_arrays[] = {
     {"wordbook_translation_1", "$wordbook_idx", g_wordbook_translation1_ptrs, WORDBOOK_CACHE_COUNT}, // 第一个释义
     {"wordbook_translation_2", "$wordbook_idx", g_wordbook_translation2_ptrs, WORDBOOK_CACHE_COUNT}, // 第二个释义
     {"wordbook_pos", "$wordbook_idx", g_wordbook_pos_ptrs, WORDBOOK_CACHE_COUNT},            // 词性
+    {"prompt_messages", "$prompt_idx", g_prompt_ptrs, PROMPT_CACHE_COUNT},                   // 提示信息
     // 新增文本数组只需要在这里添加一行即可！
 };
 static const int g_text_arrays_count = sizeof(g_text_arrays) / sizeof(g_text_arrays[0]);
@@ -684,6 +699,128 @@ static int g_animation_indices[sizeof(g_icon_arrays) / sizeof(g_icon_arrays[0])]
 
 // 全局索引数组，对应g_text_arrays中每个文本动画的当前索引
 static int g_text_animation_indices[sizeof(g_text_arrays) / sizeof(g_text_arrays[0])] = {0};
+
+// ==================== 提示信息管理函数 ====================
+
+/**
+ * @brief 初始化提示信息缓存
+ */
+void initPromptCache() {
+    if (g_prompt_initialized) {
+        return;
+    }
+    
+    // 初始化所有缓存为空字符串
+    for (int i = 0; i < PROMPT_CACHE_COUNT; i++) {
+        #if CONFIG_ESP32S3_SPIRAM_SUPPORT || CONFIG_SPIRAM
+        g_prompt_cache[i] = (char*)heap_caps_malloc(256, MALLOC_CAP_SPIRAM);
+        #else
+        g_prompt_cache[i] = (char*)malloc(256);
+        #endif
+        
+        if (g_prompt_cache[i]) {
+            strcpy(g_prompt_cache[i], "--");
+            g_prompt_ptrs[i] = g_prompt_cache[i];
+        } else {
+            ESP_LOGE(TAG, "提示信息缓存[%d]分配失败", i);
+        }
+    }
+    
+    g_prompt_current_index = 0;
+    g_prompt_total_count = 0;
+    g_prompt_initialized = true;
+    
+    ESP_LOGI(TAG, "✅ 提示信息缓存已初始化 (%d条)", PROMPT_CACHE_COUNT);
+}
+
+/**
+ * @brief 添加新的提示信息到缓存（循环队列）
+ * @param prompt 提示信息文本
+ */
+void addPromptToCache(const char* prompt) {
+    if (!g_prompt_initialized) {
+        initPromptCache();
+    }
+    
+    if (!prompt || strlen(prompt) == 0) {
+        return;
+    }
+    
+    // 写入当前索引位置
+    if (g_prompt_cache[g_prompt_current_index]) {
+        strncpy(g_prompt_cache[g_prompt_current_index], prompt, 255);
+        g_prompt_cache[g_prompt_current_index][255] = '\0';
+        
+        ESP_LOGI("PROMPT_CACHE", "📝 添加提示[%d]: %s", g_prompt_current_index, prompt);
+        ESP_LOGI("PROMPT_CACHE", "🔍 验证写入: %s", g_prompt_cache[g_prompt_current_index]);
+        ESP_LOGI("PROMPT_CACHE", "🔍 验证指针: %s", g_prompt_ptrs[g_prompt_current_index] ? g_prompt_ptrs[g_prompt_current_index] : "NULL");
+        
+        // 更新 $prompt_idx 索引，指向刚写入的位置（当前位置）
+        for (int i = 0; i < g_text_arrays_count; i++) {
+            if (strcmp(g_text_arrays[i].var_name, "$prompt_idx") == 0) {
+                g_text_animation_indices[i] = g_prompt_current_index;
+                ESP_LOGI("PROMPT_CACHE", "✅ 更新索引: $prompt_idx -> %d", g_prompt_current_index);
+                break;
+            }
+        }
+    }
+    
+    // 更新索引（循环）
+    g_prompt_current_index = (g_prompt_current_index + 1) % PROMPT_CACHE_COUNT;
+    
+    // 更新总数（最多PROMPT_CACHE_COUNT）
+    if (g_prompt_total_count < PROMPT_CACHE_COUNT) {
+        g_prompt_total_count++;
+    }
+    
+    // 刷新屏幕显示最新提示信息
+    if (g_json_rects && g_json_rect_count > 0) {
+        redrawJsonLayout();
+        ESP_LOGI("PROMPT_CACHE", "✅ 屏幕已刷新显示最新提示");
+    }
+}
+
+/**
+ * @brief 释放提示信息缓存
+ */
+void freePromptCache() {
+    if (!g_prompt_initialized) {
+        return;
+    }
+    
+    for (int i = 0; i < PROMPT_CACHE_COUNT; i++) {
+        if (g_prompt_cache[i]) {
+            free(g_prompt_cache[i]);
+            g_prompt_cache[i] = nullptr;
+        }
+        g_prompt_ptrs[i] = nullptr;
+    }
+    
+    g_prompt_current_index = 0;
+    g_prompt_total_count = 0;
+    g_prompt_initialized = false;
+    
+    ESP_LOGI(TAG, "提示信息缓存已释放");
+}
+
+/**
+ * @brief 获取提示信息总数
+ */
+int getPromptCount() {
+    return g_prompt_total_count;
+}
+
+/**
+ * @brief 获取最新的提示信息
+ */
+const char* getLatestPrompt() {
+    if (!g_prompt_initialized || g_prompt_total_count == 0) {
+        return "--";
+    }
+    
+    int latest = (g_prompt_current_index - 1 + PROMPT_CACHE_COUNT) % PROMPT_CACHE_COUNT;
+    return g_prompt_ptrs[latest];
+}
 
 // auto_roll定时器相关变量
 static unsigned long g_last_auto_roll_time = 0;
@@ -748,6 +885,9 @@ const char* getTextRollCurrentText(const TextRollInRect* text_roll) {
     // 获取当前索引值
     int current_idx = getVariableIndex(text_roll->idx);
     
+    ESP_LOGI("TEXT_ROLL", "🔍 查找文本数组: %s, 变量: %s, 索引: %d", 
+             text_roll->text_arr, text_roll->idx, current_idx);
+    
     // 在文本数组注册表中查找对应的数组
     for (int i = 0; i < g_text_arrays_count; i++) {
         if (strcmp(text_roll->text_arr, g_text_arrays[i].name) == 0) {
@@ -755,13 +895,13 @@ const char* getTextRollCurrentText(const TextRollInRect* text_roll) {
             int text_idx = current_idx % entry->count;
             const char* text = entry->sequence[text_idx];
             
-            ESP_LOGI("TEXT_ROLL", "数组[%s] 索引[%d] -> 文本[%s]", 
-                    entry->name, text_idx, text);
-            return text;
+            ESP_LOGI("TEXT_ROLL", "✅ 数组[%s] 索引[%d/%d] -> 文本[%s]", 
+                    entry->name, text_idx, entry->count, text ? text : "NULL");
+            return text ? text : "--";
         }
     }
     
-    ESP_LOGW("TEXT_ROLL", "未找到文本数组: %s", text_roll->text_arr);
+    ESP_LOGW("TEXT_ROLL", "❌ 未找到文本数组: %s", text_roll->text_arr);
     return "N/A";
 }
 

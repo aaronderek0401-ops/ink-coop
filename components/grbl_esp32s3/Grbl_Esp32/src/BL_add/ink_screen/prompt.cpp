@@ -29,6 +29,9 @@ void showPromptInfor(uint8_t *tempPrompt,bool isAllRefresh) {
     }
     ESP_LOGI("PROMPT", "更新提示信息: %s", currentPrompt);
     
+    // 🔥 添加到提示信息缓存（用于text_roll显示）
+    addPromptToCache(currentPrompt);
+    
     // 保存当前内容用于下次比较
     strncpy(lastPromptContent, currentPrompt, sizeof(lastPromptContent) - 1);
     lastPromptContent[sizeof(lastPromptContent) - 1] = '\0';
