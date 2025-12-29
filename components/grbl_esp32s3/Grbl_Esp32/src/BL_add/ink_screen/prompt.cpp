@@ -4,6 +4,9 @@
 #include <string.h>
 #include "esp_log.h"     // 添加 ESP_LOGI 的头文件
 #include "ink_screen.h"  // 提供全局 display 对象
+
+// 兜底声明，防止编译单元未正确感知 ink_screen.cpp 中的全局 display 定义
+extern GxEPD2_BW<GxEPD2_370_GDEY037T03, GxEPD2_370_GDEY037T03::HEIGHT> display;
 #define TAG "prompt.cpp"
 
 uint8_t *showPrompt=nullptr;
