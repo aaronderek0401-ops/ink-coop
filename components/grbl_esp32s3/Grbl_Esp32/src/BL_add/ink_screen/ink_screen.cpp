@@ -897,11 +897,35 @@ void onConfirmNextWord(RectInfo* rect, int idx) {
     ESP_LOGW("WORDBOOK", "未找到$wordbook_idx变量");
 }
 
+// 界面切换：切换到第一个界面（layout.json）
+void onConfirmSwitchToLayout0(RectInfo* rect, int idx) {
+    ESP_LOGI("ONCONFIRM", "切换到界面0 (layout.json)，矩形 %d", idx);
+    
+    if (switchToScreen(0)) {
+        ESP_LOGI("SCREEN_SWITCH", "✅ 成功切换到界面0: %s", getScreenName(0));
+    } else {
+        ESP_LOGE("SCREEN_SWITCH", "❌ 切换到界面0失败");
+    }
+}
+
+// 界面切换：切换到第二个界面（layout_1.json）
+void onConfirmSwitchToLayout1(RectInfo* rect, int idx) {
+    ESP_LOGI("ONCONFIRM", "切换到界面1 (layout_1.json)，矩形 %d", idx);
+    
+    if (switchToScreen(1)) {
+        ESP_LOGI("SCREEN_SWITCH", "✅ 成功切换到界面1: %s", getScreenName(1));
+    } else {
+        ESP_LOGE("SCREEN_SWITCH", "❌ 切换到界面1失败");
+    }
+}
+
 // 动作注册表
 ActionEntry g_action_registry[] = {
     {"open_menu", "打开菜单", onConfirmOpenMenu},
     {"play_sound", "播放提示音", onConfirmPlaySound},
-    {"next_word", "下一个单词", onConfirmNextWord}
+    {"next_word", "下一个单词", onConfirmNextWord},
+    {"switch_to_layout_0", "切换到界面0", onConfirmSwitchToLayout0},
+    {"switch_to_layout_1", "切换到界面1", onConfirmSwitchToLayout1}
 };
 int g_action_registry_count = sizeof(g_action_registry) / sizeof(g_action_registry[0]);
 
