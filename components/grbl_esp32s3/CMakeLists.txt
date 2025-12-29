@@ -34,6 +34,7 @@ set(srcs Grbl_Esp32/src/Grbl.cpp
     Grbl_Esp32/src/BL_add/ink_screen/wordbook_interface.cpp
     Grbl_Esp32/src/BL_add/ink_screen/sleep_interface.cpp
     Grbl_Esp32/src/BL_add/ink_screen/chinese_font_cache.cpp
+    Grbl_Esp32/src/BL_add/ink_screen/prompt.cpp
      )
 
 # Always included headers

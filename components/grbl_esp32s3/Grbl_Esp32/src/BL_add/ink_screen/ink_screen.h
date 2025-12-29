@@ -3,6 +3,9 @@
 #include <FS.h>
 #include <GxEPD2_BW.h>
 #include <gdey/GxEPD2_370_GDEY037T03.h>
+
+// 全局墨水屏显示对象（定义于 ink_screen.cpp）
+extern GxEPD2_BW<GxEPD2_370_GDEY037T03, GxEPD2_370_GDEY037T03::HEIGHT> display;
 void ink_screen_init();
 //全局变量记录选中的图标位置
 // 修改IconPosition结构体，增加存储图标索引和数据的字段
@@ -288,7 +291,6 @@ const uint8_t* getIconDataByIndex(int icon_index);  // 通过图标索引获取�
 
 extern uint8_t inkScreenTestFlag;
 extern uint8_t inkScreenTestFlagTwo;
-extern uint8_t* showPrompt;
 extern RectInfo rects[MAX_MAIN_RECTS];
 extern RectInfo vocab_rects[MAX_VOCAB_RECTS];
 extern int rect_count;

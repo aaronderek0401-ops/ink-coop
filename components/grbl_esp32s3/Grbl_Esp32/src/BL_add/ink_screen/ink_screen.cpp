@@ -100,7 +100,6 @@ const char *TAG = "ink_screen.cpp";
 static TaskHandle_t _eventTaskHandle = NULL;
 uint8_t inkScreenTestFlag = 0;
 uint8_t inkScreenTestFlagTwo = 0;
-uint8_t *showPrompt=nullptr;
 // 全局变量记录上次显示信息
 static char lastDisplayedText[256] = {0};
 
@@ -897,11 +896,36 @@ void onConfirmNextWord(RectInfo* rect, int idx) {
     ESP_LOGW("WORDBOOK", "未找到$wordbook_idx变量");
 }
 
+// 界面切换：切换到第一个界面（layout.json）
+void onConfirmSwitchToLayout0(RectInfo* rect, int idx) {
+    ESP_LOGI("ONCONFIRM", "切换到界面0 (layout.json)，矩形 %d", idx);
+    
+    if (switchToScreen(0)) {
+        ESP_LOGI("SCREEN_SWITCH", "✅ 成功切换到界面0: %s", getScreenName(0));
+    } else {
+        ESP_LOGE("SCREEN_SWITCH", "❌ 切换到界面0失败");
+    }
+}
+
+// 界面切换：切换到第二个界面（layout_1.json）
+void onConfirmSwitchToLayout1(RectInfo* rect, int idx) {
+    ESP_LOGI("ONCONFIRM", "切换到界面1 (layout_1.json)，矩形 %d", idx);
+    
+    if (switchToScreen(1)) {
+        ESP_LOGI("SCREEN_SWITCH", "✅ 成功切换到界面1: %s", getScreenName(1));
+    } else {
+        ESP_LOGE("SCREEN_SWITCH", "❌ 切换到界面1失败");
+    }
+}
+
 // 动作注册表
 ActionEntry g_action_registry[] = {
     {"open_menu", "打开菜单", onConfirmOpenMenu},
     {"play_sound", "播放提示音", onConfirmPlaySound},
     {"next_word", "下一个单词", onConfirmNextWord}
+    {"next_word", "下一个单词", onConfirmNextWord},
+    {"switch_to_layout_0", "切换到界面0", onConfirmSwitchToLayout0},
+    {"switch_to_layout_1", "切换到界面1", onConfirmSwitchToLayout1}
 };
 int g_action_registry_count = sizeof(g_action_registry) / sizeof(g_action_registry[0]);
 
@@ -2866,7 +2890,7 @@ void ink_screen_show(void *args)
             default:
                 break;
 		}
-   //     showPromptInfor(showPrompt,true);
+        showPromptInfor(showPrompt,true);
 	//	updateDisplayWithWifiIcon();
         changeInkSreenSize();
        // ESP_LOGI(TAG,"ink_screen_show\r\n");
@@ -2930,7 +2954,7 @@ void ink_screen_init()
     }
     
     // ===== 步骤 2: 初始化单词本文本缓存（用于text_roll显示）=====
-    ESP_LOGI(TAG, "========== 步骤 2: 初始化单词本文本缓存 ==========");
+    // ESP_LOGI(TAG, "========== 步骤 2: 初始化单词本文本缓存 ==========");
     
     if (initWordBookTextCache()) {
         ESP_LOGI(TAG, "✅ 单词本文本缓存初始化成功");
@@ -2954,6 +2978,29 @@ void ink_screen_init()
     } else {
         ESP_LOGW(TAG, "⚠️ 单词本文本缓存初始化失败");
     }
+     // 1. 初始化单词本缓存（从SD卡加载）
+    // if (initWordBookCache("/ecdict.mini.csv")) {
+    //     ESP_LOGI(TAG, "✅ 单词本缓存初始化成功");
+        
+    //     // 2. 在墨水屏上显示3个单词（含完整信息：单词、词性、音标、翻译）
+    //     // 注意：每个单词约占60-70px高度，建议显示3-4个
+    //     testDisplayWordsOnScreen(display, 3);
+        
+    //     // 可选：打印到串口查看详细信息
+    //     // printWordsFromCache(3);
+    // } else {
+    //     ESP_LOGE(TAG, "❌ 单词本缓存初始化失败");
+        
+    //     // 显示错误信息
+    //     display.setFullWindow();
+    //     display.firstPage();
+    //     do {
+    //         if (switchToPSRAMFont("chinese_translate_font")) {
+    //             drawChineseTextWithCache(display, 10, 10, "错误：", GxEPD_BLACK);
+    //             drawChineseTextWithCache(display, 10, 40, "无法加载单词本", GxEPD_BLACK);
+    //         }
+    //     } while (display.nextPage());
+    // }
 
     // ===== 步骤 1: 初始化墨水屏专用的 SPI3 (HSPI) =====
     ESP_LOGI(TAG, "初始化墨水屏专用 SPI3 (SCK=48, MOSI=47)...");

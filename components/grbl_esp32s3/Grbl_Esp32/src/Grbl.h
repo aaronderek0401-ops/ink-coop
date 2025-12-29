@@ -51,6 +51,7 @@ const char* const GRBL_VERSION_BUILD = "20211103";
 #include "src/BL_add/ink_screen/ink_screen.h"
 #include "src/BL_add/ink_screen/web_layout.h"
 #include "src/BL_add/ota/ota_update.h"
+#include "src/BL_add/ink_screen/prompt.h"
 
 #include <Wire.h>
 
