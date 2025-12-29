@@ -87,7 +87,11 @@ static const IconMapping icon_mappings[] = {
     {"game", 1},          // 游戏 -> /game.bin
     {"settings", 2},      // 设置 -> /settings.bin
     {"folder", 3},         // 文件夹 -> /folder.bin
-    {"horn", 4}         // 喇叭 -> /horn.bin
+    {"horn", 4},          // 喇叭 -> /horn.bin
+    {"wifi_off", 5},       // WiFi关闭 -> /wifi_off.bin
+    {"battery", 6},        // 电池 -> /battery.bin
+    {"word", 7},           // 单词 -> /word.bin
+    {"message", 8}         // 消息 -> /message.bin
 };
 
 // 自动计算图标数量
@@ -209,7 +213,12 @@ const char* getIconFileNameByIndex(int icon_index) {
         "/game.bin",          // 1
         "/settings.bin",      // 2
         "/folder.bin",        // 3
-        "/horn.bin"          // 4
+        "/horn.bin",          // 4
+        "/wifi_off.bin",    // 5
+        "/battery.bin",    // 6
+        "/word.bin",    // 7
+        "/message.bin",    // 8
+
     };
     
     // 检查索引有效性

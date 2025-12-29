@@ -1,12 +1,12 @@
 {
-    "rect_count": 8,
+    "rect_count": 7,
     "rectangles": [
         {
             "index": 0,
-            "is_mother": "non",
-            "x_": 0,
+            "is_mother": "mom",
+            "x_": 0.7,
             "y_": 0,
-            "width_": 0.7,
+            "width_": 0.3,
             "height_": 0.12,
             "focus_mode": 0,
             "focus_icon": "horn",
@@ -14,9 +14,9 @@
             "icon_count": 1,
             "icons": [
                 {
-                    "icon_name": "horn",
-                    "rel_x": 0.050366265433175225,
-                    "rel_y": 0.3703700171576606
+                    "icon_name": "wifi_off",
+                    "rel_x": 0.3685895968706181,
+                    "rel_y": 0.43055534362792974
                 }
             ],
             "icon_roll": [],
@@ -26,16 +26,22 @@
         },
         {
             "index": 1,
-            "is_mother": "non",
-            "x_": 0.7,
-            "y_": 0,
-            "width_": 0.3,
-            "height_": 0.12,
+            "is_mother": "mom",
+            "x_": 0.05,
+            "y_": 0.2,
+            "width_": 0.25,
+            "height_": 0.3,
             "focus_mode": 0,
-            "focus_icon": "nail",
-            "on_confirm_action": "open_menu",
-            "icon_count": 0,
-            "icons": [],
+            "focus_icon": "horn",
+            "on_confirm_action": "switch_to_layout_0",
+            "icon_count": 1,
+            "icons": [
+                {
+                    "icon_name": "word",
+                    "rel_x": 0.19615367009089543,
+                    "rel_y": 0.2638888888888889
+                }
+            ],
             "icon_roll": [],
             "text_count": 0,
             "texts": [],
@@ -44,41 +50,44 @@
         {
             "index": 2,
             "is_mother": "non",
-            "x_": 0,
-            "y_": 0.12,
-            "width_": 0.7,
-            "height_": 0.25,
+            "x_": 0.38,
+            "y_": 0.2,
+            "width_": 0.25,
+            "height_": 0.3,
             "focus_mode": 0,
-            "focus_icon": "nail",
+            "focus_icon": "horn",
             "on_confirm_action": "open_menu",
-            "icon_count": 0,
-            "icons": [],
+            "icon_count": 1,
+            "icons": [
+                {
+                    "icon_name": "folder",
+                    "rel_x": 0.22230751624474146,
+                    "rel_y": 0.19444444444444445
+                }
+            ],
             "icon_roll": [],
             "text_count": 0,
             "texts": [],
-            "text_roll": [
-                {
-                    "text_arr": "wordbook_word",
-                    "idx": "$wordbook_idex",
-                    "font": "english_word_font",
-                    "rel_x": 0.14652011158702138,
-                    "rel_y": 0.3144442749023438,
-                    "auto_roll": false
-                }
-            ]
+            "text_roll": []
         },
         {
             "index": 3,
             "is_mother": "non",
-            "x_": 0.7,
-            "y_": 0.12,
-            "width_": 0.3,
-            "height_": 0.1,
+            "x_": 0.71,
+            "y_": 0.2,
+            "width_": 0.25,
+            "height_": 0.3,
             "focus_mode": 0,
-            "focus_icon": "nail",
+            "focus_icon": "horn",
             "on_confirm_action": "open_menu",
-            "icon_count": 0,
-            "icons": [],
+            "icon_count": 1,
+            "icons": [
+                {
+                    "icon_name": "message",
+                    "rel_x": 0.238845977783203,
+                    "rel_y": 0.2222222222222222
+                }
+            ],
             "icon_roll": [],
             "text_count": 0,
             "texts": [],
@@ -87,41 +96,44 @@
         {
             "index": 4,
             "is_mother": "non",
-            "x_": 0.7,
-            "y_": 0.22,
-            "width_": 0.3,
-            "height_": 0.15,
+            "x_": 0.05,
+            "y_": 0.6,
+            "width_": 0.25,
+            "height_": 0.3,
             "focus_mode": 0,
-            "focus_icon": "nail",
+            "focus_icon": "horn",
             "on_confirm_action": "open_menu",
-            "icon_count": 0,
-            "icons": [],
+            "icon_count": 1,
+            "icons": [
+                {
+                    "icon_name": "book",
+                    "rel_x": 0.19615367009089543,
+                    "rel_y": 0.25
+                }
+            ],
             "icon_roll": [],
             "text_count": 0,
             "texts": [],
-            "text_roll": [
-                {
-                    "text_arr": "wordbook_phonetic",
-                    "idx": "$wordbook_idex",
-                    "font": "english_phonetic_font",
-                    "rel_x": 0.18002128601074227,
-                    "rel_y": 0.190740458170573,
-                    "auto_roll": false
-                }
-            ]
+            "text_roll": []
         },
         {
             "index": 5,
             "is_mother": "non",
-            "x_": 0,
-            "y_": 0.37,
-            "width_": 1,
-            "height_": 0.25,
+            "x_": 0.38,
+            "y_": 0.6,
+            "width_": 0.25,
+            "height_": 0.3,
             "focus_mode": 0,
-            "focus_icon": "nail",
+            "focus_icon": "horn",
             "on_confirm_action": "open_menu",
-            "icon_count": 0,
-            "icons": [],
+            "icon_count": 1,
+            "icons": [
+                {
+                    "icon_name": "game",
+                    "rel_x": 0.22230751624474146,
+                    "rel_y": 0.2222222222222222
+                }
+            ],
             "icon_roll": [],
             "text_count": 0,
             "texts": [],
@@ -130,54 +142,25 @@
         {
             "index": 6,
             "is_mother": "non",
-            "x_": 0,
-            "y_": 0.65,
-            "width_": 1,
-            "height_": 0.15,
+            "x_": 0.71,
+            "y_": 0.6,
+            "width_": 0.25,
+            "height_": 0.3,
             "focus_mode": 0,
-            "focus_icon": "nail",
+            "focus_icon": "horn",
             "on_confirm_action": "open_menu",
-            "icon_count": 0,
-            "icons": [],
+            "icon_count": 1,
+            "icons": [
+                {
+                    "icon_name": "settings",
+                    "rel_x": 0.238845977783203,
+                    "rel_y": 0.20833333333333334
+                }
+            ],
             "icon_roll": [],
             "text_count": 0,
             "texts": [],
-            "text_roll": [
-                {
-                    "text_arr": "wordbook_translation_1",
-                    "idx": "$wordbook_idx",
-                    "font": "chinese_translate_font",
-                    "rel_x": 0.10256407811091496,
-                    "rel_y": 0.21296268039279515,
-                    "auto_roll": false
-                }
-            ]
-        },
-        {
-            "index": 7,
-            "is_mother": "non",
-            "x_": 0,
-            "y_": 0.85,
-            "width_": 1,
-            "height_": 0.15,
-            "focus_mode": 0,
-            "focus_icon": "nail",
-            "on_confirm_action": "open_menu",
-            "icon_count": 0,
-            "icons": [],
-            "icon_roll": [],
-            "text_count": 0,
-            "texts": [],
-            "text_roll": [
-                {
-                    "text_arr": "wordbook_translation_2",
-                    "idx": "$wordbook_idx",
-                    "font": "chinese_translate_font",
-                    "rel_x": 0.10256407811091496,
-                    "rel_y": 0.26851823594835067,
-                    "auto_roll": false
-                }
-            ]
+            "text_roll": []
         }
     ]
 }

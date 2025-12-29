@@ -78,7 +78,7 @@ void setup() {
 
      // 切换到第一个界面（索引0）
      ESP_LOGI(TAG, "========== 显示默认界面 ==========");
-     bool success = switchToScreen(0);  // 显示第一个界面
+     bool success = switchToScreen(1);  // 显示第一个界面
      
     //  if (success) {
     //      ESP_LOGI(TAG, "✅ 默认界面显示成功！");
