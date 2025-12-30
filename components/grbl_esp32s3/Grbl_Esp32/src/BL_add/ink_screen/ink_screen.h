@@ -100,6 +100,14 @@ typedef struct {
     char font[32];         // 字体名称 (如: "chinese_translate_font", "english_sentence_font", "english_phonetic_font")
     bool auto_roll;        // 是否自动滚动 (true=自动100ms切换, false=固定)
 } TextRollInRect;
+
+// 文本数组注册表类型（用于 text_roll / 动态文本）
+typedef struct {
+    const char* name;      // 数组名称 (用于JSON中的"text_arr")
+    const char* var_name;  // 变量名称 (用于JSON中的"idx")
+    const char** sequence; // 文本序列
+    int count;             // 序列长度
+} TextArrayEntry;
 //用到
 /*
  * @brief 矩形内文本内容位置定义
@@ -190,6 +198,22 @@ extern int g_action_registry_count;
 
 // 根据动作ID查找对应的回调函数（若不存在返回NULL）
 OnConfirmFn find_action_by_id(const char* id);
+
+// Expose wordbook/pomodoro related symbols used by onconfirm callbacks
+extern bool g_wordbook_text_initialized;
+extern const int g_text_arrays_count;
+extern const TextArrayEntry g_text_arrays[];
+extern int g_text_animation_indices[];
+
+// Wordbook helper accessors
+const char* getWordBookWord(int index);
+const char* getWordBookPhonetic(int index);
+const char* getWordBookTranslation(int index);
+
+// Pomodoro controls
+void pomodoroStartPause();
+void pomodoroReset();
+void pomodoroSettings();
 
 /**
  * @brief 添加文本内容到矩形

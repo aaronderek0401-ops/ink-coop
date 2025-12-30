@@ -30,10 +30,10 @@ SPIClass EPD_SPI(HSPI);  // 创建独立的 SPI3 实例用于墨水屏
 int rect_count = 0;  // 将在ink_screen_init()中设置为实际值
 
 // 主界面矩形数组
-RectInfo rects[MAX_MAIN_RECTS] = {0};
+RectInfo rects[MAX_MAIN_RECTS] = {};
 
 // 单词界面矩形数组
-RectInfo vocab_rects[MAX_VOCAB_RECTS] = {0};
+RectInfo vocab_rects[MAX_VOCAB_RECTS] = {};
 
 // 常量定义
 #define MAX_RECTS 50
@@ -98,7 +98,7 @@ static const IconMapping icon_mappings[] = {
 #define ICON_CACHE_COUNT (sizeof(icon_mappings) / sizeof(icon_mappings[0]))
 
 // 全局图标缓存数组（自动适应icon_mappings数量）
-static IconCache g_icon_cache[ICON_CACHE_COUNT] = {0};
+static IconCache g_icon_cache[ICON_CACHE_COUNT] = {};
 
 const char *TAG = "ink_screen.cpp";
 static TaskHandle_t _eventTaskHandle = NULL;
@@ -411,7 +411,8 @@ static const char* g_wordbook_translation2_ptrs[WORDBOOK_CACHE_COUNT] = {nullptr
 static const char* g_wordbook_pos_ptrs[WORDBOOK_CACHE_COUNT] = {nullptr};
 
 // 单词本是否已初始化
-static bool g_wordbook_text_initialized = false;
+// expose to other files (onconfirm.cpp) so callbacks can check/init
+bool g_wordbook_text_initialized = false;
 
 /**
  * @brief 初始化单词本文本缓存（开机时调用）
@@ -704,15 +705,9 @@ const char* getWordBookText(int index) {
     return getWordBookWord(index);  // 默认返回单词本身
 }
 
-// 文本数组注册表
-typedef struct {
-    const char* name;        // 数组名称 (用于JSON中的"text_arr")
-    const char* var_name;    // 变量名称 (用于JSON中的"idx")
-    const char** sequence;   // 文本序列
-    int count;              // 序列长度
-} TextArrayEntry;
-
-static const TextArrayEntry g_text_arrays[] = {
+// 文本数组注册表 (类型 `TextArrayEntry` 已在 ink_screen.h 中声明)
+// make non-static so other translation units (onconfirm.cpp) can reference
+const TextArrayEntry g_text_arrays[] = {
     {"message_remind", "$message_idx", message_remind_sequence, sizeof(message_remind_sequence)/sizeof(message_remind_sequence[0])},
     {"status_text", "$status_idx", status_text_sequence, sizeof(status_text_sequence)/sizeof(status_text_sequence[0])},
     {"wordbook_word", "$wordbook_idx", g_wordbook_word_ptrs, WORDBOOK_CACHE_COUNT},           // 单词本身
@@ -728,13 +723,13 @@ static const TextArrayEntry g_text_arrays[] = {
     {"pomodoro_settings_text", "$pomodoro_settings_idx", g_pomodoro_settings_ptrs, 1},       // 设置按钮
     // 新增文本数组只需要在这里添加一行即可！
 };
-static const int g_text_arrays_count = sizeof(g_text_arrays) / sizeof(g_text_arrays[0]);
+const int g_text_arrays_count = sizeof(g_text_arrays) / sizeof(g_text_arrays[0]);
 
 // 全局索引数组，对应g_icon_arrays中每个动画的当前帧索引
 static int g_animation_indices[sizeof(g_icon_arrays) / sizeof(g_icon_arrays[0])] = {0};
 
 // 全局索引数组，对应g_text_arrays中每个文本动画的当前索引
-static int g_text_animation_indices[sizeof(g_text_arrays) / sizeof(g_text_arrays[0])] = {0};
+int g_text_animation_indices[sizeof(g_text_arrays) / sizeof(g_text_arrays[0])] = {};
 
 // ==================== 提示信息管理函数 ====================
 
@@ -1171,116 +1166,8 @@ void processAutoRollAnimations() {
     g_last_auto_roll_time = current_time;
 }
 
-// ================= Example onConfirm callbacks and registry =================
-// 示例回调1：打开菜单（示例，实际实现可替换）
-void onConfirmOpenMenu(RectInfo* rect, int idx) {
-    ESP_LOGI("ONCONFIRM", "示例回调：打开菜单，矩形 %d", idx);
-    // TODO: 在此处添加实际打开菜单的逻辑
-}
-
-// 示例回调2：播放提示音（示例）
-void onConfirmPlaySound(RectInfo* rect, int idx) {
-    ESP_LOGI("ONCONFIRM", "示例回调：播放提示音，矩形 %d", idx);
-    // TODO: 在此处添加实际播放声音的逻辑
-}
-
-// 单词本：下一个单词
-void onConfirmNextWord(RectInfo* rect, int idx) {
-    ESP_LOGI("ONCONFIRM", "切换到下一个单词，矩形 %d", idx);
-    
-    if (!g_wordbook_text_initialized) {
-        ESP_LOGW("WORDBOOK", "单词本文本缓存未初始化");
-        return;
-    }
-    
-    // 在文本数组注册表中查找 $wordbook_idx
-    for (int i = 0; i < g_text_arrays_count; i++) {
-        if (strcmp(g_text_arrays[i].var_name, "$wordbook_idx") == 0) {
-            int old_index = g_text_animation_indices[i];
-            int new_index = (old_index + 1) % g_text_arrays[i].count;
-            g_text_animation_indices[i] = new_index;
-            
-            ESP_LOGI("WORDBOOK", "单词本索引已更新: %d -> %d (共%d个单词)", 
-                     old_index, new_index, g_text_arrays[i].count);
-            ESP_LOGI("WORDBOOK", "  当前单词: %s", getWordBookWord(new_index));
-            ESP_LOGI("WORDBOOK", "  音标: %s", getWordBookPhonetic(new_index));
-            ESP_LOGI("WORDBOOK", "  翻译: %s", getWordBookTranslation(new_index));
-            
-            // 刷新显示
-            // if (g_json_rects && g_json_rect_count > 0) {
-            //     updateDisplayWithMain(g_json_rects, g_json_rect_count, -1, 1);
-            //     ESP_LOGI("WORDBOOK", "界面已刷新显示新单词");
-            // }
-            return;
-        }
-    }
-    
-    ESP_LOGW("WORDBOOK", "未找到$wordbook_idx变量");
-}
-
-// 界面切换：切换到第一个界面（layout.json）
-void onConfirmSwitchToLayout0(RectInfo* rect, int idx) {
-    ESP_LOGI("ONCONFIRM", "切换到界面0 (layout.json)，矩形 %d", idx);
-    
-    if (switchToScreen(0)) {
-        ESP_LOGI("SCREEN_SWITCH", "✅ 成功切换到界面0: %s", getScreenName(0));
-    } else {
-        ESP_LOGE("SCREEN_SWITCH", "❌ 切换到界面0失败");
-    }
-}
-
-// 界面切换：切换到第二个界面（layout_1.json）
-void onConfirmSwitchToLayout1(RectInfo* rect, int idx) {
-    ESP_LOGI("ONCONFIRM", "切换到界面1 (layout_1.json)，矩形 %d", idx);
-    
-    if (switchToScreen(1)) {
-        ESP_LOGI("SCREEN_SWITCH", "✅ 成功切换到界面1: %s", getScreenName(1));
-    } else {
-        ESP_LOGE("SCREEN_SWITCH", "❌ 切换到界面1失败");
-    }
-}
-
-// 番茄钟回调：开始/暂停
-void onConfirmPomodoroStartPause(RectInfo* rect, int idx) {
-    ESP_LOGI("POMODORO", "番茄钟开始/暂停按钮被按下");
-    pomodoroStartPause();
-}
-
-// 番茄钟回调：重置
-void onConfirmPomodoroReset(RectInfo* rect, int idx) {
-    ESP_LOGI("POMODORO", "番茄钟重置按钮被按下");
-    pomodoroReset();
-}
-
-// 番茄钟回调：设置
-void onConfirmPomodoroSettings(RectInfo* rect, int idx) {
-    ESP_LOGI("POMODORO", "番茄钟设置按钮被按下");
-    pomodoroSettings();
-}
-
-// 动作注册表
-ActionEntry g_action_registry[] = {
-    {"open_menu", "打开菜单", onConfirmOpenMenu},
-    {"play_sound", "播放提示音", onConfirmPlaySound},
-    {"next_word", "下一个单词", onConfirmNextWord},
-    {"switch_to_layout_0", "切换到界面0", onConfirmSwitchToLayout0},
-    {"switch_to_layout_1", "切换到界面1", onConfirmSwitchToLayout1},
-    {"pomodoro_start_pause", "番茄钟开始/暂停", onConfirmPomodoroStartPause},
-    {"pomodoro_reset", "番茄钟重置", onConfirmPomodoroReset},
-    {"pomodoro_settings", "番茄钟设置", onConfirmPomodoroSettings}
-};
-int g_action_registry_count = sizeof(g_action_registry) / sizeof(g_action_registry[0]);
-
-// 通过动作ID查找函数指针（返回NULL表示未找到）
-OnConfirmFn find_action_by_id(const char* id) {
-    if (!id) return NULL;
-    for (int i = 0; i < g_action_registry_count; i++) {
-        if (g_action_registry[i].id && strcmp(g_action_registry[i].id, id) == 0) {
-            return g_action_registry[i].fn;
-        }
-    }
-    return NULL;
-}
+// onConfirm callbacks moved to onconfirm.{h,cpp}
+#include "onconfirm.h"
 
 // 清除上次绘制的下划线
 void clearLastUnderline() {

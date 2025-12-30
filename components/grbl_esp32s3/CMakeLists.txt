@@ -26,6 +26,7 @@ set(srcs Grbl_Esp32/src/Grbl.cpp
     Grbl_Esp32/src/WebUI/WifiConfig.cpp
     Grbl_Esp32/src/WebUI/WifiServices.cpp
     Grbl_Esp32/src/BL_add/ink_screen/ink_screen.cpp
+    Grbl_Esp32/src/BL_add/ink_screen/onconfirm.cpp
     Grbl_Esp32/src/BL_add/ink_screen/web_layout.cpp
     Grbl_Esp32/src/BL_add/ink_screen/sd_font_loader.cpp
     Grbl_Esp32/src/BL_add/ink_screen/image_loader.cpp
