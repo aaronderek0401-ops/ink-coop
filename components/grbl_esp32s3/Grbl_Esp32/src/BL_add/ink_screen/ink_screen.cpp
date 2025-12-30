@@ -153,7 +153,7 @@ int g_json_status_rect_index = -1;
 
 // ==================== JSON函数前置声明 ====================
 void saveJsonLayoutForInteraction(RectInfo* rects, int rect_count, int status_rect_index);
-void redrawJsonLayout();
+// void redrawJsonLayout();
 void jsonLayoutFocusNext();
 void jsonLayoutFocusPrev();  
 void jsonLayoutConfirm();
@@ -351,7 +351,7 @@ static const int g_icon_arrays_count = sizeof(g_icon_arrays) / sizeof(g_icon_arr
 // ================== 文本数组定义 ==================
 // 定义各种文本序列
 static const char* message_remind_sequence[] = {"600秒", "提醒3", "注意"};
-static const char* status_text_sequence[] = {"运行中", "完成", "错误"};
+static const char* status_text_sequence[] = {"返回", "完成", "错误"};
 // 可以添加更多文本序列...
 
 // ================== 提示信息缓存（PSRAM）==================
@@ -1079,14 +1079,15 @@ const char* getTextRollCurrentText(const TextRollInRect* text_roll) {
     // 获取当前索引值
     int current_idx = getVariableIndex(text_roll->idx);
     
-    ESP_LOGI("TEXT_ROLL", "🔍 查找文本数组: %s, 变量: %s, 索引: %d", 
-             text_roll->text_arr, text_roll->idx, current_idx);
+    ESP_LOGI("TEXT_ROLL", "🔍 查找文本数组: %s, 变量: %s, 索引: %d, 偏移: %d", 
+             text_roll->text_arr, text_roll->idx, current_idx, text_roll->offset);
     
     // 在文本数组注册表中查找对应的数组
     for (int i = 0; i < g_text_arrays_count; i++) {
         if (strcmp(text_roll->text_arr, g_text_arrays[i].name) == 0) {
             const TextArrayEntry* entry = &g_text_arrays[i];
-            int text_idx = current_idx % entry->count;
+            // 应用偏移量（带循环处理负数）
+            int text_idx = (current_idx + text_roll->offset + entry->count * 100) % entry->count;
             const char* text = entry->sequence[text_idx];
             
             ESP_LOGI("TEXT_ROLL", "✅ 数组[%s] 索引[%d/%d] -> 文本[%s]", 
@@ -1866,7 +1867,7 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
     // display.setFullWindow();
     // display.setPartialWindow(200, 0, setInkScreenSize.screenWidth - 200, setInkScreenSize.screenHeigt);
     display.firstPage();
-    {
+    do {
         // 清空背景
         // display.fillScreen(GxEPD_WHITE);
         // ==================== 显示状态栏图标 ====================
@@ -1997,8 +1998,8 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
                     // 获取当前应该显示的文本
                     const char* current_text = getTextRollCurrentText(text_roll);
                     
-                    ESP_LOGI("MAIN", "  处理动态文本组%d: arr=%s, idx=%s, 当前文本=%s", 
-                            j, text_roll->text_arr, text_roll->idx, current_text);
+                    ESP_LOGI("MAIN", "  处理动态文本组%d: arr=%s, idx=%s, offset=%d, 当前文本=%s", 
+                            j, text_roll->text_arr, text_roll->idx, text_roll->offset, current_text);
                     
                     if (current_text && strcmp(current_text, "ERR") != 0) {
                         // 计算文本位置（基于左上角对齐）
@@ -2108,49 +2109,11 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
             drawFocusCursor(rects, rect_count, g_current_focus_rect, global_scale);
             ESP_LOGI("FOCUS", "主界面绘制焦点光标在矩形%d", g_current_focus_rect);
         }
-    }
+    } while (display.nextPage());
     //   displayImageFromSD("/test.bin",0,0,display);
     //displayImageFromSPIFFS("/book.bin", 0, 0, display);
     
    // ===== 测试1: 使用20x20缓存字库显示中文文本 =====
-        // 使用常用字列表中确定存在的字符进行测试
-        // ESP_LOGI(TAG, "测试中文字体显示(20x20)...");
-        // // 切换到中文仿宋字体
-        // if (switchToPSRAMFont("chinese_translate_font")) {
-        //     drawChineseTextWithCache(display, 10, 10, "的一是了我不人在", GxEPD_BLACK);
-        //     drawChineseTextWithCache(display, 10, 40, "他有这个上中大到", GxEPD_BLACK);
-        //     drawChineseTextWithCache(display, 10, 70, "说你为子和也得会", GxEPD_BLACK);
-        // }
-        
-        // // ===== 测试1.5: Comic Sans PSRAM 英文字体测试 (使用字体名称切换) =====
-        // ESP_LOGI(TAG, "测试Comic Sans英文字体显示(从PSRAM)...");
-        // // 切换到 Comic Sans 20x20 字体
-        // if (switchToPSRAMFont("english_sentence_font")) {
-        //     drawEnglishText(display, 10, 110, "Hello World!", GxEPD_BLACK);
-        //     drawEnglishText(display, 10, 140, "ABC abc 123", GxEPD_BLACK);
-        //     drawEnglishText(display, 10, 170, "Test PSRAM", GxEPD_BLACK);
-        // }
-        
-        // // ===== 测试2: 中英文混合显示 =====
-        // ESP_LOGI(TAG, "测试中英文混合显示...");
-        // // 切换回中文字体
-        // if (switchToPSRAMFont("chinese_translate_font")) {
-        //     drawChineseTextWithCache(display, 10, 210, "世界", GxEPD_BLACK);
-        // }
-        
-        // // ===== 测试3: 32x32字体测试 =====
-        // ESP_LOGI(TAG, "测试32x32字体显示...");
-        // //drawChineseTextWithCache(display, 10, 240, "大字测试", GxEPD_BLACK, 28);    // 28x28中文
-        // if (switchToPSRAMFont("english_word_font")) {
-        //     drawEnglishText(display, 10 + 150, 210, "BIG", GxEPD_BLACK);           // 28x28英文 Bold
-        // }
-        // test_ipa_phonetic_font();
-
-    // 执行单次刷新
-    display.nextPage();
-    // display.setPartialWindow(200, 0, setInkScreenSize.screenWidth - 200, setInkScreenSize.screenHeigt);
-
-    
     // ===== 测试4: 单词本显示测试 =====
     // 注释掉上面的测试，取消注释下面的代码来测试单词本显示
     
@@ -3630,14 +3593,24 @@ bool loadAndDisplayFromJSON(const char* json_str) {
                     text_roll->rel_x = (float)rel_x->valuedouble;
                     text_roll->rel_y = (float)rel_y->valuedouble;
                     
+                    // 解析offset字段，默认为0
+                    cJSON* offset_obj = cJSON_GetObjectItem(text_roll_item, "offset");
+                    text_roll->offset = 0;
+                    if (offset_obj && cJSON_IsNumber(offset_obj)) {
+                        text_roll->offset = offset_obj->valueint;
+                        ESP_LOGI("JSON_DEBUG", "✅ 读取到offset字段: %d", text_roll->offset);
+                    } else {
+                        ESP_LOGI("JSON_DEBUG", "⚠️  未找到offset字段或非数字，使用默认值0 (offset_obj=%p)", offset_obj);
+                    }
+                    
                     // 解析auto_roll字段，默认为false
                     text_roll->auto_roll = false;
                     if (auto_roll && cJSON_IsBool(auto_roll)) {
                         text_roll->auto_roll = cJSON_IsTrue(auto_roll);
                     }
                     
-                    ESP_LOGI("JSON", "解析动态文本组%d: arr=%s, idx=%s, font=%s, pos=(%.2f,%.2f), auto_roll=%s", 
-                            text_roll_count, text_roll->text_arr, text_roll->idx, 
+                    ESP_LOGI("JSON", "解析动态文本组%d: arr=%s, idx=%s, offset=%d, font=%s, pos=(%.2f,%.2f), auto_roll=%s", 
+                            text_roll_count, text_roll->text_arr, text_roll->idx, text_roll->offset,
                             text_roll->font[0] ? text_roll->font : "auto",
                             text_roll->rel_x, text_roll->rel_y, text_roll->auto_roll ? "true" : "false");
                     
@@ -4426,6 +4399,14 @@ bool loadScreenToMemory(const char* file_path, RectInfo** out_rects,
                     sscanf(line_buffer, " \"rel_y\" : %f", &rel_y);
                     if (current_text_roll < 4) {
                         temp_rect.text_rolls[current_text_roll].rel_y = rel_y;
+                    }
+                }
+                else if (strstr(line_buffer, "\"offset\"")) {
+                    int offset_val = 0;
+                    sscanf(line_buffer, " \"offset\" : %d", &offset_val);
+                    if (current_text_roll < 4) {
+                        temp_rect.text_rolls[current_text_roll].offset = offset_val;
+                        ESP_LOGI("CACHE", "矩形%d text_roll%d offset=%d", current_rect, current_text_roll, offset_val);
                     }
                 }
                 else if (strstr(line_buffer, "\"auto_roll\"")) {

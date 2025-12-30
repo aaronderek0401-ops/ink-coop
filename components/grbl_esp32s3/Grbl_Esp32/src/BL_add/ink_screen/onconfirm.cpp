@@ -28,6 +28,9 @@ void onConfirmNextWord(RectInfo* rect, int idx) {
             ESP_LOGI("WORDBOOK", "  当前单词: %s", getWordBookWord(new_index));
             ESP_LOGI("WORDBOOK", "  音标: %s", getWordBookPhonetic(new_index));
             ESP_LOGI("WORDBOOK", "  翻译: %s", getWordBookTranslation(new_index));
+            
+            // 刷新屏幕显示新单词
+            redrawJsonLayout();
             return;
         }
     }
@@ -37,6 +40,8 @@ void onConfirmNextWord(RectInfo* rect, int idx) {
 // 界面切换：切换到第一个界面（layout_main.json）
 void onConfirmSwitchToLayoutMain(RectInfo* rect, int idx) {
     ESP_LOGI("ONCONFIRM", "切换到界面0 (layout_main.json)，矩形 %d", idx);
+    display.setFullWindow();
+
     if (switchToScreen(0)) {
         ESP_LOGI("SCREEN_SWITCH", "✅ 成功切换到界面0: %s", getScreenName(0));
     } else {
@@ -47,10 +52,24 @@ void onConfirmSwitchToLayoutMain(RectInfo* rect, int idx) {
 // 界面切换：切换到第二个界面（layout_wordbook.json）
 void onConfirmSwitchToLayoutWordbook(RectInfo* rect, int idx) {
     ESP_LOGI("ONCONFIRM", "切换到界面1 (layout_wordbook.json)，矩形 %d", idx);
+    display.setFullWindow();
+
     if (switchToScreen(1)) {
         ESP_LOGI("SCREEN_SWITCH", "✅ 成功切换到界面1: %s", getScreenName(1));
     } else {
         ESP_LOGE("SCREEN_SWITCH", "❌ 切换到界面1失败");
+    }
+}
+
+// 界面切换：切换到第三个界面（layout_clock.json）
+void onConfirmSwitchToLayoutClock(RectInfo* rect, int idx) {
+    ESP_LOGI("ONCONFIRM", "切换到界面2 (layout_clock.json)，矩形 %d", idx);
+    display.setFullWindow();
+
+    if (switchToScreen(2)) {
+        ESP_LOGI("SCREEN_SWITCH", "✅ 成功切换到界面2: %s", getScreenName(2));
+    } else {
+        ESP_LOGE("SCREEN_SWITCH", "❌ 切换到界面2失败");
     }
 }
 
@@ -111,6 +130,7 @@ ActionEntry g_action_registry[] = {
     {"next_word", "下一个单词", onConfirmNextWord},
     {"switch_to_layout_main", "切换到界面0", onConfirmSwitchToLayoutMain},
     {"switch_to_layout_wordbook", "切换到界面1", onConfirmSwitchToLayoutWordbook},
+    {"switch_to_layout_clock", "切换到界面2", onConfirmSwitchToLayoutClock},
     {"switch_to_layout_clock_set", "切换到番茄钟设置界面", onConfirmSwitchToLayoutClockSet},
     {"pomodoro_start_pause", "番茄钟开始/暂停", onConfirmPomodoroStartPause},
     {"pomodoro_reset", "番茄钟重置", onConfirmPomodoroReset},

@@ -98,6 +98,7 @@ typedef struct {
     char text_arr[32];     // 文本数组名称 (如: "message_remind")
     char idx[32];          // 索引变量名称 (如: "$message_idx") - 增大到32字符
     char font[32];         // 字体名称 (如: "chinese_translate_font", "english_sentence_font", "english_phonetic_font")
+    int offset;            // 索引偏移量 (0=当前, 1=下一个, -1=上一个, 可用于同时显示序列中多个元素)
     bool auto_roll;        // 是否自动滚动 (true=自动100ms切换, false=固定)
 } TextRollInRect;
 
@@ -350,6 +351,9 @@ bool loadAndDisplayFromFile(const char* file_path);
 extern RectInfo* g_json_rects;
 extern int g_json_rect_count;
 extern int g_json_status_rect_index;
+
+// 重新绘制当前 JSON 布局（在多个文件中被调用）
+void redrawJsonLayout();
 
 // ==================== JSON布局的按键交互 ====================
 /**

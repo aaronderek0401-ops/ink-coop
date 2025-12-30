@@ -80,41 +80,10 @@ void setup() {
      ESP_LOGI(TAG, "========== 显示默认界面 ==========");
      display.setFullWindow();
 
-     bool success = switchToScreen(2);  // 显示第一个界面
-     
-    //  if (success) {
-    //      ESP_LOGI(TAG, "✅ 默认界面显示成功！");
-    //      ESP_LOGI(TAG, "现在可以使用物理按键测试：");
-    //      ESP_LOGI(TAG, "  $inkScreen/Test=1 - 焦点向上（Prev）");
-    //      ESP_LOGI(TAG, "  $inkScreen/Test=2 - 确认（Confirm）"); 
-    //      ESP_LOGI(TAG, "  $inkScreen/Test=3 - 焦点向下（Next）");
-    //      ESP_LOGI(TAG, "  当前焦点矩形索引: %d", getCurrentFocusRect());
-    //      ESP_LOGI(TAG, "");
-    //      ESP_LOGI(TAG, "💡 切换界面示例：");
-    //      ESP_LOGI(TAG, "  switchToScreen(0) - 切换到第一个界面");
-    //      ESP_LOGI(TAG, "  switchToScreen(1) - 切换到第二个界面");
-    //  } else {
-    //      ESP_LOGE(TAG, "❌ 默认界面显示失败");
-    //  }
-     
-    //  ESP_LOGI(TAG, "✅ Setup完成！");
-     
-    //  // 🧪 测试界面切换功能
-    //  if (getCachedScreenCount() > 1) {
-    //      ESP_LOGI(TAG, "");
-    //      ESP_LOGI(TAG, "========== 开始测试界面切换 ==========");
-         
-    //      delay(3000);
-    //      ESP_LOGI(TAG, "🔄 3秒后切换到界面[1]: %s", getScreenName(1));
-    //      switchToScreen(1);
-         
-    //      delay(3000);
-    //      ESP_LOGI(TAG, "🔄 3秒后切换回界面[0]: %s", getScreenName(0));
-    //      switchToScreen(0);
-         
-    //      ESP_LOGI(TAG, "✅ 界面切换测试完成！");
-    //      ESP_LOGI(TAG, "==========================================");
-    //  }
+     bool success = switchToScreen(0);  // 显示第一个界面
+
+     //$inkScreen/Test=3
+
 }
 
 static uint32_t loop_count = 0;
