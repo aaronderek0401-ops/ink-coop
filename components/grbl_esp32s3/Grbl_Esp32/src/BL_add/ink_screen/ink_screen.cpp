@@ -350,7 +350,7 @@ static const int g_icon_arrays_count = sizeof(g_icon_arrays) / sizeof(g_icon_arr
 
 // ================== 文本数组定义 ==================
 // 定义各种文本序列
-static const char* message_remind_sequence[] = {"提醒2", "提醒3", "注意"};
+static const char* message_remind_sequence[] = {"600秒", "提醒3", "注意"};
 static const char* status_text_sequence[] = {"运行中", "完成", "错误"};
 // 可以添加更多文本序列...
 
@@ -373,7 +373,9 @@ static const char* g_pomodoro_state_texts[] = {"开始", "暂停"};
 static const char** g_pomodoro_state_ptrs = g_pomodoro_state_texts;
 static int g_pomodoro_state_idx = 0;  // 0=开始, 1=暂停
 static bool g_pomodoro_running = false;
-static int g_pomodoro_remaining_seconds = 180;  // 3分钟 = 180秒
+// 番茄钟默认时长（秒），可通过 setPomodoroDurationSeconds 修改
+static int g_pomodoro_default_seconds = 180;  // 默认 3分钟
+static int g_pomodoro_remaining_seconds = g_pomodoro_default_seconds;
 static char g_pomodoro_time_text[32] = "03:00";
 static const char* g_pomodoro_time_ptr = g_pomodoro_time_text;
 static const char** g_pomodoro_time_ptrs = &g_pomodoro_time_ptr;  // 指针数组
@@ -873,7 +875,7 @@ void initPomodoro() {
     g_pomodoro_settings_idx = 0;
     g_pomodoro_time_idx = 0;
     g_pomodoro_running = false;
-    g_pomodoro_remaining_seconds = 180;  // 3分钟
+    g_pomodoro_remaining_seconds = g_pomodoro_default_seconds;
     updatePomodoroTimeText();
     g_pomodoro_last_update = millis();
     g_pomodoro_last_refresh = millis();
@@ -972,7 +974,7 @@ void pomodoroStartPause() {
 void pomodoroReset() {
     g_pomodoro_running = false;
     g_pomodoro_state_idx = 0;  // 开始状态
-    g_pomodoro_remaining_seconds = 180;  // 重置为3分钟
+    g_pomodoro_remaining_seconds = g_pomodoro_default_seconds;  // 重置为最新默认时长
     updatePomodoroTimeText();
     
     ESP_LOGI("POMODORO", "番茄钟已重置");
@@ -1005,6 +1007,8 @@ void pomodoroSettings() {
 void setPomodoroDurationSeconds(int seconds) {
     if (seconds < 0) return;
     g_pomodoro_remaining_seconds = seconds;
+    // 同步更新默认时长，重置时将使用该值
+    g_pomodoro_default_seconds = seconds;
     updatePomodoroTimeText();
     ESP_LOGI("POMODORO", "设置番茄钟时长为 %d 秒 (%d 分钟)", seconds, seconds/60);
     if (g_json_rects && g_json_rect_count > 0) {
@@ -1859,11 +1863,12 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
             global_scale, g_global_icon_count);
     
     // 初始化显示 - 全屏刷新
-    display.setFullWindow();
+    // display.setFullWindow();
+    // display.setPartialWindow(200, 0, setInkScreenSize.screenWidth - 200, setInkScreenSize.screenHeigt);
     display.firstPage();
     {
         // 清空背景
-        display.fillScreen(GxEPD_WHITE);
+        // display.fillScreen(GxEPD_WHITE);
         // ==================== 显示状态栏图标 ====================
         int wifi_x, wifi_y, battery_x, battery_y;
         // getStatusIconPositions(rects, rect_count, status_rect_index, 
@@ -2143,11 +2148,13 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
 
     // 执行单次刷新
     display.nextPage();
+    // display.setPartialWindow(200, 0, setInkScreenSize.screenWidth - 200, setInkScreenSize.screenHeigt);
+
     
     // ===== 测试4: 单词本显示测试 =====
     // 注释掉上面的测试，取消注释下面的代码来测试单词本显示
     
-    ESP_LOGI(TAG, "========== 单词本显示测试 ==========");
+    // ESP_LOGI(TAG, "========== 单词本显示测试 ==========");
     
     // 1. 初始化单词本缓存（从SD卡加载）
     // if (initWordBookCache("/ecdict.mini.csv")) {
@@ -2220,6 +2227,7 @@ void updateDisplayWithMain(RectInfo *rects, int rect_count, int status_rect_inde
         }
     }
     // 4. 显示
+
     displayMainScreen(rects, rect_count, status_rect_index, show_border);
 }
 #define DEBUG_LAYOUT 1
@@ -3003,13 +3011,13 @@ void ink_screen_show(void *args)
                 if (g_json_rects != nullptr && g_json_rect_count > 0) {
                     // JSON布局模式：调用JSON确认处理
                     ESP_LOGI("JSON_KEY", "按键2：JSON布局确认操作");
-                    clearDisplayArea(0, 0, setInkScreenSize.screenWidth, setInkScreenSize.screenHeigt);
+                    // clearDisplayArea(0, 0, setInkScreenSize.screenWidth, setInkScreenSize.screenHeigt);
 
                     jsonLayoutConfirm();
                     
                     // 子母数组切换后更新显示
                     // updateDisplayWithMain(g_json_rects, g_json_rect_count, -1, 1);
-                    redrawJsonLayout();
+                    // redrawJsonLayout();
 
                 } else if (g_focus_mode_enabled) {
                     // 原有焦点模式：确认操作
@@ -4580,7 +4588,7 @@ bool switchToScreen(int screen_index) {
         initPomodoro();
     }
     
-    clearDisplayArea(0, 0, 416, 240);
+    // clearDisplayArea(0, 0, 416, 240);
 
     // 初始化焦点系统
     initFocusSystem(cache->rect_count);

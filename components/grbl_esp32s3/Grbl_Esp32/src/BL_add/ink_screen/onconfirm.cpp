@@ -57,6 +57,8 @@ void onConfirmSwitchToLayoutWordbook(RectInfo* rect, int idx) {
 // 界面切换：切换到番茄钟设置界面（layout_clock_set.json）
 void onConfirmSwitchToLayoutClockSet(RectInfo* rect, int idx) {
     ESP_LOGI("ONCONFIRM", "切换到界面番茄钟设置 (layout_clock_set.json)，矩形 %d", idx);
+    display.setPartialWindow(200, 60, setInkScreenSize.screenWidth - 200, setInkScreenSize.screenHeigt - 60);
+
     if (switchToScreen(3)) {
         ESP_LOGI("SCREEN_SWITCH", "✅ 成功切换到界面3: %s", getScreenName(3));
     } else {
@@ -85,18 +87,15 @@ void onConfirmPomodoroSettings(RectInfo* rect, int idx) {
 // 番茄钟回调：切换预设时长（循环 3/5/10/25/50 分钟）
 void onConfirmPomodoroChangeDuration(RectInfo* rect, int idx) {
     ESP_LOGI("POMODORO", "切换番茄钟时长，矩形 %d", idx);
-    const int presets[] = {180, 300, 600, 1500, 3000}; // 秒: 3,5,10,25,50 分钟
-    const int preset_count = sizeof(presets) / sizeof(presets[0]);
+    // 先切换到番茄钟界面（如果需要），再设置时长以避免 initPomodoro 覆盖设置
+    display.setFullWindow();
+    switchToScreen(2); // 刷新当前界面显示
 
-    // Maintain local preset index so calls cycle through presets
-    static int current_preset_idx = -1;
-    int next = (current_preset_idx + 1) % preset_count;
-    current_preset_idx = next;
-    setPomodoroDurationSeconds(presets[next]);
+    // 直接将番茄钟时长设置为600秒（10分钟）
+    setPomodoroDurationSeconds(600);
+    ESP_LOGI("POMODORO", "已设置番茄钟时长为 %d 分钟", 600 / 60);
 
-    ESP_LOGI("POMODORO", "已设置番茄钟时长为 %d 分钟", presets[next] / 60);
-
-    // 同步可能使用的文本动画索引（如有） — 将对应索引重置为0
+    // 如有使用到动态文本索引（显示时长），重置对应索引以触发刷新
     for (int i = 0; i < g_text_arrays_count; i++) {
         if (strcmp(g_text_arrays[i].var_name, "$pomodoro_time_idx") == 0) {
             g_text_animation_indices[i] = 0;

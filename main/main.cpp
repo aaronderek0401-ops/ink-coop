@@ -78,6 +78,8 @@ void setup() {
 
      // 切换到第一个界面（索引0）
      ESP_LOGI(TAG, "========== 显示默认界面 ==========");
+     display.setFullWindow();
+
      bool success = switchToScreen(2);  // 显示第一个界面
      
     //  if (success) {
