@@ -33,7 +33,7 @@
             "height_": 0.3,
             "focus_mode": 0,
             "focus_icon": "horn",
-            "on_confirm_action": "switch_to_layout_0",
+            "on_confirm_action": "switch_to_layout_wordbook",
             "icon_count": 1,
             "icons": [
                 {

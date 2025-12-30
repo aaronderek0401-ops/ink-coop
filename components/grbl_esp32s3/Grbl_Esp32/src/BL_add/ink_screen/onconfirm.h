@@ -5,12 +5,13 @@
 void onConfirmOpenMenu(RectInfo* rect, int idx);
 void onConfirmPlaySound(RectInfo* rect, int idx);
 void onConfirmNextWord(RectInfo* rect, int idx);
-void onConfirmSwitchToLayout0(RectInfo* rect, int idx);
-void onConfirmSwitchToLayout1(RectInfo* rect, int idx);
+void onConfirmSwitchToLayoutMain(RectInfo* rect, int idx);
+void onConfirmSwitchToLayoutWordbook(RectInfo* rect, int idx);
 void onConfirmSwitchToLayoutClockSet(RectInfo* rect, int idx);
 void onConfirmPomodoroStartPause(RectInfo* rect, int idx);
 void onConfirmPomodoroReset(RectInfo* rect, int idx);
 void onConfirmPomodoroSettings(RectInfo* rect, int idx);
+void onConfirmPomodoroChangeDuration(RectInfo* rect, int idx);
 
 // 动作注册表（定义在 onconfirm.cpp 中）
 extern ActionEntry g_action_registry[];

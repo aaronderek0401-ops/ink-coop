@@ -62,7 +62,7 @@
             "height_": 0.15,
             "focus_mode": 1,
             "focus_icon": "horn",
-            "on_confirm_action": "switch_to_layout_clock_set",
+            "on_confirm_action": "pomodoro_change_duration",
             "icon_count": 0,
             "icons": [],
             "icon_roll": [],

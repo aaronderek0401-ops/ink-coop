@@ -214,6 +214,7 @@ const char* getWordBookTranslation(int index);
 void pomodoroStartPause();
 void pomodoroReset();
 void pomodoroSettings();
+void setPomodoroDurationSeconds(int seconds);
 
 /**
  * @brief 添加文本内容到矩形

@@ -999,6 +999,19 @@ void pomodoroSettings() {
     // TODO: 实现设置界面，允许调整时长等参数
 }
 
+/**
+ * @brief 将番茄钟剩余时长设置为指定的秒数并更新显示
+ */
+void setPomodoroDurationSeconds(int seconds) {
+    if (seconds < 0) return;
+    g_pomodoro_remaining_seconds = seconds;
+    updatePomodoroTimeText();
+    ESP_LOGI("POMODORO", "设置番茄钟时长为 %d 秒 (%d 分钟)", seconds, seconds/60);
+    if (g_json_rects && g_json_rect_count > 0) {
+        redrawJsonLayout();
+    }
+}
+
 // auto_roll定时器相关变量
 static unsigned long g_last_auto_roll_time = 0;
 static const unsigned long AUTO_ROLL_INTERVAL = 2000; // 2000ms间隔（减少内存压力）
@@ -4466,8 +4479,8 @@ int preloadAllScreens() {
     
     // 手动定义要加载的文件列表（因为ESP32的SPIFFS不支持目录遍历）
     const char* json_files[] = {
-        "/spiffs/layout.json",
-        "/spiffs/layout_1.json",
+        "/spiffs/layout_main.json",
+        "/spiffs/layout_wordbook.json",
         "/spiffs/layout_clock.json",
         "/spiffs/layout_clock_set.json",
     };
