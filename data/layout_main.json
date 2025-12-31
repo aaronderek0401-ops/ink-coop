@@ -149,17 +149,15 @@
             "focus_mode": 0,
             "focus_icon": "horn",
             "on_confirm_action": "open_menu",
-            "icon_count": 0,
-            "icons": [],
-            "icon_roll": [
+            "icon_count": 1,
+            "icons": [
                 {
-                    "icon_arr": "cat_jump",
-                    "idx": "$cat_jump_idx",
-                    "rel_x": [0.1, 0.3, 0.5, 0.7],
-                    "rel_y": [0.2, 0.4, 0.6, 0.8],
-                    "auto_roll": true
+                    "icon_name": "book",
+                    "rel_x": 0.238845977783203,
+                    "rel_y": 0.2222222222222222
                 }
             ],
+            "icon_roll": [],
             "text_count": 0,
             "texts": [],
             "text_roll": []

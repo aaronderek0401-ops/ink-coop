@@ -330,7 +330,7 @@ void freeIconCache() {
 
 // ================== 图标数组定义 ==================
 // 定义各种动画的图标序列（使用图标名称，对应SD卡中的bin文件）
-static const char* cat_jump_sequence[] = {"book","book","book","book"};  // 依次显示: book -> game -> settings -> folder
+static const char* cat_jump_sequence[] = {"squirrel","squirrel","squirrel","squirrel"};  // 依次显示: book -> game -> settings -> folder
 static const char* cat_walk_sequence[] = {"folder", "settings", "game", "book"};  // 依次显示: folder -> settings -> game -> book
 // 可以添加更多动画序列...
 
@@ -916,6 +916,22 @@ void updatePomodoro() {
         if (g_pomodoro_remaining_seconds > 0) {
             g_pomodoro_remaining_seconds--;
             updatePomodoroTimeText();
+            
+            // 根据倒计时进度更新松鼠位置（4个位置对应4个阶段）
+            int total_seconds = g_pomodoro_default_seconds;
+            int elapsed_seconds = total_seconds - g_pomodoro_remaining_seconds;
+            int position_index = (elapsed_seconds * 4) / total_seconds;  // 0-3
+            if (position_index > 3) position_index = 3;  // 确保不超过3
+            
+            // 更新$cat_jump_idx索引
+            for (int i = 0; i < g_icon_arrays_count; i++) {
+                if (strcmp(g_icon_arrays[i].var_name, "$cat_jump_idx") == 0) {
+                    g_animation_indices[i] = position_index;
+                    ESP_LOGD("POMODORO", "松鼠位置: %d/%d (已用%ds/总%ds)", 
+                             position_index, 3, elapsed_seconds, total_seconds);
+                    break;
+                }
+            }
             
             ESP_LOGD("POMODORO", "剩余时间: %s", g_pomodoro_time_text);
         } else {
