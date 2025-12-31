@@ -149,15 +149,17 @@
             "focus_mode": 0,
             "focus_icon": "horn",
             "on_confirm_action": "open_menu",
-            "icon_count": 1,
-            "icons": [
+            "icon_count": 0,
+            "icons": [],
+            "icon_roll": [
                 {
-                    "icon_name": "settings",
+                    "icon_arr": "cat_jump",
+                    "idx": "$cat_jump_idx",
                     "rel_x": 0.238845977783203,
-                    "rel_y": 0.20833333333333334
+                    "rel_y": 0.20833333333333334,
+                    "auto_roll": true
                 }
             ],
-            "icon_roll": [],
             "text_count": 0,
             "texts": [],
             "text_roll": []

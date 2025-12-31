@@ -2,6 +2,7 @@
 #include "../components/grbl_esp32s3/Grbl_Esp32/src/BL_add/ink_screen/ink_screen.h"
 #include "esp_log.h"
 #include "esp_spiffs.h"
+#include "esp_timer.h"
 
 static const char* TAG = "MAIN";
 
@@ -81,6 +82,47 @@ void setup() {
      display.setFullWindow();
 
      bool success = switchToScreen(0);  // 显示第一个界面
+     
+     // 手动触发一次iconroll测试
+     ESP_LOGI(TAG, "========== 手动测试iconroll ==========");
+     extern RectInfo* g_json_rects;
+     extern int g_json_rect_count;
+     if (g_json_rects && g_json_rect_count > 6) {
+         RectInfo* test_rect = &g_json_rects[6];
+         ESP_LOGI(TAG, "矩形6: icon_count=%d, icon_roll_count=%d", 
+                  test_rect->icon_count, test_rect->icon_roll_count);
+         if (test_rect->icon_roll_count > 0) {
+             ESP_LOGI(TAG, "  icon_roll[0]: arr='%s', idx='%s', auto_roll=%d",
+                      test_rect->icon_rolls[0].icon_arr,
+                      test_rect->icon_rolls[0].idx,
+                      test_rect->icon_rolls[0].auto_roll);
+             ESP_LOGI(TAG, "  位置: rel_x=%.3f, rel_y=%.3f",
+                      test_rect->icon_rolls[0].rel_x,
+                      test_rect->icon_rolls[0].rel_y);
+         }
+     }
+
+     // ==================== 启动自动滚动定时器 ====================
+     ESP_LOGI(TAG, "========== 初始化自动滚动定时器 ==========");
+     const esp_timer_create_args_t auto_roll_timer_args = {
+         .callback = &processAutoRollAnimations,
+         .arg = NULL,
+         .dispatch_method = ESP_TIMER_TASK,
+         .name = "auto_roll",
+         .skip_unhandled_events = false
+     };
+     esp_timer_handle_t auto_roll_timer;
+     esp_err_t timer_err = esp_timer_create(&auto_roll_timer_args, &auto_roll_timer);
+     if (timer_err == ESP_OK) {
+         timer_err = esp_timer_start_periodic(auto_roll_timer, 2000000); // 2秒 (微秒)
+         if (timer_err == ESP_OK) {
+             ESP_LOGI(TAG, "✅ 自动滚动定时器启动成功 (间隔: 2000ms)");
+         } else {
+             ESP_LOGE(TAG, "❌ 定时器启动失败: %s", esp_err_to_name(timer_err));
+         }
+     } else {
+         ESP_LOGE(TAG, "❌ 定时器创建失败: %s", esp_err_to_name(timer_err));
+     }
 
      //$inkScreen/Test=3
 
@@ -90,8 +132,8 @@ static uint32_t loop_count = 0;
 static bool first_loop = true;
 
 void loop() {
-     // 处理自动滚动动画（使用更长间隔减少内存压力）
-    //  processAutoRollAnimations();
+     // 自动滚动动画已迁移到独立的ESP32硬件定时器（2秒间隔）
+     // 不再占用loop，避免影响grbl实时性
      
      // 添加心跳调试，确认loop正常运行
      static uint32_t last_heartbeat = 0;

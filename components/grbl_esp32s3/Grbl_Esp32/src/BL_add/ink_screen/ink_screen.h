@@ -382,7 +382,7 @@ int getVariableIndex(const char* var_name);
 int getIconRollCurrentIndex(const IconRollInRect* icon_roll);
 const char* getTextRollCurrentText(const TextRollInRect* text_roll);
 void updateIconRollIndices();
-void processAutoRollAnimations();
+void processAutoRollAnimations(void* arg);
 
 // ==================== 界面缓存管理系统 ====================
 //用到
