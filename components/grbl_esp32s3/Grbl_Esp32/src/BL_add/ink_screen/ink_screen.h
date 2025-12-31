@@ -82,8 +82,9 @@ typedef struct {
  * @brief 矩形内动态图标组位置定义 (icon_roll)
  */
 typedef struct {
-    float rel_x;           // 图标在矩形内的水平相对位置 (0.0-1.0, 0.5为中心)
-    float rel_y;           // 图标在矩形内的垂直相对位置 (0.0-1.0, 0.5为中心)
+    float rel_x[8];        // 图标在矩形内的水平相对位置数组（轨迹点）
+    float rel_y[8];        // 图标在矩形内的垂直相对位置数组（轨迹点）
+    int path_count;        // 轨迹点数量（0表示使用第一个点）
     char icon_arr[32];     // 图标数组名称 (如: "cat_jump")
     char idx[16];          // 索引变量名称 (如: "$cat_jump_idx")
     bool auto_roll;        // 是否自动滚动 (true=自动100ms切换, false=固定)

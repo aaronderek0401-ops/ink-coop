@@ -91,7 +91,9 @@ static const IconMapping icon_mappings[] = {
     {"wifi_off", 5},       // WiFi关闭 -> /wifi_off.bin
     {"battery", 6},        // 电池 -> /battery.bin
     {"word", 7},           // 单词 -> /word.bin
-    {"message", 8}         // 消息 -> /message.bin
+    {"message", 8},         // 消息 -> /message.bin
+    {"squirrel", 9},      // 松鼠 -> /squirrel.bin
+    {"house", 10}         // 房子 -> /house.bin
 };
 
 // 自动计算图标数量
@@ -218,7 +220,8 @@ const char* getIconFileNameByIndex(int icon_index) {
         "/battery.bin",    // 6
         "/word.bin",    // 7
         "/message.bin",    // 8
-
+        "/squirrel.bin",    // 9
+        "/house.bin",    // 10
     };
     
     // 检查索引有效性
@@ -327,7 +330,7 @@ void freeIconCache() {
 
 // ================== 图标数组定义 ==================
 // 定义各种动画的图标序列（使用图标名称，对应SD卡中的bin文件）
-static const char* cat_jump_sequence[] = {"book", "game", "settings", "folder"};  // 依次显示: book -> game -> settings -> folder
+static const char* cat_jump_sequence[] = {"book","book","book","book"};  // 依次显示: book -> game -> settings -> folder
 static const char* cat_walk_sequence[] = {"folder", "settings", "game", "book"};  // 依次显示: folder -> settings -> game -> book
 // 可以添加更多动画序列...
 
@@ -350,7 +353,7 @@ static const int g_icon_arrays_count = sizeof(g_icon_arrays) / sizeof(g_icon_arr
 
 // ================== 文本数组定义 ==================
 // 定义各种文本序列
-static const char* message_remind_sequence[] = {"600秒", "提醒3", "注意"};
+static const char* message_remind_sequence[] = {"600秒", "700秒", "800秒"};
 static const char* status_text_sequence[] = {"返回", "完成", "错误"};
 // 可以添加更多文本序列...
 
@@ -1189,13 +1192,13 @@ void processAutoRollAnimations(void* arg) {
     }
     
     // 如果有动画更新，刷新显示（使用更长间隔减少内存压力）
-    if (need_refresh) {
-        ESP_LOGI("AUTO_ROLL", "⚡ 开始刷新屏幕...");
-        updateDisplayWithMain(g_json_rects, g_json_rect_count, -1, 1);
-        ESP_LOGI("AUTO_ROLL", "✅ 动画已更新并刷新显示");
-    } else {
-        ESP_LOGD("AUTO_ROLL", "没有需要自动滚动的项目");
-    }
+    // if (need_refresh) {
+    //     ESP_LOGI("AUTO_ROLL", "⚡ 开始刷新屏幕...");
+    //     updateDisplayWithMain(g_json_rects, g_json_rect_count, -1, 1);
+    //     ESP_LOGI("AUTO_ROLL", "✅ 动画已更新并刷新显示");
+    // } else {
+    //     ESP_LOGD("AUTO_ROLL", "没有需要自动滚动的项目");
+    // }
     
     g_last_auto_roll_time = current_time;
 }
@@ -1916,7 +1919,14 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
             ESP_LOGI("MAIN", "--- 矩形%d: (%d,%d) %dx%d, 图标数:%d, text_roll数:%d ---", 
                     i, display_x, display_y, display_width, display_height, rect->icon_count, rect->text_roll_count);
             
-            // 显示该矩形内的所有图标
+            // ==================== 绘制顺序说明 ====================
+            // 1. 先绘制静态图标 (icons) - 底层
+            // 2. 再绘制动态图标 (icon_roll) - 中层，会覆盖静态图标
+            // 3. 最后绘制文本 (text_roll) - 顶层，会覆盖图标
+            // 这样可以确保动态元素始终在静态元素上方
+            // ===================================================
+            
+            // 显示该矩形内的所有图标（静态，底层）
             if (rect->icon_count > 0) {
                 for (int j = 0; j < rect->icon_count; j++) {
                     IconPositionInRect* icon = &rect->icons[j];
@@ -1959,7 +1969,7 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
                 }
             }
             
-            // 显示该矩形内的所有动态图标组（icon_roll）
+            // 显示该矩形内的所有动态图标组（icon_roll，中层，会覆盖静态图标）
             if (rect->icon_roll_count > 0) {
                 ESP_LOGI("MAIN", "  矩形%d 有%d个iconroll", i, rect->icon_roll_count);
                 for (int j = 0; j < rect->icon_roll_count; j++) {
@@ -1968,13 +1978,23 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
                     // 获取当前应该显示的图标索引
                     int current_icon_index = getIconRollCurrentIndex(icon_roll);
                     
-                    ESP_LOGI("MAIN", "  处理动态图标组%d: arr=%s, idx=%s, 当前图标=%d", 
-                            j, icon_roll->icon_arr, icon_roll->idx, current_icon_index);
+                    // 获取当前帧索引（用于定位轨迹点）
+                    int frame_idx = getVariableIndex(icon_roll->idx);
+                    if (frame_idx < 0) frame_idx = 0;
+                    
+                    // 根据轨迹点数量循环获取位置
+                    int path_idx = (icon_roll->path_count > 0) ? (frame_idx % icon_roll->path_count) : 0;
+                    float current_rel_x = icon_roll->rel_x[path_idx];
+                    float current_rel_y = icon_roll->rel_y[path_idx];
+                    
+                    ESP_LOGI("MAIN", "  处理动态图标组%d: arr=%s, idx=%s, icon=%d, path[%d/%d]=(%.3f,%.3f)", 
+                            j, icon_roll->icon_arr, icon_roll->idx, current_icon_index,
+                            path_idx, icon_roll->path_count, current_rel_x, current_rel_y);
                     
                     if (current_icon_index >= 0 && current_icon_index < ICON_CACHE_COUNT) {
                         // 计算图标位置（基于左上角对齐）
-                        int icon_x = rect->x + (int)(icon_roll->rel_x * rect->width);
-                        int icon_y = rect->y + (int)(icon_roll->rel_y * rect->height);
+                        int icon_x = rect->x + (int)(current_rel_x * rect->width);
+                        int icon_y = rect->y + (int)(current_rel_y * rect->height);
                         
                         // 从缓存读取bin图标数据
                         uint32_t cache_width, cache_height;
@@ -1997,7 +2017,7 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
                 }
             }
             switchToPSRAMFont("chinese_translate_font");
-            // 显示该矩形内的所有动态文本组（text_roll）
+            // 显示该矩形内的所有动态文本组（text_roll，顶层，会覆盖图标）
             if (rect->text_roll_count >= 0) {
                 for (int j = 0; j < rect->text_roll_count; j++) {
                     TextRollInRect* text_roll = &rect->text_rolls[j];
@@ -3515,10 +3535,7 @@ bool loadAndDisplayFromJSON(const char* json_str) {
                 cJSON* rel_y = cJSON_GetObjectItem(icon_roll_item, "rel_y");
                 cJSON* auto_roll = cJSON_GetObjectItem(icon_roll_item, "auto_roll");
 
-                if (icon_arr && cJSON_IsString(icon_arr) &&
-                    idx && cJSON_IsString(idx) &&
-                    rel_x && cJSON_IsNumber(rel_x) &&
-                    rel_y && cJSON_IsNumber(rel_y)) {
+                if (icon_arr && cJSON_IsString(icon_arr) && idx && cJSON_IsString(idx)) {
                     
                     IconRollInRect* icon_roll = &rect->icon_rolls[icon_roll_count];
                     
@@ -3529,8 +3546,38 @@ bool loadAndDisplayFromJSON(const char* json_str) {
                     strncpy(icon_roll->idx, idx->valuestring, sizeof(icon_roll->idx) - 1);
                     icon_roll->idx[sizeof(icon_roll->idx) - 1] = '\0';
                     
-                    icon_roll->rel_x = (float)rel_x->valuedouble;
-                    icon_roll->rel_y = (float)rel_y->valuedouble;
+                    // 解析rel_x（支持单个值或数组）
+                    icon_roll->path_count = 0;
+                    if (rel_x) {
+                        if (cJSON_IsArray(rel_x)) {
+                            int arr_size = cJSON_GetArraySize(rel_x);
+                            for (int k = 0; k < arr_size && k < 8; k++) {
+                                cJSON* x_item = cJSON_GetArrayItem(rel_x, k);
+                                if (x_item && cJSON_IsNumber(x_item)) {
+                                    icon_roll->rel_x[k] = (float)x_item->valuedouble;
+                                    icon_roll->path_count = k + 1;
+                                }
+                            }
+                        } else if (cJSON_IsNumber(rel_x)) {
+                            icon_roll->rel_x[0] = (float)rel_x->valuedouble;
+                            icon_roll->path_count = 1;
+                        }
+                    }
+                    
+                    // 解析rel_y（支持单个值或数组）
+                    if (rel_y) {
+                        if (cJSON_IsArray(rel_y)) {
+                            int arr_size = cJSON_GetArraySize(rel_y);
+                            for (int k = 0; k < arr_size && k < 8; k++) {
+                                cJSON* y_item = cJSON_GetArrayItem(rel_y, k);
+                                if (y_item && cJSON_IsNumber(y_item)) {
+                                    icon_roll->rel_y[k] = (float)y_item->valuedouble;
+                                }
+                            }
+                        } else if (cJSON_IsNumber(rel_y)) {
+                            icon_roll->rel_y[0] = (float)rel_y->valuedouble;
+                        }
+                    }
                     
                     // 解析auto_roll字段，默认为false
                     icon_roll->auto_roll = false;
@@ -3538,9 +3585,9 @@ bool loadAndDisplayFromJSON(const char* json_str) {
                         icon_roll->auto_roll = cJSON_IsTrue(auto_roll);
                     }
                     
-                    ESP_LOGI("JSON", "解析动态图标组%d: arr=%s, idx=%s, pos=(%.2f,%.2f), auto_roll=%s", 
+                    ESP_LOGI("JSON", "解析动态图标组%d: arr=%s, idx=%s, path_count=%d, auto_roll=%s", 
                             icon_roll_count, icon_roll->icon_arr, icon_roll->idx, 
-                            icon_roll->rel_x, icon_roll->rel_y, icon_roll->auto_roll ? "true" : "false");
+                            icon_roll->path_count, icon_roll->auto_roll ? "true" : "false");
                     
                     icon_roll_count++;
                 }
@@ -4344,8 +4391,11 @@ bool loadScreenToMemory(const char* file_path, RectInfo** out_rects,
             
             // 检测进入icons数组
             if (strstr(line_buffer, "\"icons\"") && strstr(line_buffer, "[")) {
-                in_icons = true;
-                current_icon = 0;
+                // 检查是否是空数组 "icons": []
+                if (!strstr(line_buffer, "[]")) {
+                    in_icons = true;
+                    current_icon = 0;
+                }
             }
             else if (in_icons && strstr(line_buffer, "]") && !strstr(line_buffer, "\"")) {
                 in_icons = false;
@@ -4374,35 +4424,91 @@ bool loadScreenToMemory(const char* file_path, RectInfo** out_rects,
             
             // 检测进入icon_roll数组
             if (strstr(line_buffer, "\"icon_roll\"") && strstr(line_buffer, "[")) {
-                in_icon_roll = true;
-                current_icon_roll = 0;
+                ESP_LOGI("CACHE", ">>> 检测到icon_roll行: %s", line_buffer);
+                // 检查是否是空数组 "icon_roll": []
+                if (!strstr(line_buffer, "[]")) {
+                    ESP_LOGI("CACHE", ">>> 进入icon_roll解析状态");
+                    in_icon_roll = true;
+                    current_icon_roll = 0;
+                } else {
+                    ESP_LOGI("CACHE", ">>> icon_roll是空数组，跳过");
+                }
             }
             else if (in_icon_roll && strstr(line_buffer, "]") && !strstr(line_buffer, "\"")) {
+                ESP_LOGI("CACHE", ">>> 退出icon_roll解析状态");
                 in_icon_roll = false;
             }
             else if (in_icon_roll) {
                 if (strstr(line_buffer, "\"icon_arr\"")) {
                     if (current_icon_roll < 4) {
                         sscanf(line_buffer, " \"icon_arr\" : \"%31[^\"]\"", temp_rect.icon_rolls[current_icon_roll].icon_arr);
+                        ESP_LOGI("CACHE", "  解析icon_arr='%s'", temp_rect.icon_rolls[current_icon_roll].icon_arr);
                     }
                 }
                 else if (strstr(line_buffer, "\"idx\"")) {
                     if (current_icon_roll < 4) {
                         sscanf(line_buffer, " \"idx\" : \"%31[^\"]\"", temp_rect.icon_rolls[current_icon_roll].idx);
+                        ESP_LOGI("CACHE", "  解析idx='%s'", temp_rect.icon_rolls[current_icon_roll].idx);
                     }
                 }
                 else if (strstr(line_buffer, "\"rel_x\"")) {
-                    float rel_x;
-                    sscanf(line_buffer, " \"rel_x\" : %f", &rel_x);
                     if (current_icon_roll < 4) {
-                        temp_rect.icon_rolls[current_icon_roll].rel_x = rel_x;
+                        // 检查是数组还是单个值
+                        if (strstr(line_buffer, "[")) {
+                            // 数组格式：解析多个值
+                            char* bracket_start = strchr(line_buffer, '[');
+                            char* bracket_end = strchr(line_buffer, ']');
+                            if (bracket_start && bracket_end) {
+                                char values_str[128] = {0};
+                                int len = bracket_end - bracket_start - 1;
+                                if (len > 0 && len < 127) {
+                                    strncpy(values_str, bracket_start + 1, len);
+                                    int path_idx = 0;
+                                    char* token = strtok(values_str, ", ");
+                                    while (token && path_idx < 8) {
+                                        temp_rect.icon_rolls[current_icon_roll].rel_x[path_idx] = atof(token);
+                                        path_idx++;
+                                        token = strtok(NULL, ", ");
+                                    }
+                                    temp_rect.icon_rolls[current_icon_roll].path_count = path_idx;
+                                }
+                            }
+                        } else {
+                            // 单个值格式
+                            float rel_x;
+                            sscanf(line_buffer, " \"rel_x\" : %f", &rel_x);
+                            temp_rect.icon_rolls[current_icon_roll].rel_x[0] = rel_x;
+                            temp_rect.icon_rolls[current_icon_roll].path_count = 1;
+                        }
                     }
                 }
                 else if (strstr(line_buffer, "\"rel_y\"")) {
-                    float rel_y;
-                    sscanf(line_buffer, " \"rel_y\" : %f", &rel_y);
                     if (current_icon_roll < 4) {
-                        temp_rect.icon_rolls[current_icon_roll].rel_y = rel_y;
+                        // 检查是数组还是单个值
+                        if (strstr(line_buffer, "[")) {
+                            // 数组格式：解析多个值
+                            char* bracket_start = strchr(line_buffer, '[');
+                            char* bracket_end = strchr(line_buffer, ']');
+                            if (bracket_start && bracket_end) {
+                                char values_str[128] = {0};
+                                int len = bracket_end - bracket_start - 1;
+                                if (len > 0 && len < 127) {
+                                    strncpy(values_str, bracket_start + 1, len);
+                                    int path_idx = 0;
+                                    char* token = strtok(values_str, ", ");
+                                    while (token && path_idx < 8) {
+                                        temp_rect.icon_rolls[current_icon_roll].rel_y[path_idx] = atof(token);
+                                        path_idx++;
+                                        token = strtok(NULL, ", ");
+                                    }
+                                }
+                            }
+                        } else {
+                            // 单个值格式
+                            float rel_y;
+                            sscanf(line_buffer, " \"rel_y\" : %f", &rel_y);
+                            temp_rect.icon_rolls[current_icon_roll].rel_y[0] = rel_y;
+                        }
                     }
                 }
                 else if (strstr(line_buffer, "\"auto_roll\"")) {
@@ -4410,16 +4516,23 @@ bool loadScreenToMemory(const char* file_path, RectInfo** out_rects,
                         temp_rect.icon_rolls[current_icon_roll].auto_roll = strstr(line_buffer, "true") != NULL;
                         current_icon_roll++;
                         temp_rect.icon_roll_count = current_icon_roll;
-                        ESP_LOGI("CACHE", "矩形%d icon_roll%d 解析完成，auto_roll=%d", 
-                                 current_rect, current_icon_roll-1, temp_rect.icon_rolls[current_icon_roll-1].auto_roll);
+                        ESP_LOGI("CACHE", "矩形%d icon_roll%d 解析完成，auto_roll=%d, path_count=%d, arr='%s', idx='%s'", 
+                                 current_rect, current_icon_roll-1, 
+                                 temp_rect.icon_rolls[current_icon_roll-1].auto_roll,
+                                 temp_rect.icon_rolls[current_icon_roll-1].path_count,
+                                 temp_rect.icon_rolls[current_icon_roll-1].icon_arr,
+                                 temp_rect.icon_rolls[current_icon_roll-1].idx);
                     }
                 }
             }
             
             // 检测进入text_roll数组
             if (strstr(line_buffer, "\"text_roll\"") && strstr(line_buffer, "[")) {
-                in_text_roll = true;
-                current_text_roll = 0;
+                // 检查是否是空数组 "text_roll": []
+                if (!strstr(line_buffer, "[]")) {
+                    in_text_roll = true;
+                    current_text_roll = 0;
+                }
             }
             else if (in_text_roll && strstr(line_buffer, "]") && !strstr(line_buffer, "\"")) {
                 in_text_roll = false;
@@ -4472,7 +4585,8 @@ bool loadScreenToMemory(const char* file_path, RectInfo** out_rects,
             }
             
             // 检测矩形对象结束（可能是 }, 或者 }）
-            if (parsing_rect && strstr(line_buffer, "}")) {
+            // 注意：只有在不处于 icons/icon_roll/text_roll 解析状态时才检测矩形结束
+            if (parsing_rect && !in_icons && !in_icon_roll && !in_text_roll && strstr(line_buffer, "}")) {
                 // 检查是否是矩形对象的结束括号（不是数组的结束）
                 char* trimmed = line_buffer;
                 while (*trimmed && isspace(*trimmed)) trimmed++;

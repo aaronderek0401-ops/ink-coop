@@ -1,9 +1,10 @@
 {
-    "rect_count": 4,
+    "rect_count": 5,
     "rectangles": [
         {
             "index": 0,
             "is_mother": "mom",
+            "Group": [],
             "x_": 0.1,
             "y_": 0.1,
             "width_": 0.2,
@@ -30,6 +31,7 @@
         {
             "index": 1,
             "is_mother": "mom",
+            "Group": [],
             "x_": 0.4,
             "y_": 0.1,
             "width_": 0.2,
@@ -56,6 +58,7 @@
         {
             "index": 2,
             "is_mother": "mom",
+            "Group": [],
             "x_": 0.7,
             "y_": 0.1,
             "width_": 0.2,
@@ -83,9 +86,9 @@
             "index": 3,
             "is_mother": "non",
             "x_": 0.2,
-            "y_": 0.35,
+            "y_": 0.3,
             "width_": 0.6,
-            "height_": 0.4,
+            "height_": 0.3,
             "focus_mode": 0,
             "focus_icon": "horn",
             "on_confirm_action": "none",
@@ -96,14 +99,45 @@
             "texts": [],
             "text_roll": [
                 {
-                    "rel_x": 0.35,
-                    "rel_y": 0.4,
+                    "rel_x": 0.23023500197973007,
+                    "rel_y": 0.19097216924031576,
                     "text_arr": "pomodoro_time_text",
                     "idx": "$pomodoro_time_idx",
                     "font": "english_sentence_font",
                     "auto_roll": false
                 }
             ]
+        },
+        {
+            "index": 4,
+            "is_mother": "non",
+            "x_": 0.05,
+            "y_": 0.64,
+            "width_": 0.9,
+            "height_": 0.35,
+            "focus_mode": 0,
+            "focus_icon": "horn",
+            "on_confirm_action": "open_menu",
+            "icon_count": 1,
+            "icons": [
+                {
+                    "icon_name": "house",
+                    "rel_x": 0.05,
+                    "rel_y": 0.05
+                }
+            ],
+            "icon_roll": [
+                {
+                    "icon_arr": "cat_jump",
+                    "idx": "$cat_jump_idx",
+                    "rel_x": [0.1, 0.3, 0.5, 0.7],
+                    "rel_y": [0.2, 0.4, 0.6, 0.8],
+                    "auto_roll": true
+                }
+            ],
+            "text_count": 0,
+            "texts": [],
+            "text_roll": []
         }
     ]
 }
