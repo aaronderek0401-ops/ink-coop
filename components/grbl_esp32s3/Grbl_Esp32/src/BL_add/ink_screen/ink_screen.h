@@ -211,6 +211,7 @@ extern int g_text_animation_indices[];
 const char* getWordBookWord(int index);
 const char* getWordBookPhonetic(int index);
 const char* getWordBookTranslation(int index);
+const char* getWordBookWrongTranslation(int index);  // 错误翻译（测试用）
 
 // Pomodoro controls
 void pomodoroStartPause();
@@ -352,6 +353,7 @@ bool loadAndDisplayFromFile(const char* file_path);
 extern RectInfo* g_json_rects;
 extern int g_json_rect_count;
 extern int g_json_status_rect_index;
+extern bool g_in_sub_array;  // 子母数组模式标志
 
 // 重新绘制当前 JSON 布局（在多个文件中被调用）
 void redrawJsonLayout();

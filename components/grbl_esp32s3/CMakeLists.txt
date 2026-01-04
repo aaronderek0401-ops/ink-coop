@@ -30,6 +30,7 @@ set(srcs Grbl_Esp32/src/Grbl.cpp
     Grbl_Esp32/src/BL_add/ink_screen/web_layout.cpp
     Grbl_Esp32/src/BL_add/ink_screen/sd_font_loader.cpp
     Grbl_Esp32/src/BL_add/ink_screen/image_loader.cpp
+    Grbl_Esp32/src/BL_add/ink_screen/json_layout.cpp
     Grbl_Esp32/src/BL_add/ota/ota_update.cpp
     Grbl_Esp32/src/BL_add/ink_screen/word_book.cpp
     Grbl_Esp32/src/BL_add/ink_screen/wordbook_interface.cpp

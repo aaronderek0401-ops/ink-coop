@@ -162,7 +162,7 @@
             "texts": [],
             "text_roll": [
                 {
-                    "text_arr": "wordbook_translation_1",
+                    "text_arr": "wordbook_option_1",
                     "idx": "$wordbook_idx",
                     "font": "chinese_translate_font",
                     "rel_x": 0.10256407811091496,
@@ -188,7 +188,7 @@
             "texts": [],
             "text_roll": [
                 {
-                    "text_arr": "wordbook_translation_2",
+                    "text_arr": "wordbook_option_2",
                     "idx": "$wordbook_idx",
                     "font": "chinese_translate_font",
                     "rel_x": 0.10256407811091496,

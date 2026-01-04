@@ -70,6 +70,44 @@ bool initWordBookCache(const char* csv_path);  // 初始化单词本缓存
 WordEntry* getNextWord();                       // 获取下一个单词（自动预加载）
 void printWordsFromCache(int count);            // 从缓存读取并打印单词到串口
 
+// ================== 单词本文本缓存（PSRAM）==================
+#define WORDBOOK_CACHE_COUNT 10  // 缓存的单词数量
+
+// 外部变量声明（定义在 word_book.cpp）
+extern char* g_wordbook_word_cache[WORDBOOK_CACHE_COUNT];
+extern char* g_wordbook_phonetic_cache[WORDBOOK_CACHE_COUNT];
+extern char* g_wordbook_translation_cache[WORDBOOK_CACHE_COUNT];
+extern char* g_wordbook_translation1_cache[WORDBOOK_CACHE_COUNT];
+extern char* g_wordbook_translation2_cache[WORDBOOK_CACHE_COUNT];
+extern char* g_wordbook_pos_cache[WORDBOOK_CACHE_COUNT];
+extern char* g_wordbook_wrong_translation_cache[WORDBOOK_CACHE_COUNT];
+extern char* g_wordbook_option1_cache[WORDBOOK_CACHE_COUNT];
+extern char* g_wordbook_option2_cache[WORDBOOK_CACHE_COUNT];
+
+extern const char* g_wordbook_word_ptrs[WORDBOOK_CACHE_COUNT];
+extern const char* g_wordbook_phonetic_ptrs[WORDBOOK_CACHE_COUNT];
+extern const char* g_wordbook_translation_ptrs[WORDBOOK_CACHE_COUNT];
+extern const char* g_wordbook_translation1_ptrs[WORDBOOK_CACHE_COUNT];
+extern const char* g_wordbook_translation2_ptrs[WORDBOOK_CACHE_COUNT];
+extern const char* g_wordbook_pos_ptrs[WORDBOOK_CACHE_COUNT];
+extern const char* g_wordbook_wrong_translation_ptrs[WORDBOOK_CACHE_COUNT];
+extern const char* g_wordbook_option1_ptrs[WORDBOOK_CACHE_COUNT];
+extern const char* g_wordbook_option2_ptrs[WORDBOOK_CACHE_COUNT];
+
+extern bool g_wordbook_text_initialized;
+
+// 单词本文本缓存管理函数
+bool initWordBookTextCache();                      // 初始化单词本文本缓存（开机时调用）
+void freeWordBookTextCache();                      // 释放单词本文本缓存（关机时调用）
+const char* getWordBookWord(int index);            // 获取单词本身
+const char* getWordBookPhonetic(int index);        // 获取单词音标
+const char* getWordBookTranslation(int index);     // 获取单词翻译（完整）
+const char* getWordBookTranslation1(int index);    // 获取单词第一个释义
+const char* getWordBookTranslation2(int index);    // 获取单词第二个释义
+const char* getWordBookPos(int index);             // 获取单词词性
+const char* getWordBookWrongTranslation(int index); // 获取错误翻译（用于测试）
+const char* getWordBookText(int index);            // 获取单词本文本（已弃用）
+
 // 测试函数声明
 template<typename T>
 void testDisplayWordsOnScreen(T& display, int word_count);  // 在墨水屏上显示单词
