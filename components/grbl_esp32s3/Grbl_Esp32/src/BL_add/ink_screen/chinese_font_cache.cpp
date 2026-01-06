@@ -919,18 +919,47 @@ bool loadFullFontToPSRAM(FullFontData* font_data, const char* file_path) {
         }
     }
     
-    // 计算字符参数
-    int bytes_per_row = (font_data->font_size + 7) / 8;
-    font_data->glyph_size = bytes_per_row * font_data->font_size;
-    font_data->char_count = file_size / font_data->glyph_size;
-    
-    ESP_LOGI(TAG, "✅ 字体加载成功:");
-    ESP_LOGI(TAG, "   - 文件: %s", file_path);
-    ESP_LOGI(TAG, "   - 名称: %s", font_data->font_name);
-    ESP_LOGI(TAG, "   - 尺寸: %dx%d", font_data->font_size, font_data->font_size);
-    ESP_LOGI(TAG, "   - 字节/字符: %u", font_data->glyph_size);
-    ESP_LOGI(TAG, "   - 字符总数: %u", font_data->char_count);
-    ESP_LOGI(TAG, "   - 内存位置: PSRAM");
+    // 检查是否是 TTFG 格式（带文件头的新格式）
+    if (file_size > 16 && 
+        font_data->data[0] == 'T' && 
+        font_data->data[1] == 'T' &&
+        font_data->data[2] == 'F' && 
+        font_data->data[3] == 'G') {
+        
+        // 从文件头读取字体信息 (dd工具生成的格式，全部使用uint32_t)
+        // [0-3]   魔数 "TTFG"              (4字节)
+        // [4-7]   字体大小                  (uint32_t little-endian)
+        // [8-11]  字符数量                  (uint32_t little-endian)
+        // [12-15] 每字符字节数(glyph_size)   (uint32_t little-endian)
+        // [16+]   连续的字模数据
+        font_data->font_size = font_data->data[4] | (font_data->data[5] << 8) |
+                              (font_data->data[6] << 16) | (font_data->data[7] << 24);
+        font_data->char_count = font_data->data[8] | (font_data->data[9] << 8) |
+                               (font_data->data[10] << 16) | (font_data->data[11] << 24);
+        font_data->glyph_size = font_data->data[12] | (font_data->data[13] << 8) |
+                               (font_data->data[14] << 16) | (font_data->data[15] << 24);
+        
+        ESP_LOGI(TAG, "✅ TTFG 格式字体加载成功:");
+        ESP_LOGI(TAG, "   - 文件: %s", file_path);
+        ESP_LOGI(TAG, "   - 名称: %s", font_data->font_name);
+        ESP_LOGI(TAG, "   - 尺寸: %dx%d (从文件头读取)", font_data->font_size, font_data->font_size);
+        ESP_LOGI(TAG, "   - 字节/字符: %u (从文件头读取)", font_data->glyph_size);
+        ESP_LOGI(TAG, "   - 字符总数: %u (从文件头读取)", font_data->char_count);
+        ESP_LOGI(TAG, "   - 内存位置: PSRAM");
+    } else {
+        // 旧格式：无文件头，按固定偏移量计算
+        int bytes_per_row = (font_data->font_size + 7) / 8;
+        font_data->glyph_size = bytes_per_row * font_data->font_size;
+        font_data->char_count = file_size / font_data->glyph_size;
+        
+        ESP_LOGI(TAG, "✅ 旧格式字体加载成功:");
+        ESP_LOGI(TAG, "   - 文件: %s", file_path);
+        ESP_LOGI(TAG, "   - 名称: %s", font_data->font_name);
+        ESP_LOGI(TAG, "   - 尺寸: %dx%d", font_data->font_size, font_data->font_size);
+        ESP_LOGI(TAG, "   - 字节/字符: %u", font_data->glyph_size);
+        ESP_LOGI(TAG, "   - 字符总数: %u", font_data->char_count);
+        ESP_LOGI(TAG, "   - 内存位置: PSRAM");
+    }
     
     return true;
 }
@@ -943,57 +972,79 @@ bool getCharGlyphFromPSRAM(const FullFontData* font_data, uint16_t unicode, uint
         return false;
     }
     
-    // 检查文件是否有 TTFG 文件头（TTF 转换工具生成的格式）
-    if (font_data->size > 12 && 
+    // 检查文件是否有 TTFG 文件头
+    if (font_data->size > 16 && 
         font_data->data[0] == 'T' && 
         font_data->data[1] == 'T' &&
         font_data->data[2] == 'F' && 
         font_data->data[3] == 'G') {
         
-        // 带文件头的格式，使用字形表查找
-        // 文件头格式:
-        // [0-3]   魔数 "TTFG"
-        // [4-5]   字体大小 (uint16_t little-endian)
-        // [6-7]   字形数量 (uint16_t little-endian)
-        // [8-11]  字形表大小 (uint32_t little-endian)
-        // [12+]   字形表 (每个12字节: code[4], offset[4], width[2], height[2])
+        // ===== 新格式: dd工具生成的TTFG格式 =====
+        // 文件头格式 (16字节):
+        // [0-3]   魔数 "TTFG"              (4字节)
+        // [4-7]   字体大小                  (uint32_t, little-endian)
+        // [8-11]  字符数量                  (uint32_t, little-endian)
+        // [12-15] 每字符字节数(glyph_size)   (uint32_t, little-endian)
+        // [16+]   连续的字模数据            (按Unicode范围顺序排列)
         
-        uint16_t glyph_count = (font_data->data[6]) | (font_data->data[7] << 8);
-        uint32_t glyph_table_size = (font_data->data[8]) | (font_data->data[9] << 8) |
-                                   (font_data->data[10] << 16) | (font_data->data[11] << 24);
+        uint32_t font_size = font_data->data[4] | (font_data->data[5] << 8) |
+                            (font_data->data[6] << 16) | (font_data->data[7] << 24);
+        uint32_t char_count = font_data->data[8] | (font_data->data[9] << 8) |
+                             (font_data->data[10] << 16) | (font_data->data[11] << 24);
+        uint32_t glyph_size = font_data->data[12] | (font_data->data[13] << 8) |
+                             (font_data->data[14] << 16) | (font_data->data[15] << 24);
         
-        // 字形表起始位置
-        const uint8_t* glyph_table = font_data->data + 12;
-        
-        // 查找目标字符
-        for (int i = 0; i < glyph_count; i++) {
-            const uint8_t* entry = glyph_table + (i * 12);
-            
-            // 读取 Unicode 编码 (little-endian)
-            uint32_t code = entry[0] | (entry[1] << 8) | (entry[2] << 16) | (entry[3] << 24);
-            
-            if (code == unicode) {
-                // 找到了！读取位图偏移量
-                uint32_t bitmap_offset = entry[4] | (entry[5] << 8) | 
-                                        (entry[6] << 16) | (entry[7] << 24);
-                
-                // 计算位图在文件中的实际位置
-                uint32_t bitmap_pos = 12 + glyph_table_size + bitmap_offset;
-                
-                // 检查是否越界
-                if (bitmap_pos + font_data->glyph_size > font_data->size) {
-                    ESP_LOGW(TAG, "字符 U+%04X 位图数据越界", unicode);
-                    return false;
-                }
-                
-                // 复制字模数据
-                memcpy(out_buffer, font_data->data + bitmap_pos, font_data->glyph_size);
-                return true;
-            }
+        // 首次查询该字体时打印字库信息
+        static const char* last_printed_font = nullptr;
+        if (last_printed_font != font_data->font_name) {
+            ESP_LOGI(TAG, "🔍 TTFG字库[%s]: 字体大小=%u, 字符数量=%u, 每字符%u字节", 
+                     font_data->font_name, font_size, char_count, glyph_size);
+            last_printed_font = font_data->font_name;
         }
         
-        // 未找到字符
-        return false;
+        // 计算字符在字模数据中的索引
+        // 字模数据按Unicode范围连续存储:
+        // chinese_with_english_punct 模式:
+        //   索引 0-94:    ASCII (0x0020-0x007E, 95个)
+        //   索引 95+:     中文  (0x4E00-0x9FA5, 20902个)
+        uint32_t char_index = 0;
+        bool found = false;
+        
+        if (unicode >= 0x0020 && unicode <= 0x007E) {
+            // ASCII 可打印字符 (0x20-0x7E, 共95个)
+            char_index = unicode - 0x0020;
+            found = true;
+        } else if (unicode >= 0x4E00 && unicode <= 0x9FA5) {
+            // 中文字符 (CJK统一汉字基本区)
+            // ASCII字符占95个位置(0x0020-0x007E)，然后是中文
+            char_index = 95 + (unicode - 0x4E00);
+            found = true;
+        }
+        
+        if (!found) {
+            ESP_LOGW(TAG, "字符 U+%04X 不在字库Unicode范围内", unicode);
+            return false;
+        }
+        
+        if (char_index >= char_count) {
+            ESP_LOGW(TAG, "字符 U+%04X 索引=%u 超出字符总数=%u", 
+                     unicode, char_index, char_count);
+            return false;
+        }
+        
+        // 计算字模在文件中的偏移量
+        uint32_t offset = 16 + (char_index * glyph_size);
+        
+        // 检查是否越界
+        if (offset + glyph_size > font_data->size) {
+            ESP_LOGW(TAG, "字符 U+%04X 索引=%u 偏移=%u 越界(文件大小=%u)", 
+                     unicode, char_index, offset, font_data->size);
+            return false;
+        }
+        
+        // 复制字模数据
+        memcpy(out_buffer, font_data->data + offset, glyph_size);
+        return true;
     }
     
     // ===== 无文件头的原始格式（旧格式，用于 fangsong 等字体）=====

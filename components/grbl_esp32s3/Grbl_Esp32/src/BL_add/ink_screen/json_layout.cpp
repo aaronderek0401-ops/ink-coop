@@ -744,8 +744,14 @@ bool loadAndDisplayFromFile(const char* file_path) {
             
             // 检测进入icons数组
             if (strstr(line_buffer, "\"icons\"") && strstr(line_buffer, "[")) {
-                in_icons = true;
-                current_icon = 0;
+                // 检查是否是空数组 "icons": []
+                if (strstr(line_buffer, "]")) {
+                    // 空数组，不需要进入解析状态
+                    in_icons = false;
+                } else {
+                    in_icons = true;
+                    current_icon = 0;
+                }
             }
             // 检测退出icons数组
             else if (in_icons && strstr(line_buffer, "]") && !strstr(line_buffer, "\"")) {
@@ -824,7 +830,8 @@ bool loadAndDisplayFromFile(const char* file_path) {
             }
             
             // 检测矩形对象结束
-            if (strstr(line_buffer, "}") && strstr(line_buffer, ",") == NULL) {
+            // 重要：只有当不在 icons 或 text_roll 数组内部时，才检测矩形结束
+            if (!in_icons && !in_text_roll && strstr(line_buffer, "}") && strstr(line_buffer, ",") == NULL) {
                 // 确保这是矩形对象的结束，而不是嵌套对象
                 rects[current_rect] = temp_rect;
                 current_rect++;
@@ -870,7 +877,6 @@ bool loadAndDisplayFromFile(const char* file_path) {
     // 不释放rects，保留给交互系统使用
     return true;
 }
-
 // ==================== JSON布局的按键交互支持（实现） ====================
 // 注意：这些函数已经在前面定义过了，这里是重复的，已删除
 
@@ -1122,7 +1128,10 @@ bool loadScreenToMemory(const char* file_path, RectInfo** out_rects,
             // 检测进入icons数组
             if (strstr(line_buffer, "\"icons\"") && strstr(line_buffer, "[")) {
                 // 检查是否是空数组 "icons": []
-                if (!strstr(line_buffer, "[]")) {
+                if (strstr(line_buffer, "]")) {
+                    // 空数组，不需要进入解析状态
+                    in_icons = false;
+                } else {
                     in_icons = true;
                     current_icon = 0;
                 }
@@ -1151,7 +1160,6 @@ bool loadScreenToMemory(const char* file_path, RectInfo** out_rects,
                     }
                 }
             }
-            
             // 检测进入icon_roll数组
             if (strstr(line_buffer, "\"icon_roll\"") && strstr(line_buffer, "[")) {
                 ESP_LOGI("CACHE", ">>> 检测到icon_roll行: %s", line_buffer);
@@ -1255,11 +1263,13 @@ bool loadScreenToMemory(const char* file_path, RectInfo** out_rects,
                     }
                 }
             }
-            
             // 检测进入text_roll数组
             if (strstr(line_buffer, "\"text_roll\"") && strstr(line_buffer, "[")) {
                 // 检查是否是空数组 "text_roll": []
-                if (!strstr(line_buffer, "[]")) {
+                if (strstr(line_buffer, "]")) {
+                    // 空数组，不需要进入解析状态
+                    in_text_roll = false;
+                } else {
                     in_text_roll = true;
                     current_text_roll = 0;
                 }
@@ -1315,7 +1325,7 @@ bool loadScreenToMemory(const char* file_path, RectInfo** out_rects,
             }
             
             // 检测矩形对象结束（可能是 }, 或者 }）
-            // 注意：只有在不处于 icons/icon_roll/text_roll 解析状态时才检测矩形结束
+            // 重要：只有当不在 icons 或 text_roll 数组内部时，才检测矩形结束
             if (parsing_rect && !in_icons && !in_icon_roll && !in_text_roll && strstr(line_buffer, "}")) {
                 // 检查是否是矩形对象的结束括号（不是数组的结束）
                 char* trimmed = line_buffer;
@@ -1354,7 +1364,6 @@ bool loadScreenToMemory(const char* file_path, RectInfo** out_rects,
     ESP_LOGI("CACHE", "✅ 界面加载到内存成功: %d个矩形", rect_count);
     return true;
 }
-
 /**
  * @brief 扫描/spiffs目录下所有.json文件并预加载到缓存
  */

@@ -278,12 +278,33 @@ void drawChineseCharWithCache(T& display, int16_t x, int16_t y, uint16_t unicode
     
     bool got_glyph = false;
     
-    // ========== 只使用 PSRAM 完整字库 ==========
-    const FullFontData* psram_font = findPSRAMFontBySize(font_size);
-    if (psram_font && psram_font->is_loaded) {
-        got_glyph = getCharGlyphFromPSRAM(psram_font, unicode, glyph_buffer);
+    // ========== 优先使用当前切换的字体 (g_current_psram_font) ==========
+    if (g_current_psram_font && g_current_psram_font->is_loaded) {
+        // 调试：检查是否是TTFG格式
+        bool is_ttfg = (g_current_psram_font->size > 16 && 
+                       g_current_psram_font->data[0] == 'T' && 
+                       g_current_psram_font->data[1] == 'T' &&
+                       g_current_psram_font->data[2] == 'F' && 
+                       g_current_psram_font->data[3] == 'G');
+        ESP_LOGI(TAG_IMPL, "使用字体'%s' size=%u TTFG=%d 查找U+%04X", 
+                 g_current_psram_font->font_name, g_current_psram_font->size, is_ttfg, unicode);
+        
+        got_glyph = getCharGlyphFromPSRAM(g_current_psram_font, unicode, glyph_buffer);
         if (got_glyph) {
-            ESP_LOGI(TAG_IMPL, "✅ 从 PSRAM 获取字符 0x%04X (字号:%d)", unicode, font_size);
+            // ESP_LOGI(TAG_IMPL, "✅ 从当前字体 '%s' 获取字符 0x%04X", g_current_psram_font->font_name, unicode);
+        }
+    } else {
+        ESP_LOGW(TAG_IMPL, "g_current_psram_font 未设置或未加载");
+    }
+    
+    // ========== 如果当前字体没找到，尝试按字号查找其他字体 ==========
+    if (!got_glyph) {
+        const FullFontData* psram_font = findPSRAMFontBySize(font_size);
+        if (psram_font && psram_font->is_loaded) {
+            got_glyph = getCharGlyphFromPSRAM(psram_font, unicode, glyph_buffer);
+            if (got_glyph) {
+                // ESP_LOGI(TAG_IMPL, "✅ 从备用字体 '%s' 获取字符 0x%04X", psram_font->font_name, unicode);
+            }
         }
     }
     
@@ -346,6 +367,9 @@ void drawChineseCharWithCache(T& display, int16_t x, int16_t y, uint16_t unicode
  * @param text UTF-8编码的文本
  * @param color 颜色 (GxEPD_BLACK 或 GxEPD_WHITE)
  * @return 绘制结束后的Y坐标
+ * 
+ * 注意: 该函数使用 TTFG 格式字库，支持中英文混合显示
+ *       字库包含: ASCII (0x0020-0x007E) + 中文 (0x4E00-0x9FA5)
  */
 template<typename T>
 int16_t drawChineseTextWithCache(T& display, int16_t x, int16_t y, const char* text, uint16_t color) {
@@ -360,60 +384,63 @@ int16_t drawChineseTextWithCache(T& display, int16_t x, int16_t y, const char* t
     int16_t current_y = y;
     
     int display_width = display.width();
-    int char_spacing = 2; // 字符间距
+    int char_spacing = 0; // 字符间距
     
     while (*p) {
         uint16_t unicode = 0;
         int bytes_consumed = 0;
         
         // UTF-8 解码
-        if ((*p & 0x80) == 0) {
+        unsigned char c = (unsigned char)*p;
+        if ((c & 0x80) == 0) {
             // 1字节 ASCII
-            unicode = *p;
+            unicode = c;
             bytes_consumed = 1;
-        } else if ((*p & 0xE0) == 0xC0) {
+        } else if ((c & 0xE0) == 0xC0) {
             // 2字节
-            unicode = ((*p & 0x1F) << 6) | (*(p+1) & 0x3F);
+            unicode = ((c & 0x1F) << 6) | ((unsigned char)*(p+1) & 0x3F);
             bytes_consumed = 2;
-        } else if ((*p & 0xF0) == 0xE0) {
+        } else if ((c & 0xF0) == 0xE0) {
             // 3字节 (中文在这里)
-            unicode = ((*p & 0x0F) << 12) | ((*(p+1) & 0x3F) << 6) | (*(p+2) & 0x3F);
+            unicode = ((c & 0x0F) << 12) | (((unsigned char)*(p+1) & 0x3F) << 6) | ((unsigned char)*(p+2) & 0x3F);
             bytes_consumed = 3;
         } else {
-            // 不支持的编码
+            // 不支持的编码，跳过
             p++;
             continue;
         }
         
-        // 检查是否需要换行
-        if (unicode >= 0x4E00 && unicode <= 0x9FA5) {
-            // 中文字符
-            if (current_x + font_size > display_width) {
-                current_x = x;
-                current_y += font_size + 5; // 换行
-            }
-            
-            drawChineseCharWithCache(display, current_x, current_y, unicode, color, font_size);
-            current_x += font_size + char_spacing;
-            
-        } else if (unicode == '\n') {
-            // 手动换行
+        // 处理换行符
+        if (unicode == '\n') {
             current_x = x;
-            current_y += font_size + 5;
-        } else if (unicode == ' ') {
-            // 空格
-            current_x += font_size / 2;
-        } else if (unicode >= 32 && unicode <= 126) {
-            // ASCII字符 - 使用display默认字体
-            if (current_x + font_size/2 > display_width) {
-                current_x = x;
-                current_y += font_size + 5;
-            }
-            display.setCursor(current_x, current_y);
-            display.setTextSize(font_size / 8);  // 根据中文字体大小调整，20号字 -> 2-3倍，可调整此值
-            display.print((char)unicode);
-            current_x += font_size / 2;
+            current_y += font_size + 2;
+            p += bytes_consumed;
+            continue;
         }
+        
+        // 计算字符宽度：中文全角，英文半角
+        int char_width;
+        if (unicode >= 0x4E00 && unicode <= 0x9FA5) {
+            // 中文字符 - 全角宽度
+            char_width = font_size;
+        } else if (unicode >= 0x0020 && unicode <= 0x007E) {
+            // ASCII字符 - 半角宽度
+            char_width = font_size / 2;
+        } else {
+            // 其他字符 - 全角宽度
+            char_width = font_size;
+        }
+        
+        // 检查是否需要换行
+        if (current_x + char_width > display_width) {
+            current_x = x;
+            current_y += font_size + 2;
+        }
+        
+        // 统一使用 drawChineseCharWithCache 绘制所有字符
+        // 字库已包含 ASCII + 中文，无需区分处理
+        drawChineseCharWithCache(display, current_x, current_y, unicode, color, font_size);
+        current_x += char_width + char_spacing;
         
         p += bytes_consumed;
     }

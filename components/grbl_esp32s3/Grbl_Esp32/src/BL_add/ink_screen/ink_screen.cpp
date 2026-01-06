@@ -2589,58 +2589,58 @@ void ink_screen_show(void *args)
                     {
                         clearDisplayArea(0, 0, setInkScreenSize.screenWidth, setInkScreenSize.screenHeigt);
 
-                        ESP_LOGI(TAG,"############显示单词本界面（使用新图标布局系统）\r\n");
-                        update_activity_time(); // 更新活动时间
+                        // ESP_LOGI(TAG,"############显示单词本界面（使用新图标布局系统）\r\n");
+                        // update_activity_time(); // 更新活动时间
                         
-                        // 重新加载单词界面配置，确保使用最新的网页端配置
-                        if (loadVocabLayoutFromConfig()) {
-                            ESP_LOGI(TAG, "单词界面布局已从配置文件重新加载");
-                        } else {
-                            ESP_LOGI(TAG, "使用当前单词界面布局");
-                        }
+                        // // 重新加载单词界面配置，确保使用最新的网页端配置
+                        // if (loadVocabLayoutFromConfig()) {
+                        //     ESP_LOGI(TAG, "单词界面布局已从配置文件重新加载");
+                        // } else {
+                        //     ESP_LOGI(TAG, "使用当前单词界面布局");
+                        // }
                         
-                        // 直接从矩形数据计算有效矩形数量，不依赖配置值
-                        extern RectInfo vocab_rects[MAX_VOCAB_RECTS];
-                        int valid_rect_count = 0;
-                        for (int i = 0; i < MAX_VOCAB_RECTS; i++) {
-                            if (vocab_rects[i].width > 0 && vocab_rects[i].height > 0) {
-                                valid_rect_count++;
-                                ESP_LOGI("FOCUS", "有效矩形%d: (%d,%d) %dx%d", i, 
-                                        vocab_rects[i].x, vocab_rects[i].y, 
-                                        vocab_rects[i].width, vocab_rects[i].height);
-                            } else {
-                                ESP_LOGI("FOCUS", "无效矩形%d: (%d,%d) %dx%d", i, 
-                                        vocab_rects[i].x, vocab_rects[i].y, 
-                                        vocab_rects[i].width, vocab_rects[i].height);
-                                break; // 遇到第一个无效矩形就停止计数（假设矩形是连续的）
-                            }
-                        }
+                        // // 直接从矩形数据计算有效矩形数量，不依赖配置值
+                        // extern RectInfo vocab_rects[MAX_VOCAB_RECTS];
+                        // int valid_rect_count = 0;
+                        // for (int i = 0; i < MAX_VOCAB_RECTS; i++) {
+                        //     if (vocab_rects[i].width > 0 && vocab_rects[i].height > 0) {
+                        //         valid_rect_count++;
+                        //         ESP_LOGI("FOCUS", "有效矩形%d: (%d,%d) %dx%d", i, 
+                        //                 vocab_rects[i].x, vocab_rects[i].y, 
+                        //                 vocab_rects[i].width, vocab_rects[i].height);
+                        //     } else {
+                        //         ESP_LOGI("FOCUS", "无效矩形%d: (%d,%d) %dx%d", i, 
+                        //                 vocab_rects[i].x, vocab_rects[i].y, 
+                        //                 vocab_rects[i].width, vocab_rects[i].height);
+                        //         break; // 遇到第一个无效矩形就停止计数（假设矩形是连续的）
+                        //     }
+                        // }
                         
-                        ESP_LOGI("FOCUS", "检测到有效矩形数量: %d", valid_rect_count);
+                        // ESP_LOGI("FOCUS", "检测到有效矩形数量: %d", valid_rect_count);
                         
-                        // 使用实际检测到的有效矩形数量初始化焦点系统（默认全部可焦点）
-                        initFocusSystem(valid_rect_count);
+                        // // 使用实际检测到的有效矩形数量初始化焦点系统（默认全部可焦点）
+                        // initFocusSystem(valid_rect_count);
                         
-                        // 尝试从配置文件加载自定义的可焦点矩形列表
-                        if (loadFocusableRectsFromConfig("vocab")) {
-                            ESP_LOGI("FOCUS", "已从配置文件加载单词界面焦点矩形列表");
-                        } else {
-                            ESP_LOGI("FOCUS", "使用默认焦点配置（所有矩形都可焦点）");
-                        }
+                        // // 尝试从配置文件加载自定义的可焦点矩形列表
+                        // if (loadFocusableRectsFromConfig("vocab")) {
+                        //     ESP_LOGI("FOCUS", "已从配置文件加载单词界面焦点矩形列表");
+                        // } else {
+                        //     ESP_LOGI("FOCUS", "使用默认焦点配置（所有矩形都可焦点）");
+                        // }
                         
-                        // 加载子数组配置
-                        if (loadAndApplySubArrayConfig("vocab")) {
-                            ESP_LOGI("FOCUS", "已从配置文件加载并应用单词界面子数组配置");
-                        } else {
-                            ESP_LOGI("FOCUS", "未加载单词界面子数组配置或配置为空");
-                        }
+                        // // 加载子数组配置
+                        // if (loadAndApplySubArrayConfig("vocab")) {
+                        //     ESP_LOGI("FOCUS", "已从配置文件加载并应用单词界面子数组配置");
+                        // } else {
+                        //     ESP_LOGI("FOCUS", "未加载单词界面子数组配置或配置为空");
+                        // }
                         
-                        // 设置当前界面为单词界面
-                        g_screen_manager.current_screen = SCREEN_VOCABULARY;
+                        // // 设置当前界面为单词界面
+                        // g_screen_manager.current_screen = SCREEN_VOCABULARY;
                         
-                        // 使用displayScreen统一接口，与主界面保持一致
-                        displayScreen(SCREEN_VOCABULARY);
-                        
+                        // // 使用displayScreen统一接口，与主界面保持一致
+                        // displayScreen(SCREEN_VOCABULARY);
+                         switchToScreen(1); 
                         vTaskDelay(1000);
                         inkScreenTestFlagTwo = 0;
                         inkScreenTestFlag = 0;
