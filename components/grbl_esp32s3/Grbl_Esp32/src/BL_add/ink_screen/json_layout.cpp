@@ -1380,6 +1380,7 @@ int preloadAllScreens() {
         "/spiffs/layout_wordbook.json",
         "/spiffs/layout_clock.json",
         "/spiffs/layout_clock_set.json",
+        "/spiffs/layout_decord.json",
     };
     int file_count = sizeof(json_files) / sizeof(json_files[0]);
     

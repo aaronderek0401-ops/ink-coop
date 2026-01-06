@@ -81,7 +81,7 @@ void setup() {
      ESP_LOGI(TAG, "========== 显示默认界面 ==========");
      display.setFullWindow();
 
-     bool success = switchToScreen(0);  // 显示第一个界面
+     bool success = switchToScreen(4);  // 显示第一个界面
      
      // 手动触发一次iconroll测试
      ESP_LOGI(TAG, "========== 手动测试iconroll ==========");

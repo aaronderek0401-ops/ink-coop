@@ -86,6 +86,18 @@ void onConfirmSwitchToLayoutClockSet(RectInfo* rect, int idx) {
     }
 }
 
+// 界面切换：切换到第四个界面（layout_decord.json）
+void onConfirmSwitchToLayoutDecord(RectInfo* rect, int idx) {
+    ESP_LOGI("ONCONFIRM", "切换到界面4 (layout_decord.json)，矩形 %d", idx);
+    display.setFullWindow();
+
+    if (switchToScreen(4)) {
+        ESP_LOGI("SCREEN_SWITCH", "✅ 成功切换到界面4: %s", getScreenName(4));
+    } else {
+        ESP_LOGE("SCREEN_SWITCH", "❌ 切换到界面4失败");
+    }
+}
+
 // 番茄钟回调：开始/暂停
 void onConfirmPomodoroStartPause(RectInfo* rect, int idx) {
     ESP_LOGI("POMODORO", "番茄钟开始/暂停按钮被按下");
@@ -238,6 +250,7 @@ ActionEntry g_action_registry[] = {
     {"switch_to_layout_main", "切换到界面0", onConfirmSwitchToLayoutMain},
     {"switch_to_layout_wordbook", "切换到界面1", onConfirmSwitchToLayoutWordbook},
     {"switch_to_layout_clock", "切换到界面2", onConfirmSwitchToLayoutClock},
+    {"switch_to_layout_decord", "切换到界面4", onConfirmSwitchToLayoutDecord},
     {"switch_to_layout_clock_set", "切换到番茄钟设置界面", onConfirmSwitchToLayoutClockSet},
     {"pomodoro_start_pause", "番茄钟开始/暂停", onConfirmPomodoroStartPause},
     {"pomodoro_reset", "番茄钟重置", onConfirmPomodoroReset},

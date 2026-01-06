@@ -94,7 +94,9 @@ static const IconMapping icon_mappings[] = {
     {"word", 7},           // 单词 -> /word.bin
     {"message", 8},         // 消息 -> /message.bin
     {"squirrel", 9},      // 松鼠 -> /squirrel.bin
-    {"house", 10}         // 房子 -> /house.bin
+    {"house", 10},         // 房子 -> /house.bin
+    {"nail", 11},         // 钉子 -> /nail.bin
+    {"huoyin", 12}         // 火印 -> /huoyin.bin
 };
 
 // 自动计算图标数量
@@ -218,6 +220,8 @@ const char* getIconFileNameByIndex(int icon_index) {
         "/message.bin",    // 8
         "/squirrel.bin",    // 9
         "/house.bin",    // 10
+        "/nail.bin",         // 11
+        "/huoyin.bin"         // 12
     };
     
     // 检查索引有效性
@@ -328,6 +332,16 @@ void freeIconCache() {
 // 定义各种动画的图标序列（使用图标名称，对应SD卡中的bin文件）
 static const char* cat_jump_sequence[] = {"squirrel","squirrel","squirrel","squirrel"};  // 依次显示: book -> game -> settings -> folder
 static const char* cat_walk_sequence[] = {"folder", "settings", "game", "book"};  // 依次显示: folder -> settings -> game -> book
+static const char* becord_task_status_sequence[] = {"horn", "nail"};  // 任务状态：未开始、进行中、已完成
+static const char* becord_task_isfinished_sequence[] = {"huoyin", "battery"};  // 任务记录完成状态：未完成、已完成
+static const char* becord_task_0_finished_sequence[] = {"huoyin", "battery"};  // 任务0完成状态
+static const char* becord_task_1_finished_sequence[] = {"huoyin", "battery"};  // 任务1完成状态
+static const char* becord_task_2_finished_sequence[] = {"huoyin", "battery"};  // 任务2完成状态
+static const char* becord_life_isfinished_sequence[] = {"huoyin", "battery"};  // 生活记录完成状态：未完成、已完成
+static const char* becord_life_0_finished_sequence[] = {"huoyin", "battery"};  // 生活记录0完成状态
+static const char* becord_life_1_finished_sequence[] = {"huoyin", "battery"};  // 生活记录1完成状态
+static const char* becord_life_2_finished_sequence[] = {"huoyin", "battery"};  // 生活记录2完成状态
+static const char* becord_life_status_sequence[] = {"horn", "nail"};  // 生活记录状态：未开始、进行中
 // 可以添加更多动画序列...
 
 
@@ -343,6 +357,16 @@ typedef struct {
 static const IconArrayEntry g_icon_arrays[] = {
     {"cat_jump", "$cat_jump_idx", cat_jump_sequence, 4},  // 4个图标
     {"cat_walk", "$cat_walk_idx", cat_walk_sequence, 4},  // 4个图标
+    {"becord_task_status", "$becord_task_status_idx", becord_task_status_sequence, 2},  // 任务状态图标
+    {"becord_task_isfinished", "$becord_task_isfinished_idx", becord_task_isfinished_sequence, 2},  // 任务记录完成状态
+    {"becord_task_isfinished", "$becord_task_0_finished_idx", becord_task_0_finished_sequence, 2},  // 任务0完成状态
+    {"becord_task_isfinished", "$becord_task_1_finished_idx", becord_task_1_finished_sequence, 2},  // 任务1完成状态
+    {"becord_task_isfinished", "$becord_task_2_finished_idx", becord_task_2_finished_sequence, 2},  // 任务2完成状态
+    {"becord_life_isfinished", "$becord_life_isfinished_idx", becord_life_isfinished_sequence, 2},  // 生活记录完成状态
+    {"becord_life_isfinished", "$becord_life_0_finished_idx", becord_life_0_finished_sequence, 2},  // 生活记录0完成状态
+    {"becord_life_isfinished", "$becord_life_1_finished_idx", becord_life_1_finished_sequence, 2},  // 生活记录1完成状态
+    {"becord_life_isfinished", "$becord_life_2_finished_idx", becord_life_2_finished_sequence, 2},  // 生活记录2完成状态
+    {"becord_life_status", "$becord_life_status_idx", becord_life_status_sequence, 2},  // 生活记录状态图标
     // 新增图标数组只需要在这里添加一行即可！
 };
 static const int g_icon_arrays_count = sizeof(g_icon_arrays) / sizeof(g_icon_arrays[0]);
@@ -351,6 +375,10 @@ static const int g_icon_arrays_count = sizeof(g_icon_arrays) / sizeof(g_icon_arr
 // 定义各种文本序列
 static const char* message_remind_sequence[] = {"600秒", "700秒", "800秒"};
 static const char* status_text_sequence[] = {"返回", "完成", "错误"};
+static const char* becord_task_sequence[] = {"学日语", "锻炼", "吃维C"};
+static const char* becord_life_sequence[] = {"吃撑", "吃辣", "熬夜"};
+static const char* becord_task_timeremain_sequence[] = {"1小时", "30分钟", "15分钟"};
+static const char* becord_life_timeremain_sequence[] = {"2小时", "1小时", "30分钟"};
 // 可以添加更多文本序列...
 
 // ================== 提示信息缓存（PSRAM）==================
@@ -401,6 +429,10 @@ static int g_pomodoro_time_idx = 0;
 const TextArrayEntry g_text_arrays[] = {
     {"message_remind", "$message_idx", message_remind_sequence, sizeof(message_remind_sequence)/sizeof(message_remind_sequence[0])},
     {"status_text", "$status_idx", status_text_sequence, sizeof(status_text_sequence)/sizeof(status_text_sequence[0])},
+    {"becord_task", "$becord_task_idx", becord_task_sequence, sizeof(becord_task_sequence)/sizeof(becord_task_sequence[0])},  // 任务记录
+    {"becord_life", "$becord_life_idx", becord_life_sequence, sizeof(becord_life_sequence)/sizeof(becord_life_sequence[0])},  // 生活记录
+    {"becord_task_timeremain", "$becord_task_timeremain_idx", becord_task_timeremain_sequence, sizeof(becord_task_timeremain_sequence)/sizeof(becord_task_timeremain_sequence[0])},  // 任务剩余时间
+    {"becord_life_timeremain", "$becord_life_timeremain_idx", becord_life_timeremain_sequence, sizeof(becord_life_timeremain_sequence)/sizeof(becord_life_timeremain_sequence[0])},  // 生活记录剩余时间
     {"wordbook_word", "$wordbook_idx", g_wordbook_word_ptrs, WORDBOOK_CACHE_COUNT},           // 单词本身
     {"wordbook_phonetic", "$wordbook_idx", g_wordbook_phonetic_ptrs, WORDBOOK_CACHE_COUNT},   // 音标
     {"wordbook_translation", "$wordbook_idx", g_wordbook_translation_ptrs, WORDBOOK_CACHE_COUNT}, // 完整翻译
@@ -2426,27 +2458,27 @@ void startFocusTestMode() {
 /**
  * @brief 显示休眠界面
  */
-void displaySleepScreen(RectInfo *rects, int rect_count,
-                       int status_rect_index, int show_border) {
-    // 简单的休眠界面显示
-    display.setFullWindow();
-    display.firstPage();
-    {
-        display.fillScreen(GxEPD_WHITE);
-        // 显示时间和提示信息
-        // TODO: 实现休眠界面的具体显示逻辑
-        display.setCursor(0, 0);
-        display.setFont();
-        display.setTextColor(GxEPD_BLACK);
-        display.println("Sleep Mode");
-    }
+// void displaySleepScreen(RectInfo *rects, int rect_count,
+//                        int status_rect_index, int show_border) {
+//     // 简单的休眠界面显示
+//     display.setFullWindow();
+//     display.firstPage();
+//     {
+//         display.fillScreen(GxEPD_WHITE);
+//         // 显示时间和提示信息
+//         // TODO: 实现休眠界面的具体显示逻辑
+//         display.setCursor(0, 0);
+//         display.setFont();
+//         display.setTextColor(GxEPD_BLACK);
+//         display.println("Sleep Mode");
+//     }
     
-    // 执行单次刷新
-    display.nextPage();
+//     // 执行单次刷新
+//     display.nextPage();
     
-    // 进入深度睡眠
-    display.powerOff();
-}
+//     // 进入深度睡眠
+//     display.powerOff();
+// }
 
 // 修改主显示函数，支持不同的界面
 void displayScreen(ScreenType screen_type) {
@@ -2478,89 +2510,68 @@ void displayScreen(ScreenType screen_type) {
 }
 
 // 单词本界面图标设置函数
-void setupVocabularyScreenIcons() {
-    ESP_LOGI("SETUP_ICONS", "设置单词本界面图标");
+// void setupVocabularyScreenIcons() {
+//     ESP_LOGI("SETUP_ICONS", "设置单词本界面图标");
     
-    // 重置图标
-    initIconPositions();
+//     // 重置图标
+//     initIconPositions();
     
-    // 遍历主界面的所有矩形（除了状态栏）
-    for (int i = 0; i < g_screen_manager.screens[SCREEN_VOCABULARY].rect_count; i++) {
-        // 跳过状态栏矩形
-        if (i == g_screen_manager.screens[SCREEN_VOCABULARY].status_rect_index) {
-            continue;
-        }
+//     // 遍历主界面的所有矩形（除了状态栏）
+//     for (int i = 0; i < g_screen_manager.screens[SCREEN_VOCABULARY].rect_count; i++) {
+//         // 跳过状态栏矩形
+//         if (i == g_screen_manager.screens[SCREEN_VOCABULARY].status_rect_index) {
+//             continue;
+//         }
         
-        RectInfo *rect = &vocab_rects[i];
+//         RectInfo *rect = &vocab_rects[i];
         
-        // 如果有图标配置，就设置
-        for (int j = 0; j < rect->icon_count; j++) {
-            IconPositionInRect *icon = &rect->icons[j];
+//         // 如果有图标配置，就设置
+//         for (int j = 0; j < rect->icon_count; j++) {
+//             IconPositionInRect *icon = &rect->icons[j];
             
-            // 直接使用存储的相对位置
-            float rel_x = icon->rel_x;
-            float rel_y = icon->rel_y;
-            int icon_index = icon->icon_index;
+//             // 直接使用存储的相对位置
+//             float rel_x = icon->rel_x;
+//             float rel_y = icon->rel_y;
+//             int icon_index = icon->icon_index;
             
-            // 边界检查
-            if (rel_x < 0.0f) rel_x = 0.0f;
-            if (rel_x > 1.0f) rel_x = 1.0f;
-            if (rel_y < 0.0f) rel_y = 0.0f;
-            if (rel_y > 1.0f) rel_y = 1.0f;
-            if (icon_index < 0) icon_index = 0;
-            if (icon_index >= 6) icon_index = 5;
+//             // 边界检查
+//             if (rel_x < 0.0f) rel_x = 0.0f;
+//             if (rel_x > 1.0f) rel_x = 1.0f;
+//             if (rel_y < 0.0f) rel_y = 0.0f;
+//             if (rel_y > 1.0f) rel_y = 1.0f;
+//             if (icon_index < 0) icon_index = 0;
+//             if (icon_index >= 6) icon_index = 5;
             
-            // 设置图标（主界面）
-            populateRectWithIcon(rect, icon_index, rel_x, rel_y);
-        }
-    }
-}
+//             // 设置图标（主界面）
+//             populateRectWithIcon(rect, icon_index, rel_x, rel_y);
+//         }
+//     }
+// }
 
 // 休眠界面图标设置函数
-void setupSleepScreenIcons() {
-    ESP_LOGI("SETUP_ICONS", "设置休眠界面图标");
+// void setupSleepScreenIcons() {
+//     ESP_LOGI("SETUP_ICONS", "设置休眠界面图标");
     
-    // 重置图标
-    initIconPositions();
+//     // 重置图标
+//     initIconPositions();
     
-    // 休眠界面的图标配置 - 已弃用，改用JSON布局
-    /*
-    RectInfo* sleep_rects = g_screen_manager.screens[SCREEN_SLEEP].rects;
-    int rect_count = g_screen_manager.screens[SCREEN_SLEEP].rect_count;
-    
-    // 休眠界面图标通常较少，主要用于显示时间、日期等
-    IconConfig sleep_icons[] = {
-        // 矩形0：时间显示（使用图标0，精确居中）
-        {0, 0, 0.5f, 0.5f},
-        
-        // 矩形1：日期显示（使用图标1，精确居中）
-        {1, 1, 0.5f, 0.5f},
-        
-        // 矩形2：唤醒提示（使用图标2，居中）
-        {2, 2, 0.5f, 0.5f}
-    };
-    
-    // 设置休眠界面图标
-    populateRectsWithCustomIcons(sleep_rects, rect_count, 
-                                sleep_icons, sizeof(sleep_icons) / sizeof(sleep_icons[0]));
-    */
-}
+// }
 
 /**
  * @brief 获取主界面的矩形数量
  * @return 主界面的矩形数量
  */
-int getMainScreenRectCount() {
-    return g_screen_manager.screens[SCREEN_HOME].rect_count;
-}
+// int getMainScreenRectCount() {
+//     return g_screen_manager.screens[SCREEN_HOME].rect_count;
+// }
 
 /**
  * @brief 获取单词界面的矩形数量
  * @return 单词界面的矩形数量
  */
-int getVocabScreenRectCount() {
-    return g_screen_manager.screens[SCREEN_VOCABULARY].rect_count;
-}
+// int getVocabScreenRectCount() {
+//     return g_screen_manager.screens[SCREEN_VOCABULARY].rect_count;
+// }
 
 void ink_screen_show(void *args)
 {
@@ -2589,58 +2600,58 @@ void ink_screen_show(void *args)
                     {
                         clearDisplayArea(0, 0, setInkScreenSize.screenWidth, setInkScreenSize.screenHeigt);
 
-                        // ESP_LOGI(TAG,"############显示单词本界面（使用新图标布局系统）\r\n");
-                        // update_activity_time(); // 更新活动时间
+                        ESP_LOGI(TAG,"############显示单词本界面（使用新图标布局系统）\r\n");
+                        update_activity_time(); // 更新活动时间
                         
-                        // // 重新加载单词界面配置，确保使用最新的网页端配置
-                        // if (loadVocabLayoutFromConfig()) {
-                        //     ESP_LOGI(TAG, "单词界面布局已从配置文件重新加载");
-                        // } else {
-                        //     ESP_LOGI(TAG, "使用当前单词界面布局");
-                        // }
+                        // 重新加载单词界面配置，确保使用最新的网页端配置
+                        if (loadVocabLayoutFromConfig()) {
+                            ESP_LOGI(TAG, "单词界面布局已从配置文件重新加载");
+                        } else {
+                            ESP_LOGI(TAG, "使用当前单词界面布局");
+                        }
                         
-                        // // 直接从矩形数据计算有效矩形数量，不依赖配置值
-                        // extern RectInfo vocab_rects[MAX_VOCAB_RECTS];
-                        // int valid_rect_count = 0;
-                        // for (int i = 0; i < MAX_VOCAB_RECTS; i++) {
-                        //     if (vocab_rects[i].width > 0 && vocab_rects[i].height > 0) {
-                        //         valid_rect_count++;
-                        //         ESP_LOGI("FOCUS", "有效矩形%d: (%d,%d) %dx%d", i, 
-                        //                 vocab_rects[i].x, vocab_rects[i].y, 
-                        //                 vocab_rects[i].width, vocab_rects[i].height);
-                        //     } else {
-                        //         ESP_LOGI("FOCUS", "无效矩形%d: (%d,%d) %dx%d", i, 
-                        //                 vocab_rects[i].x, vocab_rects[i].y, 
-                        //                 vocab_rects[i].width, vocab_rects[i].height);
-                        //         break; // 遇到第一个无效矩形就停止计数（假设矩形是连续的）
-                        //     }
-                        // }
+                        // 直接从矩形数据计算有效矩形数量，不依赖配置值
+                        extern RectInfo vocab_rects[MAX_VOCAB_RECTS];
+                        int valid_rect_count = 0;
+                        for (int i = 0; i < MAX_VOCAB_RECTS; i++) {
+                            if (vocab_rects[i].width > 0 && vocab_rects[i].height > 0) {
+                                valid_rect_count++;
+                                ESP_LOGI("FOCUS", "有效矩形%d: (%d,%d) %dx%d", i, 
+                                        vocab_rects[i].x, vocab_rects[i].y, 
+                                        vocab_rects[i].width, vocab_rects[i].height);
+                            } else {
+                                ESP_LOGI("FOCUS", "无效矩形%d: (%d,%d) %dx%d", i, 
+                                        vocab_rects[i].x, vocab_rects[i].y, 
+                                        vocab_rects[i].width, vocab_rects[i].height);
+                                break; // 遇到第一个无效矩形就停止计数（假设矩形是连续的）
+                            }
+                        }
                         
-                        // ESP_LOGI("FOCUS", "检测到有效矩形数量: %d", valid_rect_count);
+                        ESP_LOGI("FOCUS", "检测到有效矩形数量: %d", valid_rect_count);
                         
-                        // // 使用实际检测到的有效矩形数量初始化焦点系统（默认全部可焦点）
-                        // initFocusSystem(valid_rect_count);
+                        // 使用实际检测到的有效矩形数量初始化焦点系统（默认全部可焦点）
+                        initFocusSystem(valid_rect_count);
                         
-                        // // 尝试从配置文件加载自定义的可焦点矩形列表
-                        // if (loadFocusableRectsFromConfig("vocab")) {
-                        //     ESP_LOGI("FOCUS", "已从配置文件加载单词界面焦点矩形列表");
-                        // } else {
-                        //     ESP_LOGI("FOCUS", "使用默认焦点配置（所有矩形都可焦点）");
-                        // }
+                        // 尝试从配置文件加载自定义的可焦点矩形列表
+                        if (loadFocusableRectsFromConfig("vocab")) {
+                            ESP_LOGI("FOCUS", "已从配置文件加载单词界面焦点矩形列表");
+                        } else {
+                            ESP_LOGI("FOCUS", "使用默认焦点配置（所有矩形都可焦点）");
+                        }
                         
-                        // // 加载子数组配置
-                        // if (loadAndApplySubArrayConfig("vocab")) {
-                        //     ESP_LOGI("FOCUS", "已从配置文件加载并应用单词界面子数组配置");
-                        // } else {
-                        //     ESP_LOGI("FOCUS", "未加载单词界面子数组配置或配置为空");
-                        // }
+                        // 加载子数组配置
+                        if (loadAndApplySubArrayConfig("vocab")) {
+                            ESP_LOGI("FOCUS", "已从配置文件加载并应用单词界面子数组配置");
+                        } else {
+                            ESP_LOGI("FOCUS", "未加载单词界面子数组配置或配置为空");
+                        }
                         
-                        // // 设置当前界面为单词界面
-                        // g_screen_manager.current_screen = SCREEN_VOCABULARY;
+                        // 设置当前界面为单词界面
+                        g_screen_manager.current_screen = SCREEN_VOCABULARY;
                         
-                        // // 使用displayScreen统一接口，与主界面保持一致
-                        // displayScreen(SCREEN_VOCABULARY);
-                         switchToScreen(1); 
+                        // 使用displayScreen统一接口，与主界面保持一致
+                        displayScreen(SCREEN_VOCABULARY);
+                        
                         vTaskDelay(1000);
                         inkScreenTestFlagTwo = 0;
                         inkScreenTestFlag = 0;
@@ -2778,50 +2789,6 @@ void ink_screen_show(void *args)
             {
                 clearDisplayArea(0, 0, setInkScreenSize.screenWidth, setInkScreenSize.screenHeigt);
 
-                // ESP_LOGI(TAG,"############显示主界面（使用新图标布局系统）\r\n");
-                // update_activity_time(); 
-                
-                // // 直接从矩形数据计算有效矩形数量
-                // extern RectInfo rects[MAX_MAIN_RECTS];
-                // int valid_rect_count = 0;
-                // for (int i = 0; i < MAX_MAIN_RECTS; i++) {
-                //     if (rects[i].width > 0 && rects[i].height > 0) {
-                //         valid_rect_count++;
-                //         ESP_LOGI("FOCUS", "有效矩形%d: (%d,%d) %dx%d", i, 
-                //                 rects[i].x, rects[i].y, 
-                //                 rects[i].width, rects[i].height);
-                //     } else {
-                //         ESP_LOGI("FOCUS", "无效矩形%d: (%d,%d) %dx%d", i, 
-                //                 rects[i].x, rects[i].y, 
-                //                 rects[i].width, rects[i].height);
-                //         break; // 遇到第一个无效矩形就停止计数
-                //     }
-                // }
-                
-                // ESP_LOGI("FOCUS", "检测到有效矩形数量: %d", valid_rect_count);
-                
-                // // 使用实际检测到的有效矩形数量初始化焦点系统
-                // initFocusSystem(valid_rect_count);
-                
-                // // 尝试从配置文件加载自定义的可焦点矩形列表（母数组）
-                // if (loadFocusableRectsFromConfig("main")) {
-                //     ESP_LOGI("FOCUS", "已从配置文件加载主界面焦点矩形列表");
-                // } else {
-                //     ESP_LOGI("FOCUS", "使用默认焦点配置（所有矩形都可焦点）");
-                // }
-                
-                // // 加载子数组配置
-                // if (loadAndApplySubArrayConfig("main")) {
-                //     ESP_LOGI("FOCUS", "已从配置文件加载并应用主界面子数组配置");
-                // } else {
-                //     ESP_LOGI("FOCUS", "未加载主界面子数组配置或配置为空");
-                // }
-                
-                // // 设置当前界面为主界面
-                // g_screen_manager.current_screen = SCREEN_HOME;
-                
-                // // 显示主界面
-                // displayScreen(SCREEN_HOME);
                 switchToScreen(0); 
                 interfaceIndex = 1;
 				inkScreenTestFlag = 0;

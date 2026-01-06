@@ -1,0 +1,311 @@
+{
+    "rect_count": 6,
+    "rectangles": [
+        {
+            "index": 0,
+            "is_mother": "mom",
+            "x_": 0.1,
+            "y_": 0.2,
+            "width_": 0.35,
+            "height_": 0.22,
+            "focus_mode": 1,
+            "focus_icon": "squirrel",
+            "on_confirm_action": "open_menu",
+            "icon_count": 0,
+            "icons": [],
+            "icon_roll": [
+                {
+                    "icon_arr": "becord_task_status",
+                    "idx": "$becord_task_idx",
+                    "rel_x": 0,
+                    "rel_y": 0.7,
+                    "auto_roll": false
+                },
+                {
+                    "icon_arr": "becord_task_isfinished",
+                    "idx": "$becord_task_isfinished_idx",
+                    "rel_x": 1,
+                    "rel_y": 0.5,
+                    "auto_roll": false
+                }
+            ],
+            "text_count": 0,
+            "texts": [],
+            "text_roll": [
+                {
+                    "rel_x": 0.1,
+                    "rel_y": 0.1,
+                    "text_arr": "becord_task",
+                    "idx": "$becord_task_idx",
+                    "offset": 0,
+                    "font": "chinese_translate_font",
+                    "auto_roll": false
+                },
+                {
+                    "rel_x": 0.1,
+                    "rel_y": 0.7,
+                    "text_arr": "becord_task_timeremain",
+                    "idx": "$becord_task_timeremain_idx",
+                    "offset": 0,
+                    "font": "chinese_translate_font",
+                    "auto_roll": false
+                }
+            ]
+        },
+        {
+            "index": 1,
+            "is_mother": "mom",
+            "x_": 0.1,
+            "y_": 0.45,
+            "width_": 0.35,
+            "height_": 0.22,
+            "focus_mode": 1,
+            "focus_icon": "squirrel",
+            "on_confirm_action": "open_menu",
+            "icon_count": 0,
+            "icons": [],
+            "icon_roll": [
+                {
+                    "icon_arr": "becord_task_status",
+                    "idx": "$becord_task_idx",
+                    "rel_x": 0,
+                    "rel_y": 0.7,
+                    "auto_roll": false
+                },
+                {
+                    "icon_arr": "becord_task_isfinished",
+                    "idx": "$becord_task_isfinished_idx",
+                    "rel_x": 1,
+                    "rel_y": 0.5,
+                    "auto_roll": false
+                }
+            ],
+            "text_count": 0,
+            "texts": [],
+            "text_roll": [
+                {
+                    "rel_x": 0.1,
+                    "rel_y": 0.1,
+                    "text_arr": "becord_task",
+                    "idx": "$becord_task_idx",
+                    "offset": 1,
+                    "font": "chinese_translate_font",
+                    "auto_roll": false
+                },
+                {
+                    "rel_x": 0.1,
+                    "rel_y": 0.7,
+                    "text_arr": "becord_task_timeremain",
+                    "idx": "$becord_task_timeremain_idx",
+                    "offset": 1,
+                    "font": "chinese_translate_font",
+                    "auto_roll": false
+                }
+            ]
+        },
+        {
+            "index": 2,
+            "is_mother": "mom",
+            "x_": 0.1,
+            "y_": 0.7,
+            "width_": 0.35,
+            "height_": 0.22,
+            "focus_mode": 1,
+            "focus_icon": "squirrel",
+            "on_confirm_action": "open_menu",
+            "icon_count": 0,
+            "icons": [],
+            "icon_roll": [
+                {
+                    "icon_arr": "becord_task_status",
+                    "idx": "$becord_task_idx",
+                    "rel_x": 0,
+                    "rel_y": 0.7,
+                    "auto_roll": false
+                },
+                {
+                    "icon_arr": "becord_task_isfinished",
+                    "idx": "$becord_task_isfinished_idx",
+                    "rel_x": 1,
+                    "rel_y": 0.5,
+                    "auto_roll": false
+                }
+            ],
+            "text_count": 0,
+            "texts": [],
+            "text_roll": [
+                {
+                    "rel_x": 0.1,
+                    "rel_y": 0.1,
+                    "text_arr": "becord_task",
+                    "idx": "$becord_task_idx",
+                    "offset": 2,
+                    "font": "chinese_translate_font",
+                    "auto_roll": false
+                },
+                {
+                    "rel_x": 0.1,
+                    "rel_y": 0.7,
+                    "text_arr": "becord_task_timeremain",
+                    "idx": "$becord_task_timeremain_idx",
+                    "offset": 2,
+                    "font": "chinese_translate_font",
+                    "auto_roll": false
+                }
+            ]
+        },
+        {
+            "index": 3,
+            "is_mother": "mom",
+            "x_": 0.55,
+            "y_": 0.2,
+            "width_": 0.35,
+            "height_": 0.22,
+            "focus_mode": 1,
+            "focus_icon": "squirrel",
+            "on_confirm_action": "open_menu",
+            "icon_count": 0,
+            "icons": [],
+            "icon_roll": [
+                {
+                    "icon_arr": "becord_life_status",
+                    "idx": "$becord_life_status_idx",
+                    "rel_x": 0,
+                    "rel_y": 0.7,
+                    "auto_roll": false
+                },
+                {
+                    "icon_arr": "becord_life_isfinished",
+                    "idx": "$becord_life_isfinished_idx",
+                    "rel_x": 1,
+                    "rel_y": 0.5,
+                    "auto_roll": false
+                }
+            ],
+            "text_count": 0,
+            "texts": [],
+            "text_roll": [
+                {
+                    "rel_x": 0.1,
+                    "rel_y": 0.1,
+                    "text_arr": "becord_life",
+                    "idx": "$becord_life_idx",
+                    "offset": 0,
+                    "font": "chinese_translate_font",
+                    "auto_roll": false
+                },
+                {
+                    "rel_x": 0.1,
+                    "rel_y": 0.7,
+                    "text_arr": "becord_life_timeremain",
+                    "idx": "$becord_life_timeremain_idx",
+                    "offset": 0,
+                    "font": "chinese_translate_font",
+                    "auto_roll": false
+                }
+            ]
+        },
+        {
+            "index": 4,
+            "is_mother": "mom",
+            "x_": 0.55,
+            "y_": 0.45,
+            "width_": 0.35,
+            "height_": 0.22,
+            "focus_mode": 1,
+            "focus_icon": "squirrel",
+            "on_confirm_action": "open_menu",
+            "icon_count": 0,
+            "icons": [],
+            "icon_roll": [
+                {
+                    "icon_arr": "becord_life_status",
+                    "idx": "$becord_life_status_idx",
+                    "rel_x": 0,
+                    "rel_y": 0.7,
+                    "auto_roll": false
+                },
+                {
+                    "icon_arr": "becord_life_isfinished",
+                    "idx": "$becord_life_isfinished_idx",
+                    "rel_x": 1,
+                    "rel_y": 0.5,
+                    "auto_roll": false
+                }
+            ],
+            "text_count": 0,
+            "texts": [],
+            "text_roll": [
+                {
+                    "rel_x": 0.1,
+                    "rel_y": 0.1,
+                    "text_arr": "becord_life",
+                    "idx": "$becord_life_idx",
+                    "offset": 1,
+                    "font": "chinese_translate_font",
+                    "auto_roll": false
+                },
+                {
+                    "rel_x": 0.1,
+                    "rel_y": 0.7,
+                    "text_arr": "becord_life_timeremain",
+                    "idx": "$becord_life_timeremain_idx",
+                    "offset": 1,
+                    "font": "chinese_translate_font",
+                    "auto_roll": false
+                }
+            ]
+        },
+        {
+            "index": 5,
+            "is_mother": "mom",
+            "x_": 0.55,
+            "y_": 0.7,
+            "width_": 0.35,
+            "height_": 0.22,
+            "focus_mode": 1,
+            "focus_icon": "squirrel",
+            "on_confirm_action": "open_menu",
+            "icon_count": 0,
+            "icons": [],
+            "icon_roll": [
+                {
+                    "icon_arr": "becord_life_status",
+                    "idx": "$becord_life_status_idx",
+                    "rel_x": 0,
+                    "rel_y": 0.7,
+                    "auto_roll": false
+                },
+                {
+                    "icon_arr": "becord_life_isfinished",
+                    "idx": "$becord_life_isfinished_idx",
+                    "rel_x": 1,
+                    "rel_y": 0.5,
+                    "auto_roll": false
+                }
+            ],
+            "text_count": 0,
+            "texts": [],
+            "text_roll": [
+                {
+                    "rel_x": 0.1,
+                    "rel_y": 0.1,
+                    "text_arr": "becord_life",
+                    "idx": "$becord_life_idx",
+                    "offset": 2,
+                    "font": "chinese_translate_font",
+                    "auto_roll": false
+                },
+                {
+                    "rel_x": 0.1,
+                    "rel_y": 0.7,
+                    "text_arr": "becord_life_timeremain",
+                    "idx": "$becord_life_timeremain_idx",
+                    "offset": 2,
+                    "font": "chinese_translate_font",
+                    "auto_roll": false
+                }
+            ]
+        }
+    ]
+}
