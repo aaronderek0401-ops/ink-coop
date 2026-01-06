@@ -32,6 +32,12 @@ const char* g_wordbook_wrong_translation_ptrs[WORDBOOK_CACHE_COUNT] = {nullptr};
 const char* g_wordbook_option1_ptrs[WORDBOOK_CACHE_COUNT] = {nullptr};
 const char* g_wordbook_option2_ptrs[WORDBOOK_CACHE_COUNT] = {nullptr};
 
+// 记录每个单词的正确答案位置（true=选项1正确, false=选项2正确）
+bool g_wordbook_correct_answer[WORDBOOK_CACHE_COUNT] = {false};
+
+// 当前单词索引（用于测试）
+int g_current_word_index = 0;
+
 // 单词本是否已初始化
 bool g_wordbook_text_initialized = false;
 
@@ -620,6 +626,9 @@ bool initWordBookTextCache() {
             // 随机决定正确翻译的位置（0=选项1, 1=选项2）
             bool correct_in_option1 = (esp_random() % 2) == 0;
             
+            // 保存正确答案位置
+            g_wordbook_correct_answer[i] = correct_in_option1;
+            
             const char* option1_src = correct_in_option1 ? 
                 g_wordbook_translation1_ptrs[i] : g_wordbook_wrong_translation_ptrs[i];
             const char* option2_src = correct_in_option1 ? 
@@ -803,6 +812,67 @@ const char* getWordBookWrongTranslation(int index) {
     if (index < 0 || index >= WORDBOOK_CACHE_COUNT) return "";
     if (!g_wordbook_wrong_translation_ptrs[index]) return "";
     return g_wordbook_wrong_translation_ptrs[index];
+}
+
+/**
+ * @brief 检查选项是否正确
+ * @param word_index 单词索引（0-9）
+ * @param option_num 选择的选项（1或2）
+ * @return true=正确, false=错误
+ */
+bool checkWordAnswer(int word_index, int option_num) {
+    if (!g_wordbook_text_initialized) {
+        ESP_LOGE(TAG, "单词本未初始化");
+        return false;
+    }
+    
+    if (word_index < 0 || word_index >= WORDBOOK_CACHE_COUNT) {
+        ESP_LOGE(TAG, "无效的单词索引: %d", word_index);
+        return false;
+    }
+    
+    if (option_num != 1 && option_num != 2) {
+        ESP_LOGE(TAG, "无效的选项: %d", option_num);
+        return false;
+    }
+    
+    // 检查答案
+    bool is_correct = (option_num == 1) ? g_wordbook_correct_answer[word_index] 
+                                         : !g_wordbook_correct_answer[word_index];
+    
+    ESP_LOGI(TAG, "单词[%d]选择选项%d: %s (正确答案在选项%d)", 
+             word_index, option_num, 
+             is_correct ? "✓正确" : "✗错误",
+             g_wordbook_correct_answer[word_index] ? 1 : 2);
+    
+    return is_correct;
+}
+
+/**
+ * @brief 移动到下一个单词
+ * @return true=成功, false=已经是最后一个单词
+ */
+bool moveToNextWord() {
+    if (!g_wordbook_text_initialized) {
+        ESP_LOGE(TAG, "单词本未初始化");
+        return false;
+    }
+    
+    if (g_current_word_index >= WORDBOOK_CACHE_COUNT - 1) {
+        ESP_LOGW(TAG, "已经是最后一个单词");
+        return false;
+    }
+    
+    g_current_word_index++;
+    ESP_LOGI(TAG, "移动到下一个单词: %d", g_current_word_index);
+    return true;
+}
+
+/**
+ * @brief 获取当前单词索引
+ */
+int getCurrentWordIndex() {
+    return g_current_word_index;
 }
 
 /**

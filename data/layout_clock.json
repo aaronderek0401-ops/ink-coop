@@ -103,7 +103,7 @@
                     "rel_y": 0.19097216924031576,
                     "text_arr": "pomodoro_time_text",
                     "idx": "$pomodoro_time_idx",
-                    "font": "english_sentence_font",
+                    "font": "english_word_font",
                     "auto_roll": false
                 }
             ]
@@ -122,7 +122,7 @@
             "icons": [
                 {
                     "icon_name": "house",
-                    "rel_x": 0.05,
+                    "rel_x": 0.0,
                     "rel_y": 0.05
                 }
             ],

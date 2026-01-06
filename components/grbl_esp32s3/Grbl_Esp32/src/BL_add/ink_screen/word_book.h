@@ -94,6 +94,12 @@ extern const char* g_wordbook_wrong_translation_ptrs[WORDBOOK_CACHE_COUNT];
 extern const char* g_wordbook_option1_ptrs[WORDBOOK_CACHE_COUNT];
 extern const char* g_wordbook_option2_ptrs[WORDBOOK_CACHE_COUNT];
 
+// 记录每个单词的正确答案（true=选项1正确, false=选项2正确）
+extern bool g_wordbook_correct_answer[WORDBOOK_CACHE_COUNT];
+
+// 当前单词索引
+extern int g_current_word_index;
+
 extern bool g_wordbook_text_initialized;
 
 // 单词本文本缓存管理函数
@@ -107,6 +113,11 @@ const char* getWordBookTranslation2(int index);    // 获取单词第二个释�
 const char* getWordBookPos(int index);             // 获取单词词性
 const char* getWordBookWrongTranslation(int index); // 获取错误翻译（用于测试）
 const char* getWordBookText(int index);            // 获取单词本文本（已弃用）
+
+// 单词本答案检查和导航函数
+bool checkWordAnswer(int word_index, int option_num);  // 检查答案是否正确（option_num: 1或2）
+bool moveToNextWord();                                  // 移动到下一个单词
+int getCurrentWordIndex();                              // 获取当前单词索引
 
 // 测试函数声明
 template<typename T>

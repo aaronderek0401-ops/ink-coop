@@ -5,6 +5,7 @@
 void onConfirmOpenMenu(RectInfo* rect, int idx);
 void onConfirmPlaySound(RectInfo* rect, int idx);
 void onConfirmNextWord(RectInfo* rect, int idx);
+void onConfirmWordOption(RectInfo* rect, int idx);  // 单词本选项（统一回调）
 void onConfirmSwitchToLayoutMain(RectInfo* rect, int idx);
 void onConfirmSwitchToLayoutWordbook(RectInfo* rect, int idx);
 void onConfirmSwitchToLayoutClockSet(RectInfo* rect, int idx);
