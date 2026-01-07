@@ -96,7 +96,8 @@ static const IconMapping icon_mappings[] = {
     {"squirrel", 9},      // 松鼠 -> /squirrel.bin
     {"house", 10},         // 房子 -> /house.bin
     {"nail", 11},         // 钉子 -> /nail.bin
-    {"huoyin", 12}         // 火印 -> /huoyin.bin
+    {"huoyin", 12},         // 火印 -> /huoyin.bin
+    {"white", 13}         // 白色 -> /white.bin
 };
 
 // 自动计算图标数量
@@ -221,7 +222,8 @@ const char* getIconFileNameByIndex(int icon_index) {
         "/squirrel.bin",    // 9
         "/house.bin",    // 10
         "/nail.bin",         // 11
-        "/huoyin.bin"         // 12
+        "/huoyin.bin",         // 12
+        "/white.bin"         // 13
     };
     
     // 检查索引有效性
@@ -333,17 +335,14 @@ void freeIconCache() {
 static const char* cat_jump_sequence[] = {"squirrel","squirrel","squirrel","squirrel"};  // 依次显示: book -> game -> settings -> folder
 static const char* cat_walk_sequence[] = {"folder", "settings", "game", "book"};  // 依次显示: folder -> settings -> game -> book
 static const char* becord_task_status_sequence[] = {"horn", "nail"};  // 任务状态：未开始、进行中、已完成
-static const char* becord_task_isfinished_sequence[] = {"huoyin", "battery"};  // 任务记录完成状态：未完成、已完成
-static const char* becord_task_0_finished_sequence[] = {"huoyin", "battery"};  // 任务0完成状态
-static const char* becord_task_1_finished_sequence[] = {"huoyin", "battery"};  // 任务1完成状态
-static const char* becord_task_2_finished_sequence[] = {"huoyin", "battery"};  // 任务2完成状态
-static const char* becord_life_isfinished_sequence[] = {"huoyin", "battery"};  // 生活记录完成状态：未完成、已完成
-static const char* becord_life_0_finished_sequence[] = {"huoyin", "battery"};  // 生活记录0完成状态
-static const char* becord_life_1_finished_sequence[] = {"huoyin", "battery"};  // 生活记录1完成状态
-static const char* becord_life_2_finished_sequence[] = {"huoyin", "battery"};  // 生活记录2完成状态
+static const char* becord_task_isfinished_sequence[] = {"white", "huoyin"};  // 任务记录完成状态：未完成、已完成
+static const char* becord_life_isfinished_sequence[] = {"white", "huoyin"};  // 生活记录完成状态：未完成、已完成
 static const char* becord_life_status_sequence[] = {"horn", "nail"};  // 生活记录状态：未开始、进行中
 // 可以添加更多动画序列...
 
+// ================== 打卡状态管理 ==================
+// 每个矩形框的打卡状态（0=未完成，1=已完成）
+static int g_decord_status[6] = {0, 0, 0, 0, 0, 0};  // 矩形0-5的打卡状态
 
 
 // 图标数组注册表
@@ -357,16 +356,20 @@ typedef struct {
 static const IconArrayEntry g_icon_arrays[] = {
     {"cat_jump", "$cat_jump_idx", cat_jump_sequence, 4},  // 4个图标
     {"cat_walk", "$cat_walk_idx", cat_walk_sequence, 4},  // 4个图标
-    {"becord_task_status", "$becord_task_status_idx", becord_task_status_sequence, 2},  // 任务状态图标
-    {"becord_task_isfinished", "$becord_task_isfinished_idx", becord_task_isfinished_sequence, 2},  // 任务记录完成状态
-    {"becord_task_isfinished", "$becord_task_0_finished_idx", becord_task_0_finished_sequence, 2},  // 任务0完成状态
-    {"becord_task_isfinished", "$becord_task_1_finished_idx", becord_task_1_finished_sequence, 2},  // 任务1完成状态
-    {"becord_task_isfinished", "$becord_task_2_finished_idx", becord_task_2_finished_sequence, 2},  // 任务2完成状态
-    {"becord_life_isfinished", "$becord_life_isfinished_idx", becord_life_isfinished_sequence, 2},  // 生活记录完成状态
-    {"becord_life_isfinished", "$becord_life_0_finished_idx", becord_life_0_finished_sequence, 2},  // 生活记录0完成状态
-    {"becord_life_isfinished", "$becord_life_1_finished_idx", becord_life_1_finished_sequence, 2},  // 生活记录1完成状态
-    {"becord_life_isfinished", "$becord_life_2_finished_idx", becord_life_2_finished_sequence, 2},  // 生活记录2完成状态
-    {"becord_life_status", "$becord_life_status_idx", becord_life_status_sequence, 2},  // 生活记录状态图标
+    // 矩形框0-2（任务类）的独立图标索引
+    {"becord_task_status", "$becord_task_idx_0", becord_task_status_sequence, 2},  // 矩形0任务状态
+    {"becord_task_isfinished", "$becord_task_isfinished_idx_0", becord_task_isfinished_sequence, 2},  // 矩形0完成状态
+    {"becord_task_status", "$becord_task_idx_1", becord_task_status_sequence, 2},  // 矩形1任务状态
+    {"becord_task_isfinished", "$becord_task_isfinished_idx_1", becord_task_isfinished_sequence, 2},  // 矩形1完成状态
+    {"becord_task_status", "$becord_task_idx_2", becord_task_status_sequence, 2},  // 矩形2任务状态
+    {"becord_task_isfinished", "$becord_task_isfinished_idx_2", becord_task_isfinished_sequence, 2},  // 矩形2完成状态
+    // 矩形框3-5（生活类）的独立图标索引
+    {"becord_life_status", "$becord_life_status_idx_3", becord_life_status_sequence, 2},  // 矩形3生活状态
+    {"becord_life_isfinished", "$becord_life_isfinished_idx_3", becord_life_isfinished_sequence, 2},  // 矩形3完成状态
+    {"becord_life_status", "$becord_life_status_idx_4", becord_life_status_sequence, 2},  // 矩形4生活状态
+    {"becord_life_isfinished", "$becord_life_isfinished_idx_4", becord_life_isfinished_sequence, 2},  // 矩形4完成状态
+    {"becord_life_status", "$becord_life_status_idx_5", becord_life_status_sequence, 2},  // 矩形5生活状态
+    {"becord_life_isfinished", "$becord_life_isfinished_idx_5", becord_life_isfinished_sequence, 2},  // 矩形5完成状态
     // 新增图标数组只需要在这里添加一行即可！
 };
 static const int g_icon_arrays_count = sizeof(g_icon_arrays) / sizeof(g_icon_arrays[0]);
@@ -429,10 +432,20 @@ static int g_pomodoro_time_idx = 0;
 const TextArrayEntry g_text_arrays[] = {
     {"message_remind", "$message_idx", message_remind_sequence, sizeof(message_remind_sequence)/sizeof(message_remind_sequence[0])},
     {"status_text", "$status_idx", status_text_sequence, sizeof(status_text_sequence)/sizeof(status_text_sequence[0])},
-    {"becord_task", "$becord_task_idx", becord_task_sequence, sizeof(becord_task_sequence)/sizeof(becord_task_sequence[0])},  // 任务记录
-    {"becord_life", "$becord_life_idx", becord_life_sequence, sizeof(becord_life_sequence)/sizeof(becord_life_sequence[0])},  // 生活记录
-    {"becord_task_timeremain", "$becord_task_timeremain_idx", becord_task_timeremain_sequence, sizeof(becord_task_timeremain_sequence)/sizeof(becord_task_timeremain_sequence[0])},  // 任务剩余时间
-    {"becord_life_timeremain", "$becord_life_timeremain_idx", becord_life_timeremain_sequence, sizeof(becord_life_timeremain_sequence)/sizeof(becord_life_timeremain_sequence[0])},  // 生活记录剩余时间
+    // 矩形框0-2（任务类）的独立文本索引
+    {"becord_task", "$becord_task_idx_0", becord_task_sequence, sizeof(becord_task_sequence)/sizeof(becord_task_sequence[0])},  // 矩形0任务名称
+    {"becord_task_timeremain", "$becord_task_timeremain_idx_0", becord_task_timeremain_sequence, sizeof(becord_task_timeremain_sequence)/sizeof(becord_task_timeremain_sequence[0])},  // 矩形0剩余时间
+    {"becord_task", "$becord_task_idx_1", becord_task_sequence, sizeof(becord_task_sequence)/sizeof(becord_task_sequence[0])},  // 矩形1任务名称
+    {"becord_task_timeremain", "$becord_task_timeremain_idx_1", becord_task_timeremain_sequence, sizeof(becord_task_timeremain_sequence)/sizeof(becord_task_timeremain_sequence[0])},  // 矩形1剩余时间
+    {"becord_task", "$becord_task_idx_2", becord_task_sequence, sizeof(becord_task_sequence)/sizeof(becord_task_sequence[0])},  // 矩形2任务名称
+    {"becord_task_timeremain", "$becord_task_timeremain_idx_2", becord_task_timeremain_sequence, sizeof(becord_task_timeremain_sequence)/sizeof(becord_task_timeremain_sequence[0])},  // 矩形2剩余时间
+    // 矩形框3-5（生活类）的独立文本索引
+    {"becord_life", "$becord_life_idx_3", becord_life_sequence, sizeof(becord_life_sequence)/sizeof(becord_life_sequence[0])},  // 矩形3生活记录
+    {"becord_life_timeremain", "$becord_life_timeremain_idx_3", becord_life_timeremain_sequence, sizeof(becord_life_timeremain_sequence)/sizeof(becord_life_timeremain_sequence[0])},  // 矩形3剩余时间
+    {"becord_life", "$becord_life_idx_4", becord_life_sequence, sizeof(becord_life_sequence)/sizeof(becord_life_sequence[0])},  // 矩形4生活记录
+    {"becord_life_timeremain", "$becord_life_timeremain_idx_4", becord_life_timeremain_sequence, sizeof(becord_life_timeremain_sequence)/sizeof(becord_life_timeremain_sequence[0])},  // 矩形4剩余时间
+    {"becord_life", "$becord_life_idx_5", becord_life_sequence, sizeof(becord_life_sequence)/sizeof(becord_life_sequence[0])},  // 矩形5生活记录
+    {"becord_life_timeremain", "$becord_life_timeremain_idx_5", becord_life_timeremain_sequence, sizeof(becord_life_timeremain_sequence)/sizeof(becord_life_timeremain_sequence[0])},  // 矩形5剩余时间
     {"wordbook_word", "$wordbook_idx", g_wordbook_word_ptrs, WORDBOOK_CACHE_COUNT},           // 单词本身
     {"wordbook_phonetic", "$wordbook_idx", g_wordbook_phonetic_ptrs, WORDBOOK_CACHE_COUNT},   // 音标
     {"wordbook_translation", "$wordbook_idx", g_wordbook_translation_ptrs, WORDBOOK_CACHE_COUNT}, // 完整翻译
@@ -754,6 +767,115 @@ void setPomodoroDurationSeconds(int seconds) {
     if (g_json_rects && g_json_rect_count > 0) {
         redrawJsonLayout();
     }
+}
+
+// ==================== 打卡状态管理函数 ====================
+
+/**
+ * @brief 设置指定矩形框的打卡状态
+ * @param rect_index 矩形框索引（0-5）
+ * @param status 打卡状态（0=未完成，1=已完成）
+ */
+void setDecordStatus(int rect_index, int status) {
+    // 参数校验
+    if (rect_index < 0 || rect_index > 5) {
+        ESP_LOGW("DECORD", "无效的矩形框索引: %d (有效范围: 0-5)", rect_index);
+        return;
+    }
+    
+    if (status != 0 && status != 1) {
+        ESP_LOGW("DECORD", "无效的状态值: %d (有效值: 0或1)", status);
+        return;
+    }
+    
+    // 更新状态
+    g_decord_status[rect_index] = status;
+    
+    // 根据矩形框索引，找到对应的图标数组索引并更新
+    const char* target_var_name = nullptr;
+    
+    // 矩形0-2使用 becord_task_isfinished_idx_X
+    // 矩形3-5使用 becord_life_isfinished_idx_X
+    if (rect_index >= 0 && rect_index <= 2) {
+        // 任务类矩形
+        char var_name_buffer[64];
+        snprintf(var_name_buffer, sizeof(var_name_buffer), "$becord_task_isfinished_idx_%d", rect_index);
+        target_var_name = var_name_buffer;
+        
+        // 在g_icon_arrays中查找对应的索引
+        for (int i = 0; i < g_icon_arrays_count; i++) {
+            if (strcmp(g_icon_arrays[i].var_name, var_name_buffer) == 0) {
+                g_animation_indices[i] = status;
+                ESP_LOGI("DECORD", "✅ 矩形%d打卡状态更新: %s -> %d (%s)", 
+                        rect_index, var_name_buffer, status, 
+                        status == 0 ? "未完成" : "已完成");
+                break;
+            }
+        }
+    } else if (rect_index >= 3 && rect_index <= 5) {
+        // 生活类矩形
+        char var_name_buffer[64];
+        snprintf(var_name_buffer, sizeof(var_name_buffer), "$becord_life_isfinished_idx_%d", rect_index);
+        target_var_name = var_name_buffer;
+        
+        // 在g_icon_arrays中查找对应的索引
+        for (int i = 0; i < g_icon_arrays_count; i++) {
+            if (strcmp(g_icon_arrays[i].var_name, var_name_buffer) == 0) {
+                g_animation_indices[i] = status;
+                ESP_LOGI("DECORD", "✅ 矩形%d打卡状态更新: %s -> %d (%s)", 
+                        rect_index, var_name_buffer, status, 
+                        status == 0 ? "未完成" : "已完成");
+                break;
+            }
+        }
+    }
+    
+    // 刷新屏幕显示
+    if (g_json_rects && g_json_rect_count > 0) {
+        redrawJsonLayout();
+        ESP_LOGI("DECORD", "屏幕已刷新显示最新打卡状态");
+    }
+}
+
+/**
+ * @brief 切换指定矩形框的打卡状态（0↔1）
+ * @param rect_index 矩形框索引（0-5）
+ */
+void toggleDecordStatus(int rect_index) {
+    if (rect_index < 0 || rect_index > 5) {
+        ESP_LOGW("DECORD", "无效的矩形框索引: %d", rect_index);
+        return;
+    }
+    
+    // 切换状态：0变1，1变0
+    int new_status = (g_decord_status[rect_index] == 0) ? 1 : 0;
+    setDecordStatus(rect_index, new_status);
+    ESP_LOGI("DECORD", "矩形%d打卡状态已切换: %d -> %d", rect_index, 1 - new_status, new_status);
+}
+
+/**
+ * @brief 获取指定矩形框的打卡状态
+ * @param rect_index 矩形框索引（0-5）
+ * @return 打卡状态（0=未完成，1=已完成），失败返回-1
+ */
+int getDecordStatus(int rect_index) {
+    if (rect_index < 0 || rect_index > 5) {
+        ESP_LOGW("DECORD", "无效的矩形框索引: %d", rect_index);
+        return -1;
+    }
+    
+    return g_decord_status[rect_index];
+}
+
+/**
+ * @brief 重置所有矩形框的打卡状态为未完成
+ */
+void resetAllDecordStatus() {
+    ESP_LOGI("DECORD", "重置所有打卡状态...");
+    for (int i = 0; i < 6; i++) {
+        setDecordStatus(i, 0);
+    }
+    ESP_LOGI("DECORD", "✅ 所有打卡状态已重置为未完成");
 }
 
 // auto_roll定时器相关变量

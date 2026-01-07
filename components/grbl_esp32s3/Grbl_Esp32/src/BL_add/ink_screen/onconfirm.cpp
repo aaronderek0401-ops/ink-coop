@@ -2,6 +2,9 @@
 #include "word_book.h"
 #include "esp_log.h"
 
+// 外部函数声明（来自 ink_screen.cpp）
+extern void toggleDecordStatus(int rect_index);
+
 // 示例回调1：打开菜单（示例，实际实现可替换）
 void onConfirmOpenMenu(RectInfo* rect, int idx) {
     ESP_LOGI("ONCONFIRM", "示例回调：打开菜单，矩形 %d", idx);
@@ -136,6 +139,20 @@ void onConfirmPomodoroChangeDuration(RectInfo* rect, int idx) {
     }
 }
 
+// 打卡回调：切换指定矩形框的打卡状态
+void onConfirmToggleDecordStatus(RectInfo* rect, int idx) {
+    ESP_LOGI("DECORD", "切换矩形%d的打卡状态", idx);
+    
+    if (idx < 0 || idx > 5) {
+        ESP_LOGW("DECORD", "无效的矩形索引: %d", idx);
+        return;
+    }
+    
+    // 调用切换函数
+    toggleDecordStatus(idx);
+    ESP_LOGI("DECORD", "矩形%d打卡状态已切换", idx);
+}
+
 // 单词本：点击任意选项（统一回调）
 void onConfirmWordOption(RectInfo* rect, int idx) {
     ESP_LOGI("WORDBOOK", "点击单词选项，矩形 %d", idx);
@@ -255,7 +272,8 @@ ActionEntry g_action_registry[] = {
     {"pomodoro_start_pause", "番茄钟开始/暂停", onConfirmPomodoroStartPause},
     {"pomodoro_reset", "番茄钟重置", onConfirmPomodoroReset},
     {"pomodoro_settings", "番茄钟设置", onConfirmPomodoroSettings},
-    {"pomodoro_change_duration", "切换番茄钟时长", onConfirmPomodoroChangeDuration}
+    {"pomodoro_change_duration", "切换番茄钟时长", onConfirmPomodoroChangeDuration},
+    {"toggle_decord_status", "切换打卡状态", onConfirmToggleDecordStatus}
 };
 int g_action_registry_count = sizeof(g_action_registry) / sizeof(g_action_registry[0]);
 

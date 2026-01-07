@@ -86,7 +86,7 @@ typedef struct {
     float rel_y[8];        // 图标在矩形内的垂直相对位置数组（轨迹点）
     int path_count;        // 轨迹点数量（0表示使用第一个点）
     char icon_arr[32];     // 图标数组名称 (如: "cat_jump")
-    char idx[16];          // 索引变量名称 (如: "$cat_jump_idx")
+    char idx[48];          // 索引变量名称 (如: "$becord_life_isfinished_idx_3") - 扩大到48字符以支持长变量名
     bool auto_roll;        // 是否自动滚动 (true=自动100ms切换, false=固定)
 } IconRollInRect;
 //用到
