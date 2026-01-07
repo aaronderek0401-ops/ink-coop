@@ -143,14 +143,38 @@ void onConfirmPomodoroChangeDuration(RectInfo* rect, int idx) {
 void onConfirmToggleDecordStatus(RectInfo* rect, int idx) {
     ESP_LOGI("DECORD", "切换矩形%d的打卡状态", idx);
     
-    if (idx < 0 || idx > 5) {
-        ESP_LOGW("DECORD", "无效的矩形索引: %d", idx);
+    if (!rect) {
+        ESP_LOGW("DECORD", "矩形指针为空");
+        return;
+    }
+    
+    // 从矩形的icon_roll中提取正确的索引号
+    // 查找包含"isfinished_idx_"的变量名，从中提取数字后缀
+    int decord_idx = -1;
+    
+    for (int i = 0; i < rect->icon_roll_count; i++) {
+        const char* var_name = rect->icon_rolls[i].idx;
+        ESP_LOGI("DECORD", "检查icon_roll[%d]: idx='%s'", i, var_name);
+        
+        // 查找"isfinished_idx_"字符串
+        const char* pos = strstr(var_name, "isfinished_idx_");
+        if (pos) {
+            // 跳过"isfinished_idx_"部分，提取数字
+            pos += strlen("isfinished_idx_");
+            decord_idx = atoi(pos);
+            ESP_LOGI("DECORD", "✅ 从变量名'%s'中提取到索引: %d", var_name, decord_idx);
+            break;
+        }
+    }
+    
+    if (decord_idx < 0 || decord_idx > 5) {
+        ESP_LOGW("DECORD", "无效的打卡索引: %d (从矩形%d提取)", decord_idx, idx);
         return;
     }
     
     // 调用切换函数
-    toggleDecordStatus(idx);
-    ESP_LOGI("DECORD", "矩形%d打卡状态已切换", idx);
+    toggleDecordStatus(decord_idx);
+    ESP_LOGI("DECORD", "矩形%d（打卡索引%d）打卡状态已切换", idx, decord_idx);
 }
 
 // 单词本：点击任意选项（统一回调）

@@ -97,7 +97,9 @@ static const IconMapping icon_mappings[] = {
     {"house", 10},         // 房子 -> /house.bin
     {"nail", 11},         // 钉子 -> /nail.bin
     {"huoyin", 12},         // 火印 -> /huoyin.bin
-    {"white", 13}         // 白色 -> /white.bin
+    {"white", 13},         // 白色 -> /white.bin
+    {"rect", 14},         // 矩形 -> /rect.bin
+    {"tree", 15}         // 树 -> /tree.bin
 };
 
 // 自动计算图标数量
@@ -223,7 +225,9 @@ const char* getIconFileNameByIndex(int icon_index) {
         "/house.bin",    // 10
         "/nail.bin",         // 11
         "/huoyin.bin",         // 12
-        "/white.bin"         // 13
+        "/white.bin",         // 13
+        "/rect.bin",         // 14
+        "/tree.bin"         // 15
     };
     
     // 检查索引有效性
@@ -600,7 +604,7 @@ const char* getLatestPrompt() {
 void updatePomodoroTimeText() {
     int minutes = g_pomodoro_remaining_seconds / 60;
     int seconds = g_pomodoro_remaining_seconds % 60;
-    snprintf(g_pomodoro_time_text, sizeof(g_pomodoro_time_text), "%02d:%02d", minutes, seconds);
+    snprintf(g_pomodoro_time_text, sizeof(g_pomodoro_time_text), "%02d:%02d min", minutes, seconds);
 }
 
 /**
@@ -778,8 +782,8 @@ void setPomodoroDurationSeconds(int seconds) {
  */
 void setDecordStatus(int rect_index, int status) {
     // 参数校验
-    if (rect_index < 0 || rect_index > 5) {
-        ESP_LOGW("DECORD", "无效的矩形框索引: %d (有效范围: 0-5)", rect_index);
+    if (rect_index < 1 || rect_index > 6) {
+        ESP_LOGW("DECORD", "无效的矩形框索引: %d (有效范围: 1-6)", rect_index);
         return;
     }
     
@@ -796,7 +800,7 @@ void setDecordStatus(int rect_index, int status) {
     
     // 矩形0-2使用 becord_task_isfinished_idx_X
     // 矩形3-5使用 becord_life_isfinished_idx_X
-    if (rect_index >= 0 && rect_index <= 2) {
+    if (rect_index >= 1 && rect_index <= 3) {
         // 任务类矩形
         char var_name_buffer[64];
         snprintf(var_name_buffer, sizeof(var_name_buffer), "$becord_task_isfinished_idx_%d", rect_index);
@@ -812,7 +816,7 @@ void setDecordStatus(int rect_index, int status) {
                 break;
             }
         }
-    } else if (rect_index >= 3 && rect_index <= 5) {
+    } else if (rect_index >= 4 && rect_index <= 6) {
         // 生活类矩形
         char var_name_buffer[64];
         snprintf(var_name_buffer, sizeof(var_name_buffer), "$becord_life_isfinished_idx_%d", rect_index);
@@ -842,7 +846,7 @@ void setDecordStatus(int rect_index, int status) {
  * @param rect_index 矩形框索引（0-5）
  */
 void toggleDecordStatus(int rect_index) {
-    if (rect_index < 0 || rect_index > 5) {
+    if (rect_index < 1 || rect_index > 6) {
         ESP_LOGW("DECORD", "无效的矩形框索引: %d", rect_index);
         return;
     }
@@ -859,7 +863,7 @@ void toggleDecordStatus(int rect_index) {
  * @return 打卡状态（0=未完成，1=已完成），失败返回-1
  */
 int getDecordStatus(int rect_index) {
-    if (rect_index < 0 || rect_index > 5) {
+    if (rect_index < 1 || rect_index > 6) {
         ESP_LOGW("DECORD", "无效的矩形框索引: %d", rect_index);
         return -1;
     }
@@ -872,7 +876,7 @@ int getDecordStatus(int rect_index) {
  */
 void resetAllDecordStatus() {
     ESP_LOGI("DECORD", "重置所有打卡状态...");
-    for (int i = 0; i < 6; i++) {
+    for (int i = 1; i <= 6; i++) {
         setDecordStatus(i, 0);
     }
     ESP_LOGI("DECORD", "✅ 所有打卡状态已重置为未完成");
@@ -1959,36 +1963,36 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
         }
         
         // ==================== 显示矩形边框 ====================
-        if (show_border) {
-            ESP_LOGI("BORDER", "开始绘制矩形边框，共%d个矩形", rect_count);
+        // if (show_border) {
+        //     ESP_LOGI("BORDER", "开始绘制矩形边框，共%d个矩形", rect_count);
             
-            for (int i = 0; i < rect_count; i++) {
-                RectInfo* rect = &rects[i];
+        //     for (int i = 0; i < rect_count; i++) {
+        //         RectInfo* rect = &rects[i];
                 
-                // 计算缩放后的边框位置
-                int border_display_x = (int)(rect->x * global_scale + 0.5f);
-                int border_display_y = (int)(rect->y * global_scale + 0.5f);
-                int border_display_width = (int)(rect->width * global_scale + 0.5f);
-                int border_display_height = (int)(rect->height * global_scale + 0.5f);
+        //         // 计算缩放后的边框位置
+        //         int border_display_x = (int)(rect->x * global_scale + 0.5f);
+        //         int border_display_y = (int)(rect->y * global_scale + 0.5f);
+        //         int border_display_width = (int)(rect->width * global_scale + 0.5f);
+        //         int border_display_height = (int)(rect->height * global_scale + 0.5f);
                 
-                // 边界检查
-                if (border_display_x < 0) border_display_x = 0;
-                if (border_display_y < 0) border_display_y = 0;
-                if (border_display_x + border_display_width > display.width()) {
-                    border_display_width = display.width() - border_display_x;
-                }
-                if (border_display_y + border_display_height > display.height()) {
-                    border_display_height = display.height() - border_display_y;
-                }
+        //         // 边界检查
+        //         if (border_display_x < 0) border_display_x = 0;
+        //         if (border_display_y < 0) border_display_y = 0;
+        //         if (border_display_x + border_display_width > display.width()) {
+        //             border_display_width = display.width() - border_display_x;
+        //         }
+        //         if (border_display_y + border_display_height > display.height()) {
+        //             border_display_height = display.height() - border_display_y;
+        //         }
                 
-                if (border_display_width > 0 && border_display_height > 0) {
-                    // 绘制矩形边框
-                    display.drawRect(border_display_x, border_display_y, 
-                                    border_display_width, border_display_height, 
-                                    GxEPD_BLACK);
-                }
-            }
-        }
+        //         if (border_display_width > 0 && border_display_height > 0) {
+        //             // 绘制矩形边框
+        //             display.drawRect(border_display_x, border_display_y, 
+        //                             border_display_width, border_display_height, 
+        //                             GxEPD_BLACK);
+        //         }
+        //     }
+        // }
         
         // ==================== 绘制焦点光标 ====================
         if (g_focus_mode_enabled && g_current_focus_rect >= 0 && g_current_focus_rect < rect_count) {
@@ -2516,7 +2520,7 @@ void drawFocusCursor(RectInfo *rects, int rect_count, int focus_index, float glo
         ESP_LOGI("FOCUS", "CORNERS模式: 原始位置(%d,%d) 尺寸%dx%d (自动缩放)", icon_x, icon_y, icon_width, icon_height);
     } else if (mode_to_use == FOCUS_MODE_DEFAULT) {
         // 默认模式：使用指定的焦点图标居中显示在矩形左侧中间（原始坐标，由 drawPictureScaled 自动缩放）
-        int icon_x = rect->x;
+        int icon_x = rect->x - icon_width;
         int icon_y = rect->y;
         if (use_cache) {
             drawPictureScaled(icon_x, icon_y, icon_width, icon_height, focus_icon_data, GxEPD_BLACK);

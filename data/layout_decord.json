@@ -1,14 +1,37 @@
 {
-    "rect_count": 6,
+    "rect_count": 7,
     "rectangles": [
         {
             "index": 0,
+            "is_mother": "non",
+            "x_": 0,
+            "y_": 0,
+            "width_": 1,
+            "height_": 1,
+            "focus_mode": 0,
+            "focus_icon": "squirrel",
+            "on_confirm_action": "open_menu",
+            "icon_count": 1,
+            "icons": [
+                {
+                    "icon_name": "tree",
+                    "rel_x": 0,
+                    "rel_y": 0
+                }
+            ],
+            "icon_roll": [],
+            "text_count": 0,
+            "texts": [],
+            "text_roll": []
+        },
+        {
+            "index": 1,
             "is_mother": "mom",
             "x_": 0.1,
-            "y_": 0.2,
-            "width_": 0.35,
+            "y_": 0.28,
+            "width_": 0.3,
             "height_": 0.22,
-            "focus_mode": 1,
+            "focus_mode": 0,
             "focus_icon": "squirrel",
             "on_confirm_action": "toggle_decord_status",
             "icon_count": 0,
@@ -24,7 +47,7 @@
                 {
                     "icon_arr": "becord_task_isfinished",
                     "idx": "$becord_task_isfinished_idx_0",
-                    "rel_x": 1,
+                    "rel_x": 0.8,
                     "rel_y": 0.5,
                     "auto_roll": false
                 }
@@ -53,13 +76,13 @@
             ]
         },
         {
-            "index": 1,
+            "index": 2,
             "is_mother": "mom",
             "x_": 0.1,
-            "y_": 0.45,
-            "width_": 0.35,
+            "y_": 0.51,
+            "width_": 0.3,
             "height_": 0.22,
-            "focus_mode": 1,
+            "focus_mode": 0,
             "focus_icon": "squirrel",
             "on_confirm_action": "toggle_decord_status",
             "icon_count": 0,
@@ -75,7 +98,7 @@
                 {
                     "icon_arr": "becord_task_isfinished",
                     "idx": "$becord_task_isfinished_idx_1",
-                    "rel_x": 1,
+                    "rel_x": 0.8,
                     "rel_y": 0.5,
                     "auto_roll": false
                 }
@@ -104,13 +127,13 @@
             ]
         },
         {
-            "index": 2,
+            "index": 3,
             "is_mother": "mom",
             "x_": 0.1,
-            "y_": 0.7,
-            "width_": 0.35,
+            "y_": 0.75,
+            "width_": 0.3,
             "height_": 0.22,
-            "focus_mode": 1,
+            "focus_mode": 0,
             "focus_icon": "squirrel",
             "on_confirm_action": "toggle_decord_status",
             "icon_count": 0,
@@ -126,7 +149,7 @@
                 {
                     "icon_arr": "becord_task_isfinished",
                     "idx": "$becord_task_isfinished_idx_2",
-                    "rel_x": 1,
+                    "rel_x": 0.8,
                     "rel_y": 0.5,
                     "auto_roll": false
                 }
@@ -155,13 +178,13 @@
             ]
         },
         {
-            "index": 3,
+            "index": 4,
             "is_mother": "mom",
             "x_": 0.55,
-            "y_": 0.2,
-            "width_": 0.35,
+            "y_": 0.28,
+            "width_": 0.3,
             "height_": 0.22,
-            "focus_mode": 1,
+            "focus_mode": 0,
             "focus_icon": "squirrel",
             "on_confirm_action": "open_menu",
             "icon_count": 0,
@@ -177,7 +200,7 @@
                 {
                     "icon_arr": "becord_life_isfinished",
                     "idx": "$becord_life_isfinished_idx_3",
-                    "rel_x": 1,
+                    "rel_x": 0.8,
                     "rel_y": 0.5,
                     "auto_roll": false
                 }
@@ -206,13 +229,13 @@
             ]
         },
         {
-            "index": 4,
+            "index": 5,
             "is_mother": "mom",
             "x_": 0.55,
-            "y_": 0.45,
-            "width_": 0.35,
+            "y_": 0.51,
+            "width_": 0.3,
             "height_": 0.22,
-            "focus_mode": 1,
+            "focus_mode": 0,
             "focus_icon": "squirrel",
             "on_confirm_action": "open_menu",
             "icon_count": 0,
@@ -228,7 +251,7 @@
                 {
                     "icon_arr": "becord_life_isfinished",
                     "idx": "$becord_life_isfinished_idx_4",
-                    "rel_x": 1,
+                    "rel_x": 0.8,
                     "rel_y": 0.5,
                     "auto_roll": false
                 }
@@ -257,13 +280,13 @@
             ]
         },
         {
-            "index": 5,
+            "index": 6,
             "is_mother": "mom",
             "x_": 0.55,
-            "y_": 0.7,
-            "width_": 0.35,
+            "y_": 0.75,
+            "width_": 0.3,
             "height_": 0.22,
-            "focus_mode": 1,
+            "focus_mode": 0,
             "focus_icon": "squirrel",
             "on_confirm_action": "open_menu",
             "icon_count": 0,
@@ -279,7 +302,7 @@
                 {
                     "icon_arr": "becord_life_isfinished",
                     "idx": "$becord_life_isfinished_idx_5",
-                    "rel_x": 1,
+                    "rel_x": 0.8,
                     "rel_y": 0.5,
                     "auto_roll": false
                 }

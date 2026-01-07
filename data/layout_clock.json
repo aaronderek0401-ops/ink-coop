@@ -5,21 +5,27 @@
             "index": 0,
             "is_mother": "mom",
             "Group": [],
-            "x_": 0.1,
-            "y_": 0.1,
+            "x_": 0.4,
+            "y_": 0.12,
             "width_": 0.2,
-            "height_": 0.15,
-            "focus_mode": 1,
+            "height_": 0.16,
+            "focus_mode": 0,
             "focus_icon": "horn",
             "on_confirm_action": "pomodoro_start_pause",
-            "icon_count": 0,
-            "icons": [],
+            "icon_count": 1,
+            "icons": [
+                {
+                    "icon_name": "rect",
+                    "rel_x": 0.05,
+                    "rel_y": 0.1
+                }
+            ],
             "icon_roll": [],
             "text_count": 0,
             "texts": [],
             "text_roll": [
                 {
-                    "rel_x": 0.1,
+                    "rel_x": 0.2,
                     "rel_y": 0.3,
                     "text_arr": "pomodoro_state",
                     "idx": "$pomodoro_state_idx",
@@ -32,15 +38,21 @@
             "index": 1,
             "is_mother": "mom",
             "Group": [],
-            "x_": 0.4,
-            "y_": 0.1,
+            "x_": 0.6,
+            "y_": 0.12,
             "width_": 0.2,
-            "height_": 0.15,
-            "focus_mode": 1,
+            "height_": 0.16,
+            "focus_mode": 0,
             "focus_icon": "horn",
             "on_confirm_action": "pomodoro_reset",
-            "icon_count": 0,
-            "icons": [],
+            "icon_count": 1,
+            "icons": [
+                {
+                    "icon_name": "rect",
+                    "rel_x": 0.05,
+                    "rel_y": 0.1
+                }
+            ],
             "icon_roll": [],
             "text_count": 0,
             "texts": [],
@@ -59,15 +71,21 @@
             "index": 2,
             "is_mother": "mom",
             "Group": [],
-            "x_": 0.7,
-            "y_": 0.1,
+            "x_": 0.8,
+            "y_": 0.12,
             "width_": 0.2,
-            "height_": 0.15,
-            "focus_mode": 1,
+            "height_": 0.16,
+            "focus_mode": 0,
             "focus_icon": "horn",
             "on_confirm_action": "switch_to_layout_clock_set",
-            "icon_count": 0,
-            "icons": [],
+            "icon_count": 1,
+            "icons": [
+                {
+                    "icon_name": "rect",
+                    "rel_x": 0.05,
+                    "rel_y": 0.1
+                }
+            ],
             "icon_roll": [],
             "text_count": 0,
             "texts": [],
@@ -85,10 +103,10 @@
         {
             "index": 3,
             "is_mother": "non",
-            "x_": 0.2,
-            "y_": 0.3,
-            "width_": 0.6,
-            "height_": 0.3,
+            "x_": 0,
+            "y_": 0.26,
+            "width_": 1,
+            "height_": 0.36,
             "focus_mode": 0,
             "focus_icon": "horn",
             "on_confirm_action": "none",
@@ -99,8 +117,8 @@
             "texts": [],
             "text_roll": [
                 {
-                    "rel_x": 0.23023500197973007,
-                    "rel_y": 0.19097216924031576,
+                    "rel_x": 0.25,
+                    "rel_y": 0.25,
                     "text_arr": "pomodoro_time_text",
                     "idx": "$pomodoro_time_idx",
                     "font": "english_word_font",
@@ -111,10 +129,10 @@
         {
             "index": 4,
             "is_mother": "non",
-            "x_": 0.05,
+            "x_": 0,
             "y_": 0.64,
-            "width_": 0.9,
-            "height_": 0.35,
+            "width_": 1,
+            "height_": 0.36,
             "focus_mode": 0,
             "focus_icon": "horn",
             "on_confirm_action": "open_menu",
@@ -122,8 +140,8 @@
             "icons": [
                 {
                     "icon_name": "house",
-                    "rel_x": 0.0,
-                    "rel_y": 0.05
+                    "rel_x": 0.03,
+                    "rel_y": 0.1
                 }
             ],
             "icon_roll": [
