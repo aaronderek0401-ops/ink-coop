@@ -15,6 +15,8 @@
 #include "word_book.h"             // 单词本缓存系统
 #include "json_layout.h"           // JSON布局系统
 
+//multi push test
+
 extern "C" {
 #include "./Pic.h"
 }
