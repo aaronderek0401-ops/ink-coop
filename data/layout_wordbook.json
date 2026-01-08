@@ -36,15 +36,26 @@
         {
             "index": 1,
             "is_mother": "non",
-            "x_": 0.7,
+            "x_": 0.8,
             "y_": 0,
-            "width_": 0.3,
+            "width_": 0.2,
             "height_": 0.12,
             "focus_mode": 0,
-            "focus_icon": "horn",
+            "focus_icon": "squirrel",
             "on_confirm_action": "open_menu",
-            "icon_count": 0,
-            "icons": [],
+            "icon_count": 2,
+            "icons": [
+                {
+                    "icon_name": "wifi_off",
+                    "rel_x": 0,
+                    "rel_y": 0.2
+                },
+                {
+                    "icon_name": "battery",
+                    "rel_x": 0.5,
+                    "rel_y": 0.2
+                }
+            ],
             "icon_roll": [],
             "text_count": 0,
             "texts": [],
@@ -86,8 +97,14 @@
             "focus_mode": 0,
             "focus_icon": "horn",
             "on_confirm_action": "open_menu",
-            "icon_count": 0,
-            "icons": [],
+            "icon_count": 1,
+            "icons": [
+                {
+                    "icon_name": "horn",
+                    "rel_x": 0.7,
+                    "rel_y": 0.4
+                }
+            ],
             "icon_roll": [],
             "text_count": 0,
             "texts": [],
@@ -113,7 +130,7 @@
                     "text_arr": "wordbook_phonetic",
                     "idx": "$wordbook_idx",
                     "font": "english_phonetic_font",
-                    "rel_x": 0.18002128601074227,
+                    "rel_x": 0.38002128601074227,
                     "rel_y": 0.190740458170573,
                     "auto_roll": false
                 }

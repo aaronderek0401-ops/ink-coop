@@ -80,7 +80,7 @@ void onConfirmSwitchToLayoutClock(RectInfo* rect, int idx) {
 // 界面切换：切换到番茄钟设置界面（layout_clock_set.json）
 void onConfirmSwitchToLayoutClockSet(RectInfo* rect, int idx) {
     ESP_LOGI("ONCONFIRM", "切换到界面番茄钟设置 (layout_clock_set.json)，矩形 %d", idx);
-    display.setPartialWindow(200, 60, setInkScreenSize.screenWidth - 200, setInkScreenSize.screenHeigt - 60);
+    display.setPartialWindow(225, 80, setInkScreenSize.screenWidth - 225, setInkScreenSize.screenHeigt - 80);
 
     if (switchToScreen(3)) {
         ESP_LOGI("SCREEN_SWITCH", "✅ 成功切换到界面3: %s", getScreenName(3));

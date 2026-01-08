@@ -1,22 +1,27 @@
 {
-    "rect_count": 6,
+    "rect_count": 7,
     "rectangles": [
         {
             "index": 0,
             "is_mother": "non",
-            "x_": 0.7,
+            "x_": 0.8,
             "y_": 0,
-            "width_": 0.3,
+            "width_": 0.2,
             "height_": 0.12,
             "focus_mode": 0,
-            "focus_icon": "horn",
+            "focus_icon": "squirrel",
             "on_confirm_action": "open_menu",
-            "icon_count": 1,
+            "icon_count": 2,
             "icons": [
                 {
                     "icon_name": "wifi_off",
-                    "rel_x": 0.3685895968706181,
-                    "rel_y": 0.43055534362792974
+                    "rel_x": 0,
+                    "rel_y": 0.2
+                },
+                {
+                    "icon_name": "battery",
+                    "rel_x": 0.5,
+                    "rel_y": 0.2
                 }
             ],
             "icon_roll": [],
@@ -31,15 +36,15 @@
             "y_": 0.2,
             "width_": 0.25,
             "height_": 0.3,
-            "focus_mode": 0,
-            "focus_icon": "horn",
+            "focus_mode": 2,
+            "focus_icon": "underline",
             "on_confirm_action": "switch_to_layout_wordbook",
             "icon_count": 1,
             "icons": [
                 {
                     "icon_name": "word",
-                    "rel_x": 0.19615367009089543,
-                    "rel_y": 0.2638888888888889
+                    "rel_x": 0.2,
+                    "rel_y": 0.1
                 }
             ],
             "icon_roll": [],
@@ -54,15 +59,15 @@
             "y_": 0.2,
             "width_": 0.25,
             "height_": 0.3,
-            "focus_mode": 0,
-            "focus_icon": "horn",
+            "focus_mode": 2,
+            "focus_icon": "underline",
             "on_confirm_action": "switch_to_layout_decord",
             "icon_count": 1,
             "icons": [
                 {
                     "icon_name": "folder",
-                    "rel_x": 0.22230751624474146,
-                    "rel_y": 0.19444444444444445
+                    "rel_x": 0.2,
+                    "rel_y": 0.1
                 }
             ],
             "icon_roll": [],
@@ -72,20 +77,20 @@
         },
         {
             "index": 3,
-            "is_mother": "non",
+            "is_mother": "mom",
             "x_": 0.71,
             "y_": 0.2,
             "width_": 0.25,
             "height_": 0.3,
-            "focus_mode": 0,
-            "focus_icon": "horn",
-            "on_confirm_action": "open_menu",
+            "focus_mode": 2,
+            "focus_icon": "underline",
+            "on_confirm_action": "switch_to_layout_clock",
             "icon_count": 1,
             "icons": [
                 {
                     "icon_name": "message",
-                    "rel_x": 0.238845977783203,
-                    "rel_y": 0.2222222222222222
+                    "rel_x": 0.2,
+                    "rel_y": 0.1
                 }
             ],
             "icon_roll": [],
@@ -100,15 +105,15 @@
             "y_": 0.6,
             "width_": 0.25,
             "height_": 0.3,
-            "focus_mode": 0,
-            "focus_icon": "horn",
+            "focus_mode": 2,
+            "focus_icon": "underline",
             "on_confirm_action": "switch_to_layout_clock",
             "icon_count": 1,
             "icons": [
                 {
                     "icon_name": "book",
-                    "rel_x": 0.19615367009089543,
-                    "rel_y": 0.25
+                    "rel_x": 0.2,
+                    "rel_y": 0.1
                 }
             ],
             "icon_roll": [],
@@ -123,15 +128,38 @@
             "y_": 0.6,
             "width_": 0.25,
             "height_": 0.3,
-            "focus_mode": 0,
-            "focus_icon": "horn",
+            "focus_mode": 2,
+            "focus_icon": "underline",
             "on_confirm_action": "open_menu",
             "icon_count": 1,
             "icons": [
                 {
                     "icon_name": "game",
-                    "rel_x": 0.22230751624474146,
-                    "rel_y": 0.2222222222222222
+                    "rel_x": 0.2,
+                    "rel_y": 0.1
+                }
+            ],
+            "icon_roll": [],
+            "text_count": 0,
+            "texts": [],
+            "text_roll": []
+        },
+        {
+            "index": 6,
+            "is_mother": "non",
+            "x_": 0.71,
+            "y_": 0.6,
+            "width_": 0.25,
+            "height_": 0.3,
+            "focus_mode": 2,
+            "focus_icon": "underline",
+            "on_confirm_action": "open_menu",
+            "icon_count": 1,
+            "icons": [
+                {
+                    "icon_name": "settings",
+                    "rel_x": 0.2,
+                    "rel_y": 0.1
                 }
             ],
             "icon_roll": [],

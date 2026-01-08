@@ -101,7 +101,9 @@ static const IconMapping icon_mappings[] = {
     {"huoyin", 12},         // 火印 -> /huoyin.bin
     {"white", 13},         // 白色 -> /white.bin
     {"rect", 14},         // 矩形 -> /rect.bin
-    {"tree", 15}         // 树 -> /tree.bin
+    {"tree", 15},         // 树 -> /tree.bin
+    {"cup", 16},           // 杯子 -> /cup.bin
+    {"underline", 17}     // 下划线 -> /underline.bin
 };
 
 // 自动计算图标数量
@@ -209,7 +211,6 @@ const uint8_t* getIconDataByIndex(int icon_index) {
     return g_available_icons[icon_index].data;
 }
 
-
 // 通过图标索引获取图标文件名（用于从SPIFFS加载）
 const char* getIconFileNameByIndex(int icon_index) {
     // 图标索引到文件名的映射表
@@ -229,7 +230,9 @@ const char* getIconFileNameByIndex(int icon_index) {
         "/huoyin.bin",         // 12
         "/white.bin",         // 13
         "/rect.bin",         // 14
-        "/tree.bin"         // 15
+        "/tree.bin",        // 15
+        "/cup.bin",         // 16
+        "/underline.bin"  // 17
     };
     
     // 检查索引有效性
@@ -391,8 +394,8 @@ static const char* message_remind_sequence[] = {"600秒", "700秒", "800秒"};
 static const char* status_text_sequence[] = {"返回", "完成", "错误"};
 static const char* becord_task_sequence[] = {"学日语", "锻炼", "吃维C", "读书", "冥想", "写作"};  // 扩展到6项
 static const char* becord_life_sequence[] = {"吃撑", "吃辣", "熬夜", "久坐", "喝酒", "抽烟"};  // 扩展到6项
-static const char* becord_task_timeremain_sequence[] = {"1小时", "30分钟", "15分钟", "45分钟", "2小时", "10分钟"};  // 扩展到6项
-static const char* becord_life_timeremain_sequence[] = {"2天", "1天", "30天", "3天", "45天", "15天"};  // 扩展到6项
+static const char* becord_task_timeremain_sequence[] = {"Still need", "Still need", "Still need", "45分钟", "2小时", "10分钟"};  // 扩展到6项
+static const char* becord_life_timeremain_sequence[] = {"Recent frec", "Recent frec", "Recent frec", "3天", "45天", "15天"};  // 扩展到6项
 // 可以添加更多文本序列...
 
 // ================== 提示信息缓存（PSRAM）==================
@@ -2440,11 +2443,19 @@ void moveFocusNext() {
         // 母数组模式：查找下一个母数组矩形（只在mom类型之间移动）
         
         // ========== 智能导航逻辑 ==========
-        // 通过检测矩形数量来判断是否在layout_decord界面（共7个矩形：0+6）
-        bool is_decord_layout = (g_json_rect_count == 7);
+        // 通过检测是否有toggle_decord_status回调来判断是否在layout_decord界面
+        bool is_decord_layout = false;
+        for (int i = 0; i < g_json_rect_count; i++) {
+            if (g_json_rects[i].on_confirm_action && 
+                strcmp(g_json_rects[i].on_confirm_action, "toggle_decord_status") == 0) {
+                is_decord_layout = true;
+                break;
+            }
+        }
         
-        ESP_LOGI("FOCUS", "当前矩形: %d, 左侧页: %d, 右侧页: %d, 矩形总数: %d", 
-                g_current_focus_rect, g_decord_task_page_offset, g_decord_life_page_offset, g_json_rect_count);
+        ESP_LOGI("FOCUS", "当前矩形: %d, 左侧页: %d, 右侧页: %d, 矩形总数: %d, decord界面: %d", 
+                g_current_focus_rect, g_decord_task_page_offset, g_decord_life_page_offset, 
+                g_json_rect_count, is_decord_layout);
         
         if (is_decord_layout) {
             // 检测是否在左侧任务区（矩形1-3）的最后一个矩形（矩形3）
@@ -2537,8 +2548,15 @@ void moveFocusPrev() {
         // 母数组模式：查找上一个母数组矩形（只在mom类型之间移动）
         
         // ========== 智能导航逻辑 ==========
-        // 通过检测矩形数量来判断是否在layout_decord界面（共7个矩形：0+6）
-        bool is_decord_layout = (g_json_rect_count == 7);
+        // 通过检测是否有toggle_decord_status回调来判断是否在layout_decord界面
+        bool is_decord_layout = false;
+        for (int i = 0; i < g_json_rect_count; i++) {
+            if (g_json_rects[i].on_confirm_action && 
+                strcmp(g_json_rects[i].on_confirm_action, "toggle_decord_status") == 0) {
+                is_decord_layout = true;
+                break;
+            }
+        }
         
         if (is_decord_layout) {
             // 检测是否在左侧任务区（矩形1-3）的第一个矩形（矩形1）
@@ -2763,8 +2781,8 @@ void drawFocusCursor(RectInfo *rects, int rect_count, int focus_index, float glo
     FocusMode mode_to_use = rect->focus_mode;
     if (mode_to_use == FOCUS_MODE_BORDER) {
         // 在右下角显示焦点图标（原始坐标，由 drawPictureScaled 自动缩放）
-        int icon_x = rect->x + rect->width;
-        int icon_y = rect->y + rect->height - icon_height;
+        int icon_x = rect->x + (rect->width - icon_width)/2;
+        int icon_y = rect->y + rect->height;
         if (use_cache) {
             drawPictureScaled(icon_x, icon_y, icon_width, icon_height, focus_icon_data, GxEPD_BLACK);
         } else {

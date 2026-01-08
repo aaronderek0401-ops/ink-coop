@@ -1,5 +1,5 @@
 {
-    "rect_count": 7,
+    "rect_count": 8,
     "rectangles": [
         {
             "index": 0,
@@ -26,6 +26,34 @@
         },
         {
             "index": 1,
+            "is_mother": "non",
+            "x_": 0.8,
+            "y_": 0,
+            "width_": 0.2,
+            "height_": 0.12,
+            "focus_mode": 0,
+            "focus_icon": "squirrel",
+            "on_confirm_action": "open_menu",
+            "icon_count": 2,
+            "icons": [
+                {
+                    "icon_name": "wifi_off",
+                    "rel_x": 0,
+                    "rel_y": 0.2
+                },
+                {
+                    "icon_name": "battery",
+                    "rel_x": 0.5,
+                    "rel_y": 0.2
+                }
+            ],
+            "icon_roll": [],
+            "text_count": 0,
+            "texts": [],
+            "text_roll": []
+        },
+        {
+            "index": 2,
             "is_mother": "mom",
             "x_": 0.1,
             "y_": 0.28,
@@ -70,13 +98,13 @@
                     "text_arr": "becord_task_timeremain",
                     "idx": "$becord_task_timeremain_idx_0",
                     "offset": 0,
-                    "font": "chinese_translate_font",
+                    "font": "english_sentence_font",
                     "auto_roll": false
                 }
             ]
         },
         {
-            "index": 2,
+            "index": 3,
             "is_mother": "mom",
             "x_": 0.1,
             "y_": 0.51,
@@ -121,13 +149,13 @@
                     "text_arr": "becord_task_timeremain",
                     "idx": "$becord_task_timeremain_idx_1",
                     "offset": 1,
-                    "font": "chinese_translate_font",
+                    "font": "english_sentence_font",
                     "auto_roll": false
                 }
             ]
         },
         {
-            "index": 3,
+            "index": 4,
             "is_mother": "mom",
             "x_": 0.1,
             "y_": 0.75,
@@ -172,13 +200,13 @@
                     "text_arr": "becord_task_timeremain",
                     "idx": "$becord_task_timeremain_idx_2",
                     "offset": 2,
-                    "font": "chinese_translate_font",
+                    "font": "english_sentence_font",
                     "auto_roll": false
                 }
             ]
         },
         {
-            "index": 4,
+            "index": 5,
             "is_mother": "mom",
             "x_": 0.55,
             "y_": 0.28,
@@ -223,13 +251,13 @@
                     "text_arr": "becord_life_timeremain",
                     "idx": "$becord_life_timeremain_idx_3",
                     "offset": 0,
-                    "font": "chinese_translate_font",
+                    "font": "english_sentence_font",
                     "auto_roll": false
                 }
             ]
         },
         {
-            "index": 5,
+            "index": 6,
             "is_mother": "mom",
             "x_": 0.55,
             "y_": 0.51,
@@ -274,13 +302,13 @@
                     "text_arr": "becord_life_timeremain",
                     "idx": "$becord_life_timeremain_idx_4",
                     "offset": 1,
-                    "font": "chinese_translate_font",
+                    "font": "english_sentence_font",
                     "auto_roll": false
                 }
             ]
         },
         {
-            "index": 6,
+            "index": 7,
             "is_mother": "mom",
             "x_": 0.55,
             "y_": 0.75,
@@ -325,7 +353,7 @@
                     "text_arr": "becord_life_timeremain",
                     "idx": "$becord_life_timeremain_idx_5",
                     "offset": 2,
-                    "font": "chinese_translate_font",
+                    "font": "english_sentence_font",
                     "auto_roll": false
                 }
             ]
