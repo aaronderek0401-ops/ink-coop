@@ -394,8 +394,8 @@ static const char* message_remind_sequence[] = {"600秒", "700秒", "800秒"};
 static const char* status_text_sequence[] = {"返回", "完成", "错误"};
 static const char* becord_task_sequence[] = {"学日语", "锻炼", "吃维C", "读书", "冥想", "写作"};  // 扩展到6项
 static const char* becord_life_sequence[] = {"吃撑", "吃辣", "熬夜", "久坐", "喝酒", "抽烟"};  // 扩展到6项
-static const char* becord_task_timeremain_sequence[] = {"Still need", "Still need", "Still need", "45分钟", "2小时", "10分钟"};  // 扩展到6项
-static const char* becord_life_timeremain_sequence[] = {"Recent frec", "Recent frec", "Recent frec", "3天", "45天", "15天"};  // 扩展到6项
+static const char* becord_task_timeremain_sequence[] = {"Still need", "Still need", "Still need", "Still need", "Still need", "Still need"};  // 扩展到6项
+static const char* becord_life_timeremain_sequence[] = {"Recent frec", "Recent frec", "Recent frec", "Recent frec", "Recent frec", "Recent frec"};  // 扩展到6项
 // 可以添加更多文本序列...
 
 // ================== 提示信息缓存（PSRAM）==================
