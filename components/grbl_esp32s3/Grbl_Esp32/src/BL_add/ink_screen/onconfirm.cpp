@@ -4,7 +4,6 @@
 
 // 外部函数声明（来自 ink_screen.cpp）
 extern void toggleDecordStatus(int rect_index);
-extern void nextDecordPage();
 
 // 示例回调1：打开菜单（示例，实际实现可替换）
 void onConfirmOpenMenu(RectInfo* rect, int idx) {
@@ -173,9 +172,13 @@ void onConfirmToggleDecordStatus(RectInfo* rect, int idx) {
         return;
     }
     
+    // 将变量名中的索引（0-5）转换为矩形框索引（1-6）
+    // idx_0 -> 矩形1, idx_1 -> 矩形2, ..., idx_5 -> 矩形6
+    int rect_index = decord_idx + 1;
+    
     // 调用切换函数
-    toggleDecordStatus(decord_idx);
-    ESP_LOGI("DECORD", "矩形%d（打卡索引%d）打卡状态已切换", idx, decord_idx);
+    toggleDecordStatus(rect_index);
+    ESP_LOGI("DECORD", "矩形%d（变量索引%d）打卡状态已切换", rect_index, decord_idx);
 }
 
 // 单词本：点击任意选项（统一回调）
