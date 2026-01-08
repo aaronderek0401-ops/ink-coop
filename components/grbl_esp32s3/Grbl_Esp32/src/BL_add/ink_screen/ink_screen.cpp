@@ -347,6 +347,9 @@ static const char* becord_life_status_sequence[] = {"horn", "nail"};  // 生活�
 // ================== 打卡状态管理 ==================
 // 每个矩形框的打卡状态（0=未完成，1=已完成）
 static int g_decord_status[6] = {0, 0, 0, 0, 0, 0};  // 矩形0-5的打卡状态
+// 打卡记录翻页索引（0=显示第0-2项，1=显示第3-5项）
+static int g_decord_task_page_offset = 0;  // 左侧任务区翻页（矩形1-3）
+static int g_decord_life_page_offset = 0;  // 右侧生活区翻页（矩形4-6）
 
 
 // 图标数组注册表
@@ -382,10 +385,10 @@ static const int g_icon_arrays_count = sizeof(g_icon_arrays) / sizeof(g_icon_arr
 // 定义各种文本序列
 static const char* message_remind_sequence[] = {"600秒", "700秒", "800秒"};
 static const char* status_text_sequence[] = {"返回", "完成", "错误"};
-static const char* becord_task_sequence[] = {"学日语", "锻炼", "吃维C"};
-static const char* becord_life_sequence[] = {"吃撑", "吃辣", "熬夜"};
-static const char* becord_task_timeremain_sequence[] = {"1小时", "30分钟", "15分钟"};
-static const char* becord_life_timeremain_sequence[] = {"2小时", "1小时", "30分钟"};
+static const char* becord_task_sequence[] = {"学日语", "锻炼", "吃维C", "读书", "冥想", "写作"};  // 扩展到6项
+static const char* becord_life_sequence[] = {"吃撑", "吃辣", "熬夜", "久坐", "喝酒", "抽烟"};  // 扩展到6项
+static const char* becord_task_timeremain_sequence[] = {"1小时", "30分钟", "15分钟", "45分钟", "2小时", "10分钟"};  // 扩展到6项
+static const char* becord_life_timeremain_sequence[] = {"2天", "1天", "30天", "3天", "45天", "15天"};  // 扩展到6项
 // 可以添加更多文本序列...
 
 // ================== 提示信息缓存（PSRAM）==================
@@ -796,7 +799,6 @@ void setDecordStatus(int rect_index, int status) {
     g_decord_status[rect_index] = status;
     
     // 根据矩形框索引，找到对应的图标数组索引并更新
-    const char* target_var_name = nullptr;
     
     // 矩形0-2使用 becord_task_isfinished_idx_X
     // 矩形3-5使用 becord_life_isfinished_idx_X
@@ -804,7 +806,6 @@ void setDecordStatus(int rect_index, int status) {
         // 任务类矩形
         char var_name_buffer[64];
         snprintf(var_name_buffer, sizeof(var_name_buffer), "$becord_task_isfinished_idx_%d", rect_index);
-        target_var_name = var_name_buffer;
         
         // 在g_icon_arrays中查找对应的索引
         for (int i = 0; i < g_icon_arrays_count; i++) {
@@ -820,7 +821,6 @@ void setDecordStatus(int rect_index, int status) {
         // 生活类矩形
         char var_name_buffer[64];
         snprintf(var_name_buffer, sizeof(var_name_buffer), "$becord_life_isfinished_idx_%d", rect_index);
-        target_var_name = var_name_buffer;
         
         // 在g_icon_arrays中查找对应的索引
         for (int i = 0; i < g_icon_arrays_count; i++) {
@@ -880,6 +880,102 @@ void resetAllDecordStatus() {
         setDecordStatus(i, 0);
     }
     ESP_LOGI("DECORD", "✅ 所有打卡状态已重置为未完成");
+}
+
+/**
+ * @brief 左侧任务区翻页（只翻左侧，矩形1-3）
+ */
+void nextDecordTaskPage() {
+    // 切换页码（0 <-> 1）
+    g_decord_task_page_offset = (g_decord_task_page_offset == 0) ? 1 : 0;
+    
+    ESP_LOGI("DECORD", "🔄 左侧任务区翻页到第%d页", g_decord_task_page_offset);
+    
+    // 更新任务区（矩形1-3）的文本索引：$becord_task_idx_0/1/2
+    for (int i = 0; i < 3; i++) {
+        char var_name[48];
+        int new_index = g_decord_task_page_offset * 3;  // 第0页→0, 第1页→3
+        
+        snprintf(var_name, sizeof(var_name), "$becord_task_idx_%d", i);
+        for (int j = 0; j < g_text_arrays_count; j++) {
+            if (strcmp(g_text_arrays[j].var_name, var_name) == 0) {
+                g_text_animation_indices[j] = new_index;
+                ESP_LOGI("DECORD", "  更新任务文本 %s: %d", var_name, new_index);
+                break;
+            }
+        }
+        
+        snprintf(var_name, sizeof(var_name), "$becord_task_timeremain_idx_%d", i);
+        for (int j = 0; j < g_text_arrays_count; j++) {
+            if (strcmp(g_text_arrays[j].var_name, var_name) == 0) {
+                g_text_animation_indices[j] = new_index;
+                break;
+            }
+        }
+        
+        // 更新图标的索引
+        snprintf(var_name, sizeof(var_name), "$becord_task_idx_%d", i);
+        for (int j = 0; j < g_icon_arrays_count; j++) {
+            if (strcmp(g_icon_arrays[j].var_name, var_name) == 0) {
+                g_animation_indices[j] = new_index;
+                break;
+            }
+        }
+    }
+    
+    // 刷新显示
+    if (g_json_rects && g_json_rect_count > 0) {
+        redrawJsonLayout();
+        ESP_LOGI("DECORD", "左侧任务区已刷新显示第%d页内容", g_decord_task_page_offset);
+    }
+}
+
+/**
+ * @brief 右侧生活区翻页（只翻右侧，矩形4-6）
+ */
+void nextDecordLifePage() {
+    // 切换页码（0 <-> 1）
+    g_decord_life_page_offset = (g_decord_life_page_offset == 0) ? 1 : 0;
+    
+    ESP_LOGI("DECORD", "🔄 右侧生活区翻页到第%d页", g_decord_life_page_offset);
+    
+    // 更新生活区（矩形4-6）的文本索引：$becord_life_idx_3/4/5
+    for (int i = 0; i < 3; i++) {
+        char var_name[48];
+        int new_index = g_decord_life_page_offset * 3;  // 第0页→0, 第1页→3
+        
+        snprintf(var_name, sizeof(var_name), "$becord_life_idx_%d", i + 3);
+        for (int j = 0; j < g_text_arrays_count; j++) {
+            if (strcmp(g_text_arrays[j].var_name, var_name) == 0) {
+                g_text_animation_indices[j] = new_index;
+                ESP_LOGI("DECORD", "  更新生活文本 %s: %d", var_name, new_index);
+                break;
+            }
+        }
+        
+        snprintf(var_name, sizeof(var_name), "$becord_life_timeremain_idx_%d", i + 3);
+        for (int j = 0; j < g_text_arrays_count; j++) {
+            if (strcmp(g_text_arrays[j].var_name, var_name) == 0) {
+                g_text_animation_indices[j] = new_index;
+                break;
+            }
+        }
+        
+        // 更新图标的索引
+        snprintf(var_name, sizeof(var_name), "$becord_life_status_idx_%d", i + 3);
+        for (int j = 0; j < g_icon_arrays_count; j++) {
+            if (strcmp(g_icon_arrays[j].var_name, var_name) == 0) {
+                g_animation_indices[j] = new_index;
+                break;
+            }
+        }
+    }
+    
+    // 刷新显示
+    if (g_json_rects && g_json_rect_count > 0) {
+        redrawJsonLayout();
+        ESP_LOGI("DECORD", "右侧生活区已刷新显示第%d页内容", g_decord_life_page_offset);
+    }
 }
 
 // auto_roll定时器相关变量
@@ -1025,8 +1121,6 @@ void processAutoRollAnimations(void* arg) {
         return; // 还没到间隔时间
     }
     
-    bool need_refresh = false;
-    
     // 遍历所有矩形的icon_roll和text_roll，检查哪些需要auto_roll
     for (int rect_idx = 0; rect_idx < g_json_rect_count; rect_idx++) {
         RectInfo* rect = &g_json_rects[rect_idx];
@@ -1037,7 +1131,7 @@ void processAutoRollAnimations(void* arg) {
             
             if (icon_roll->auto_roll) {
                 updateSpecificRoll(icon_roll->idx);
-                need_refresh = true;
+                // need_refresh = true;
                 ESP_LOGI("ICON_ROLL", "自动滚动图标: %s", icon_roll->icon_arr);
             }
         }
@@ -1048,7 +1142,7 @@ void processAutoRollAnimations(void* arg) {
             
             if (text_roll->auto_roll) {
                 updateSpecificRoll(text_roll->idx);
-                need_refresh = true;
+                // need_refresh = true;
                 ESP_LOGI("TEXT_ROLL", "自动滚动文本: %s", text_roll->text_arr);
             }
         }
@@ -2268,6 +2362,61 @@ void moveFocusNext() {
         ESP_LOGI("FOCUS", "【子数组】焦点向下移动: 子索引%d -> 矩形%d", g_current_sub_focus_index, g_current_focus_rect);
     } else {
         // 母数组模式：查找下一个母数组矩形（只在mom类型之间移动）
+        
+        // ========== 智能导航逻辑 ==========
+        // 通过检测矩形数量来判断是否在layout_decord界面（共7个矩形：0+6）
+        bool is_decord_layout = (g_json_rect_count == 7);
+        
+        ESP_LOGI("FOCUS", "当前矩形: %d, 左侧页: %d, 右侧页: %d, 矩形总数: %d", 
+                g_current_focus_rect, g_decord_task_page_offset, g_decord_life_page_offset, g_json_rect_count);
+        
+        if (is_decord_layout) {
+            // 检测是否在左侧任务区（矩形1-3）的最后一个矩形（矩形3）
+            if (g_current_focus_rect == 3) {
+                ESP_LOGI("FOCUS", "在左侧任务区底部（矩形3），左侧页码: %d", g_decord_task_page_offset);
+                if (g_decord_task_page_offset == 0) {
+                    // 第一页，翻到第二页并将焦点回到矩形1
+                    ESP_LOGI("FOCUS", "🔄 左侧任务区翻页到第2页");
+                    nextDecordTaskPage();
+                    g_current_focus_rect = 1;  // 翻页后回到左侧第一个矩形
+                    ESP_LOGI("FOCUS", "【智能导航】左侧已翻页，光标回到矩形1");
+                    return;
+                } else {
+                    // 第二页，跳转到右侧生活区（矩形4）
+                    ESP_LOGI("FOCUS", "➡️ 左侧任务区已到最后，跳转到右侧生活区");
+                    // 恢复左侧页码到第0页
+                    if (g_decord_task_page_offset != 0) {
+                        ESP_LOGI("FOCUS", "🔄 恢复左侧任务区到第0页");
+                        nextDecordTaskPage();  // 切换回第0页
+                    }
+                    g_current_focus_rect = 4;
+                    ESP_LOGI("FOCUS", "【智能导航】跳转到矩形4（右侧第一个）");
+                    return;
+                }
+            }
+            // 检测是否在右侧生活区（矩形4-6）的最后一个矩形（矩形6）
+            else if (g_current_focus_rect == 6) {
+                ESP_LOGI("FOCUS", "在右侧生活区底部（矩形6），右侧页码: %d", g_decord_life_page_offset);
+                if (g_decord_life_page_offset == 0) {
+                    // 第一页，翻到第二页并将焦点回到矩形4
+                    ESP_LOGI("FOCUS", "🔄 右侧生活区翻页到第2页");
+                    nextDecordLifePage();
+                    g_current_focus_rect = 4;  // 翻页后回到右侧第一个矩形
+                    ESP_LOGI("FOCUS", "【智能导航】右侧已翻页，光标回到矩形4");
+                    return;
+                } else {
+                    // 第二页，继续执行默认的循环逻辑（回到矩形1），但先恢复右侧页码
+                    ESP_LOGI("FOCUS", "🔄 右侧生活区已到最后，准备循环到矩形1");
+                    if (g_decord_life_page_offset != 0) {
+                        ESP_LOGI("FOCUS", "🔄 恢复右侧生活区到第0页");
+                        nextDecordLifePage();  // 切换回第0页
+                    }
+                    // 继续执行下面的默认循环逻辑，会找到矩形1
+                }
+            }
+        }
+        // ========== 智能导航逻辑结束 ==========
+        
         int next_rect = g_current_focus_rect;
         int attempts = 0;
         
@@ -2310,6 +2459,28 @@ void moveFocusPrev() {
         ESP_LOGI("FOCUS", "【子数组】焦点向上移动: 子索引%d -> 矩形%d", g_current_sub_focus_index, g_current_focus_rect);
     } else {
         // 母数组模式：查找上一个母数组矩形（只在mom类型之间移动）
+        
+        // ========== 智能导航逻辑 ==========
+        // 通过检测矩形数量来判断是否在layout_decord界面（共7个矩形：0+6）
+        bool is_decord_layout = (g_json_rect_count == 7);
+        
+        if (is_decord_layout) {
+            // 检测是否在右侧生活区（矩形4-6）的第一个矩形（矩形4）
+            if (g_current_focus_rect == 4) {
+                // 从右侧生活区跳转到左侧任务区（矩形3）
+                ESP_LOGI("FOCUS", "⬅️ 右侧生活区到达顶部，跳转到左侧任务区");
+                // 恢复右侧页码到第0页
+                if (g_decord_life_page_offset != 0) {
+                    ESP_LOGI("FOCUS", "🔄 恢复右侧生活区到第0页");
+                    nextDecordLifePage();  // 切换回第0页
+                }
+                g_current_focus_rect = 3;
+                ESP_LOGI("FOCUS", "【智能导航】跳转到矩形3（左侧最后一个）");
+                return;
+            }
+        }
+        // ========== 智能导航逻辑结束 ==========
+        
         int prev_rect = g_current_focus_rect;
         int attempts = 0;
         

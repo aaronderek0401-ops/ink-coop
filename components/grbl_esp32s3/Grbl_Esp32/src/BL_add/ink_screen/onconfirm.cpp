@@ -4,6 +4,7 @@
 
 // 外部函数声明（来自 ink_screen.cpp）
 extern void toggleDecordStatus(int rect_index);
+extern void nextDecordPage();
 
 // 示例回调1：打开菜单（示例，实际实现可替换）
 void onConfirmOpenMenu(RectInfo* rect, int idx) {
