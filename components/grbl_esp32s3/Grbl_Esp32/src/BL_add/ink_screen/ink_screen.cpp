@@ -2137,36 +2137,36 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
         }
         
         // ==================== 显示矩形边框 ====================
-        if (show_border) {
-            ESP_LOGI("BORDER", "开始绘制矩形边框，共%d个矩形", rect_count);
+        // if (show_border) {
+        //     ESP_LOGI("BORDER", "开始绘制矩形边框，共%d个矩形", rect_count);
             
-            for (int i = 0; i < rect_count; i++) {
-                RectInfo* rect = &rects[i];
+        //     for (int i = 0; i < rect_count; i++) {
+        //         RectInfo* rect = &rects[i];
                 
-                // 计算缩放后的边框位置
-                int border_display_x = (int)(rect->x * global_scale + 0.5f);
-                int border_display_y = (int)(rect->y * global_scale + 0.5f);
-                int border_display_width = (int)(rect->width * global_scale + 0.5f);
-                int border_display_height = (int)(rect->height * global_scale + 0.5f);
+        //         // 计算缩放后的边框位置
+        //         int border_display_x = (int)(rect->x * global_scale + 0.5f);
+        //         int border_display_y = (int)(rect->y * global_scale + 0.5f);
+        //         int border_display_width = (int)(rect->width * global_scale + 0.5f);
+        //         int border_display_height = (int)(rect->height * global_scale + 0.5f);
                 
-                // 边界检查
-                if (border_display_x < 0) border_display_x = 0;
-                if (border_display_y < 0) border_display_y = 0;
-                if (border_display_x + border_display_width > display.width()) {
-                    border_display_width = display.width() - border_display_x;
-                }
-                if (border_display_y + border_display_height > display.height()) {
-                    border_display_height = display.height() - border_display_y;
-                }
+        //         // 边界检查
+        //         if (border_display_x < 0) border_display_x = 0;
+        //         if (border_display_y < 0) border_display_y = 0;
+        //         if (border_display_x + border_display_width > display.width()) {
+        //             border_display_width = display.width() - border_display_x;
+        //         }
+        //         if (border_display_y + border_display_height > display.height()) {
+        //             border_display_height = display.height() - border_display_y;
+        //         }
                 
-                if (border_display_width > 0 && border_display_height > 0) {
-                    // 绘制矩形边框
-                    display.drawRect(border_display_x, border_display_y, 
-                                    border_display_width, border_display_height, 
-                                    GxEPD_BLACK);
-                }
-            }
-        }
+        //         if (border_display_width > 0 && border_display_height > 0) {
+        //             // 绘制矩形边框
+        //             display.drawRect(border_display_x, border_display_y, 
+        //                             border_display_width, border_display_height, 
+        //                             GxEPD_BLACK);
+        //         }
+        //     }
+        // }
         
         // ==================== 绘制焦点光标 ====================
         if (g_focus_mode_enabled && g_current_focus_rect >= 0 && g_current_focus_rect < rect_count) {
