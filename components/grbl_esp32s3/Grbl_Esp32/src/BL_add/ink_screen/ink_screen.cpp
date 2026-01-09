@@ -14,6 +14,7 @@
 #include "chinese_font_cache.h"    // 中文字库缓存系统
 #include "word_book.h"             // 单词本缓存系统
 #include "json_layout.h"           // JSON布局系统
+#include "button_driver.h"         // 按键驱动
 
 //multi push test
 
@@ -2994,6 +2995,12 @@ void ink_screen_show(void *args)
    //init_sleep_timer();
 	while(1)
 	{
+        // 扫描按键输入
+        ButtonState button = button_scan();
+        if (button != BUTTON_NONE) {
+            inkScreenTestFlag = button;  // 将按键状态（1、2、3）设置到inkScreenTestFlag
+        }
+        
         if (inkScreenTestFlag == 99) {
             ESP_LOGI("SLEEP", "显示休眠模式界面");
            // display_sleep_mode();
@@ -3377,6 +3384,14 @@ void ink_screen_init()
     
     ESP_LOGI(TAG, "✅ 墨水屏初始化完成，现在只支持JSON布局系统");
     // 注：移除 Uart0.printf() 避免 UART 驱动问题
+
+    // ===== 初始化按键驱动 =====
+    ESP_LOGI(TAG, "初始化按键驱动 (GPIO40/41/42)...");
+    if (button_init()) {
+        ESP_LOGI(TAG, "✅ 按键驱动初始化成功");
+    } else {
+        ESP_LOGE(TAG, "❌ 按键驱动初始化失败");
+    }
 
     ESP_LOGI(TAG, "🔥 [DEBUG] 7. 准备创建ink_screen_show任务");
 
