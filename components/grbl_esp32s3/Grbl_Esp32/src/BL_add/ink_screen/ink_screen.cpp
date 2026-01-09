@@ -2137,36 +2137,36 @@ void displayMainScreen(RectInfo *rects, int rect_count, int status_rect_index, i
         }
         
         // ==================== 显示矩形边框 ====================
-        // if (show_border) {
-        //     ESP_LOGI("BORDER", "开始绘制矩形边框，共%d个矩形", rect_count);
+        if (show_border) {
+            ESP_LOGI("BORDER", "开始绘制矩形边框，共%d个矩形", rect_count);
             
-        //     for (int i = 0; i < rect_count; i++) {
-        //         RectInfo* rect = &rects[i];
+            for (int i = 0; i < rect_count; i++) {
+                RectInfo* rect = &rects[i];
                 
-        //         // 计算缩放后的边框位置
-        //         int border_display_x = (int)(rect->x * global_scale + 0.5f);
-        //         int border_display_y = (int)(rect->y * global_scale + 0.5f);
-        //         int border_display_width = (int)(rect->width * global_scale + 0.5f);
-        //         int border_display_height = (int)(rect->height * global_scale + 0.5f);
+                // 计算缩放后的边框位置
+                int border_display_x = (int)(rect->x * global_scale + 0.5f);
+                int border_display_y = (int)(rect->y * global_scale + 0.5f);
+                int border_display_width = (int)(rect->width * global_scale + 0.5f);
+                int border_display_height = (int)(rect->height * global_scale + 0.5f);
                 
-        //         // 边界检查
-        //         if (border_display_x < 0) border_display_x = 0;
-        //         if (border_display_y < 0) border_display_y = 0;
-        //         if (border_display_x + border_display_width > display.width()) {
-        //             border_display_width = display.width() - border_display_x;
-        //         }
-        //         if (border_display_y + border_display_height > display.height()) {
-        //             border_display_height = display.height() - border_display_y;
-        //         }
+                // 边界检查
+                if (border_display_x < 0) border_display_x = 0;
+                if (border_display_y < 0) border_display_y = 0;
+                if (border_display_x + border_display_width > display.width()) {
+                    border_display_width = display.width() - border_display_x;
+                }
+                if (border_display_y + border_display_height > display.height()) {
+                    border_display_height = display.height() - border_display_y;
+                }
                 
-        //         if (border_display_width > 0 && border_display_height > 0) {
-        //             // 绘制矩形边框
-        //             display.drawRect(border_display_x, border_display_y, 
-        //                             border_display_width, border_display_height, 
-        //                             GxEPD_BLACK);
-        //         }
-        //     }
-        // }
+                if (border_display_width > 0 && border_display_height > 0) {
+                    // 绘制矩形边框
+                    display.drawRect(border_display_x, border_display_y, 
+                                    border_display_width, border_display_height, 
+                                    GxEPD_BLACK);
+                }
+            }
+        }
         
         // ==================== 绘制焦点光标 ====================
         if (g_focus_mode_enabled && g_current_focus_rect >= 0 && g_current_focus_rect < rect_count) {
@@ -2459,47 +2459,47 @@ void moveFocusNext() {
                 g_json_rect_count, is_decord_layout);
         
         if (is_decord_layout) {
-            // 检测是否在左侧任务区（矩形1-3）的最后一个矩形（矩形3）
-            if (g_current_focus_rect == 3) {
-                ESP_LOGI("FOCUS", "在左侧任务区底部（矩形3），左侧页码: %d", g_decord_task_page_offset);
+            // 检测是否在左侧任务区（矩形2-4）的最后一个矩形（矩形4）
+            if (g_current_focus_rect == 4) {
+                ESP_LOGI("FOCUS", "在左侧任务区底部（矩形4），左侧页码: %d", g_decord_task_page_offset);
                 if (g_decord_task_page_offset == 0) {
-                    // 第一页，翻到第二页并将焦点回到矩形1
+                    // 第一页，翻到第二页并将焦点回到矩形2（保持在左侧）
                     ESP_LOGI("FOCUS", "🔄 左侧任务区翻页到第2页");
                     nextDecordTaskPage();
-                    g_current_focus_rect = 1;  // 翻页后回到左侧第一个矩形
-                    ESP_LOGI("FOCUS", "【智能导航】左侧已翻页，光标回到矩形1");
+                    g_current_focus_rect = 2;  // 翻页后回到左侧第一个矩形
+                    ESP_LOGI("FOCUS", "【智能导航】左侧已翻页到第2页，光标回到矩形2");
                     return;
                 } else {
-                    // 第二页，跳转到右侧生活区（矩形4）
-                    ESP_LOGI("FOCUS", "➡️ 左侧任务区已到最后，跳转到右侧生活区");
+                    // 第二页（最后一页），跳转到右侧生活区（矩形5）
+                    ESP_LOGI("FOCUS", "➡️ 左侧任务区最后一页已到底，跳转到右侧生活区");
                     // 恢复左侧页码到第0页
                     if (g_decord_task_page_offset != 0) {
-                        ESP_LOGI("FOCUS", "🔄 恢复左侧任务区到第0页");
+                        ESP_LOGI("FOCUS", "🔄 恢复左侧任务区到第1页");
                         nextDecordTaskPage();  // 切换回第0页
                     }
-                    g_current_focus_rect = 4;
-                    ESP_LOGI("FOCUS", "【智能导航】跳转到矩形4（右侧第一个）");
+                    g_current_focus_rect = 5;
+                    ESP_LOGI("FOCUS", "【智能导航】跳转到矩形5（右侧第一个）");
                     return;
                 }
             }
-            // 检测是否在右侧生活区（矩形4-6）的最后一个矩形（矩形6）
-            else if (g_current_focus_rect == 6) {
-                ESP_LOGI("FOCUS", "在右侧生活区底部（矩形6），右侧页码: %d", g_decord_life_page_offset);
+            // 检测是否在右侧生活区（矩形5-7）的最后一个矩形（矩形7）
+            else if (g_current_focus_rect == 7) {
+                ESP_LOGI("FOCUS", "在右侧生活区底部（矩形7），右侧页码: %d", g_decord_life_page_offset);
                 if (g_decord_life_page_offset == 0) {
-                    // 第一页，翻到第二页并将焦点回到矩形4
+                    // 第一页，翻到第二页并将焦点回到矩形5（保持在右侧）
                     ESP_LOGI("FOCUS", "🔄 右侧生活区翻页到第2页");
                     nextDecordLifePage();
-                    g_current_focus_rect = 4;  // 翻页后回到右侧第一个矩形
-                    ESP_LOGI("FOCUS", "【智能导航】右侧已翻页，光标回到矩形4");
+                    g_current_focus_rect = 5;  // 翻页后回到右侧第一个矩形
+                    ESP_LOGI("FOCUS", "【智能导航】右侧已翻页到第2页，光标回到矩形5");
                     return;
                 } else {
-                    // 第二页，继续执行默认的循环逻辑（回到矩形1），但先恢复右侧页码
-                    ESP_LOGI("FOCUS", "🔄 右侧生活区已到最后，准备循环到矩形1");
+                    // 第二页（最后一页），循环回到矩形2
+                    ESP_LOGI("FOCUS", "🔄 右侧生活区最后一页已到底，准备循环到矩形2");
                     if (g_decord_life_page_offset != 0) {
-                        ESP_LOGI("FOCUS", "🔄 恢复右侧生活区到第0页");
+                        ESP_LOGI("FOCUS", "🔄 恢复右侧生活区到第1页");
                         nextDecordLifePage();  // 切换回第0页
                     }
-                    // 继续执行下面的默认循环逻辑，会找到矩形1
+                    // 继续执行下面的默认循环逻辑，会找到矩形2
                 }
             }
         }
@@ -2560,37 +2560,42 @@ void moveFocusPrev() {
         }
         
         if (is_decord_layout) {
-            // 检测是否在左侧任务区（矩形1-3）的第一个矩形（矩形1）
-            if (g_current_focus_rect == 1) {
-                ESP_LOGI("FOCUS", "在左侧任务区顶部（矩形1），左侧页码: %d", g_decord_task_page_offset);
+            // 检测是否在左侧任务区（矩形2-4）的第一个矩形（矩形2）
+            if (g_current_focus_rect == 2) {
+                ESP_LOGI("FOCUS", "在左侧任务区顶部（矩形2），左侧页码: %d", g_decord_task_page_offset);
                 if (g_decord_task_page_offset == 1) {
-                    // 第二页，翻回第一页并停留在矩形1
-                    ESP_LOGI("FOCUS", "🔄 左侧任务区翻回第1页");
+                    // 第二页，翻回第一页并停留在矩形2（保持在左侧）
+                    ESP_LOGI("FOCUS", "🔄 左侧任务区从第2页翻回第1页");
                     nextDecordTaskPage();
-                    g_current_focus_rect = 1;  // 保持在矩形1
-                    ESP_LOGI("FOCUS", "【智能导航】左侧已翻回第1页，光标保持在矩形1");
+                    g_current_focus_rect = 2;  // 保持在矩形2
+                    ESP_LOGI("FOCUS", "【智能导航】左侧已翻回第1页，光标保持在矩形2");
                     return;
                 } else {
-                    // 第一页，继续执行默认的循环逻辑（回到矩形6）
-                    ESP_LOGI("FOCUS", "⬆️ 左侧任务区第1页到达顶部，准备循环到矩形6");
-                    // 继续执行下面的默认循环逻辑，会找到矩形6
+                    // 第一页，循环到矩形7（最后一个矩形）
+                    ESP_LOGI("FOCUS", "⬆️ 左侧任务区第1页到达顶部，准备循环到矩形7");
+                    // 继续执行下面的默认循环逻辑，会找到矩形7
                 }
             }
-            // 检测是否在右侧生活区（矩形4-6）的第一个矩形（矩形4）
-            else if (g_current_focus_rect == 4) {
-                ESP_LOGI("FOCUS", "在右侧生活区顶部（矩形4），右侧页码: %d", g_decord_life_page_offset);
+            // 检测是否在右侧生活区（矩形5-7）的第一个矩形（矩形5）
+            else if (g_current_focus_rect == 5) {
+                ESP_LOGI("FOCUS", "在右侧生活区顶部（矩形5），右侧页码: %d", g_decord_life_page_offset);
                 if (g_decord_life_page_offset == 1) {
-                    // 第二页，翻回第一页并停留在矩形4
-                    ESP_LOGI("FOCUS", "🔄 右侧生活区翻回第1页");
+                    // 第二页，翻回第一页并停留在矩形5（保持在右侧）
+                    ESP_LOGI("FOCUS", "🔄 右侧生活区从第2页翻回第1页");
                     nextDecordLifePage();
-                    g_current_focus_rect = 4;  // 保持在矩形4
-                    ESP_LOGI("FOCUS", "【智能导航】右侧已翻回第1页，光标保持在矩形4");
+                    g_current_focus_rect = 5;  // 保持在矩形5
+                    ESP_LOGI("FOCUS", "【智能导航】右侧已翻回第1页，光标保持在矩形5");
                     return;
                 } else {
-                    // 第一页，跳转到左侧任务区（矩形3）
+                    // 第一页，跳转到左侧任务区（矩形4）
                     ESP_LOGI("FOCUS", "⬅️ 右侧生活区第1页到达顶部，跳转到左侧任务区");
-                    g_current_focus_rect = 3;
-                    ESP_LOGI("FOCUS", "【智能导航】跳转到矩形3（左侧最后一个）");
+                    // 先跳转到左侧第二页的矩形4
+                    if (g_decord_task_page_offset == 0) {
+                        ESP_LOGI("FOCUS", "🔄 切换左侧到第2页");
+                        nextDecordTaskPage();  // 切换到第2页
+                    }
+                    g_current_focus_rect = 4;
+                    ESP_LOGI("FOCUS", "【智能导航】跳转到矩形4（左侧第2页最后一个）");
                     return;
                 }
             }
@@ -2995,10 +3000,16 @@ void ink_screen_show(void *args)
    //init_sleep_timer();
 	while(1)
 	{
-        // 扫描按键输入
-        ButtonState button = button_scan();
-        if (button != BUTTON_NONE) {
-            inkScreenTestFlag = button;  // 将按键状态（1、2、3）设置到inkScreenTestFlag
+        // 固定扫描周期
+        vTaskDelay(50 / portTICK_PERIOD_MS);  // 50ms扫描周期
+        
+        // 只在没有待处理命令时才扫描按键，避免覆盖正在处理的命令
+        if (inkScreenTestFlag == 0) {
+            ButtonState button = button_scan();
+            if (button != BUTTON_NONE) {
+                inkScreenTestFlag = button;  // 将按键状态（1、2、3）设置到inkScreenTestFlag
+                ESP_LOGI("INK_SCREEN", "按键触发: %d", button);
+            }
         }
         
         if (inkScreenTestFlag == 99) {
@@ -3229,7 +3240,7 @@ void ink_screen_show(void *args)
         // 更新番茄钟（在主循环中每次迭代都调用）
         updatePomodoro();
         
-        vTaskDelay(100);
+        // 延迟已移到循环开头，确保固定扫描周期
 	}
 }
 

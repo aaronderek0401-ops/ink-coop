@@ -75,20 +75,21 @@ ButtonState button_scan(void) {
     for (int i = 0; i < 3; i++) {
         bool current_state = button_read_raw(i + 1);
         
-        // 检测到按键按下（低电平）
+        // 检测到按键按下（上升沿：从未按下变为按下）
         if (current_state && !last_button_state[i]) {
             // 消抖检查：与上次按键时间间隔必须大于BUTTON_DEBOUNCE_MS
             if (current_time - last_button_time[i] > BUTTON_DEBOUNCE_MS) {
                 last_button_time[i] = current_time;
                 last_button_state[i] = true;
                 
-                ESP_LOGI(TAG, "按键%d按下", i + 1);
+                ESP_LOGI(TAG, "按键%d按下 (时间:%u ms)", i + 1, current_time);
                 return (ButtonState)(i + 1);
             }
         }
-        // 检测到按键释放
+        // 检测到按键释放（下降沿）
         else if (!current_state && last_button_state[i]) {
             last_button_state[i] = false;
+            ESP_LOGI(TAG, "按键%d释放", i + 1);
         }
     }
     
